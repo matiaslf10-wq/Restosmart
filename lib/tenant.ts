@@ -2,7 +2,7 @@ import { headers } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
 
 export async function getRestaurantContext() {
-  const h = headers();
+  const h = await headers();
   const tenant = h.get('x-tenant');
 
   if (!tenant) return null;

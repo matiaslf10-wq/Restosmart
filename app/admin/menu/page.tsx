@@ -31,6 +31,20 @@ const emptyItem: Omit<MenuItem, 'id'> = {
 
 type FiltroCategoria = number | 'todas';
 
+function normalizarCategoria(categorias: any): Categoria | undefined {
+  if (!categorias) return undefined;
+
+  const categoria = Array.isArray(categorias) ? categorias[0] : categorias;
+
+  if (!categoria) return undefined;
+
+  return {
+    id: categoria.id,
+    nombre: categoria.nombre,
+    orden: categoria.orden,
+  };
+}
+
 export default function AdminMenuPage() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
@@ -47,7 +61,6 @@ export default function AdminMenuPage() {
       setLoading(true);
       setErrorMsg(null);
 
-      // Categorías
       const { data: catData, error: catError } = await supabase
         .from('categorias')
         .select('*')
@@ -60,7 +73,6 @@ export default function AdminMenuPage() {
         return;
       }
 
-      // Items del menú con join a categorías
       const { data: itemData, error: itemError } = await supabase
         .from('menu_items')
         .select(
@@ -97,13 +109,7 @@ export default function AdminMenuPage() {
           precio: row.precio,
           disponible: row.disponible,
           imagen_url: row.imagen_url,
-          categoria: row.categorias
-            ? {
-                id: row.categorias.id,
-                nombre: row.categorias.nombre,
-                orden: row.categorias.orden,
-              }
-            : undefined,
+          categoria: normalizarCategoria(row.categorias),
         })) ?? [];
 
       setCategorias(catData ?? []);
@@ -159,7 +165,6 @@ export default function AdminMenuPage() {
       }
 
       if (editingItem) {
-        // UPDATE
         const { data, error } = await supabase
           .from('menu_items')
           .update({
@@ -199,18 +204,11 @@ export default function AdminMenuPage() {
           precio: data.precio,
           disponible: data.disponible,
           imagen_url: data.imagen_url,
-          categoria: data.categorias
-            ? {
-                id: data.categorias.id,
-                nombre: data.categorias.nombre,
-                orden: data.categorias.orden,
-              }
-            : undefined,
+          categoria: normalizarCategoria(data.categorias),
         };
 
         setItems(prev => prev.map(i => (i.id === editingItem.id ? itemActualizado : i)));
       } else {
-        // INSERT
         const { data, error } = await supabase
           .from('menu_items')
           .insert({
@@ -249,13 +247,7 @@ export default function AdminMenuPage() {
           precio: data.precio,
           disponible: data.disponible,
           imagen_url: data.imagen_url,
-          categoria: data.categorias
-            ? {
-                id: data.categorias.id,
-                nombre: data.categorias.nombre,
-                orden: data.categorias.orden,
-              }
-            : undefined,
+          categoria: normalizarCategoria(data.categorias),
         };
 
         setItems(prev => [...prev, nuevoItem]);
@@ -290,13 +282,8 @@ export default function AdminMenuPage() {
       </h1>
 
       {loading && <p>Cargando datos...</p>}
-      {errorMsg && (
-        <p style={{ color: 'red', marginBottom: '1rem' }}>
-          {errorMsg}
-        </p>
-      )}
+      {errorMsg && <p style={{ color: 'red', marginBottom: '1rem' }}>{errorMsg}</p>}
 
-      {/* FORMULARIO */}
       <section
         style={{
           border: '1px solid #ddd',
@@ -458,8 +445,8 @@ export default function AdminMenuPage() {
               {saving
                 ? 'Guardando...'
                 : editingItem
-                ? 'Guardar cambios'
-                : 'Agregar al menú'}
+                  ? 'Guardar cambios'
+                  : 'Agregar al menú'}
             </button>
             {editingItem && (
               <button
@@ -480,9 +467,7 @@ export default function AdminMenuPage() {
         </form>
       </section>
 
-      {/* LISTADO */}
       <section>
-        {/* Filtro por categoría – primero se eligen las categorías */}
         <div style={{ marginBottom: '1rem' }}>
           <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>Ítems del menú</h2>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
