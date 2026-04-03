@@ -14,6 +14,20 @@ type DeliveryConfig = {
   costo_envio: number;
 };
 
+type PendingDeliveryOrder = {
+  id: number;
+  creado_en: string;
+  estado: string;
+  total: number | string | null;
+  origen: string | null;
+  cliente_nombre: string | null;
+  cliente_telefono: string | null;
+  direccion_entrega: string | null;
+  medio_pago: string | null;
+  estado_pago: string | null;
+  efectivo_aprobado: boolean | null;
+};
+
 const DEFAULT_CONFIG: DeliveryConfig = {
   activo: false,
   whatsapp_numero: '',
@@ -27,12 +41,40 @@ const DEFAULT_CONFIG: DeliveryConfig = {
   costo_envio: 0,
 };
 
+function formatMoney(value: number | string | null | undefined) {
+  const num = Number(value ?? 0);
+
+  if (!Number.isFinite(num)) return '$0';
+
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
+function formatDate(value: string) {
+  try {
+    return new Intl.DateTimeFormat('es-AR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
 export default function AdminDeliveryPage() {
   const [form, setForm] = useState<DeliveryConfig>(DEFAULT_CONFIG);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState('');
   const [error, setError] = useState('');
+
+  const [pendingOrders, setPendingOrders] = useState<PendingDeliveryOrder[]>([]);
+  const [loadingPending, setLoadingPending] = useState(true);
+  const [pendingError, setPendingError] = useState('');
+  const [processingOrderId, setProcessingOrderId] = useState<number | null>(null);
 
   useEffect(() => {
     let activo = true;
@@ -87,7 +129,45 @@ export default function AdminDeliveryPage() {
       }
     }
 
+    async function cargarPendientes() {
+      try {
+        setLoadingPending(true);
+        setPendingError('');
+
+        const res = await fetch('/api/admin/delivery-pedidos-pendientes', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(
+            data?.error || 'No se pudieron cargar los pedidos pendientes.'
+          );
+        }
+
+        const data = await res.json();
+
+        if (!activo) return;
+
+        setPendingOrders(Array.isArray(data?.pedidos) ? data.pedidos : []);
+      } catch (err) {
+        console.error(err);
+        if (!activo) return;
+        setPendingError(
+          err instanceof Error
+            ? err.message
+            : 'No se pudieron cargar los pedidos pendientes.'
+        );
+      } finally {
+        if (activo) {
+          setLoadingPending(false);
+        }
+      }
+    }
+
     cargarConfiguracion();
+    cargarPendientes();
 
     return () => {
       activo = false;
@@ -136,6 +216,77 @@ export default function AdminDeliveryPage() {
       );
     } finally {
       setGuardando(false);
+    }
+  }
+
+  async function reloadPendingOrders() {
+    try {
+      setLoadingPending(true);
+      setPendingError('');
+
+      const res = await fetch('/api/admin/delivery-pedidos-pendientes', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(
+          data?.error || 'No se pudieron actualizar los pedidos pendientes.'
+        );
+      }
+
+      setPendingOrders(Array.isArray(data?.pedidos) ? data.pedidos : []);
+    } catch (err) {
+      console.error(err);
+      setPendingError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudieron actualizar los pedidos pendientes.'
+      );
+    } finally {
+      setLoadingPending(false);
+    }
+  }
+
+  async function cambiarEstadoEfectivo(
+    pedidoId: number,
+    accion: 'aprobar' | 'rechazar'
+  ) {
+    try {
+      setProcessingOrderId(pedidoId);
+      setPendingError('');
+
+      const res = await fetch(
+        `/api/delivery/pedidos/${pedidoId}/estado-efectivo`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ accion }),
+        }
+      );
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(
+          data?.error || 'No se pudo actualizar el estado del pedido.'
+        );
+      }
+
+      await reloadPendingOrders();
+    } catch (err) {
+      console.error(err);
+      setPendingError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo actualizar el estado del pedido.'
+      );
+    } finally {
+      setProcessingOrderId(null);
     }
   }
 
@@ -315,6 +466,126 @@ export default function AdminDeliveryPage() {
           </button>
         </div>
       </form>
+
+      <section className="mt-8 rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-medium">
+              Pedidos en efectivo pendientes de aprobación
+            </h2>
+            <p className="mt-1 text-sm text-neutral-600">
+              Cuando apruebes un pedido, ya puede entrar a cocina como pedido
+              pendiente.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={reloadPendingOrders}
+            disabled={loadingPending}
+            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+          >
+            {loadingPending ? 'Actualizando...' : 'Actualizar'}
+          </button>
+        </div>
+
+        {pendingError ? (
+          <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {pendingError}
+          </div>
+        ) : null}
+
+        {loadingPending ? (
+          <p className="text-sm text-neutral-600">Cargando pedidos pendientes...</p>
+        ) : pendingOrders.length === 0 ? (
+          <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-neutral-600">
+            No hay pedidos delivery en efectivo pendientes de aprobación.
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {pendingOrders.map((pedido) => {
+              const isProcessing = processingOrderId === pedido.id;
+
+              return (
+                <article
+                  key={pedido.id}
+                  className="rounded-2xl border p-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="grid gap-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-medium text-orange-800">
+                          Pendiente efectivo
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                          Pedido #{pedido.id}
+                        </span>
+                      </div>
+
+                      <h3 className="text-base font-semibold">
+                        {pedido.cliente_nombre || 'Cliente sin nombre'}
+                      </h3>
+
+                      <p className="text-sm text-neutral-600">
+                        {formatDate(pedido.creado_en)}
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-sm text-neutral-500">Total</p>
+                      <p className="text-lg font-semibold">
+                        {formatMoney(pedido.total)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-2 text-sm">
+                    <p>
+                      <span className="font-medium">Teléfono:</span>{' '}
+                      {pedido.cliente_telefono || 'Sin dato'}
+                    </p>
+                    <p>
+                      <span className="font-medium">Dirección:</span>{' '}
+                      {pedido.direccion_entrega || 'Sin dirección'}
+                    </p>
+                    <p>
+                      <span className="font-medium">Origen:</span>{' '}
+                      {pedido.origen || 'Sin origen'}
+                    </p>
+                    <p>
+                      <span className="font-medium">Estado:</span> {pedido.estado}
+                    </p>
+                    <p>
+                      <span className="font-medium">Estado de pago:</span>{' '}
+                      {pedido.estado_pago || 'Sin dato'}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => cambiarEstadoEfectivo(pedido.id, 'aprobar')}
+                      disabled={isProcessing}
+                      className="rounded-xl bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-60"
+                    >
+                      {isProcessing ? 'Procesando...' : 'Aprobar efectivo'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => cambiarEstadoEfectivo(pedido.id, 'rechazar')}
+                      disabled={isProcessing}
+                      className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      {isProcessing ? 'Procesando...' : 'Rechazar pedido'}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </main>
   );
 }

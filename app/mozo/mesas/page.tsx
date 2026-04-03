@@ -20,6 +20,11 @@ type Pedido = {
   estado: string;
   paga_efectivo?: boolean;
   forma_pago?: 'efectivo' | 'virtual' | null;
+  origen?: string | null;
+  tipo_servicio?: string | null;
+  medio_pago?: string | null;
+  estado_pago?: string | null;
+  efectivo_aprobado?: boolean | null;
   items: ItemPedido[];
 };
 
@@ -33,6 +38,23 @@ type MesaConCuenta = {
 type EstadoMesa = 'libre' | 'en_curso' | 'lista_para_cobrar';
 type FiltroMesas = 'todas' | EstadoMesa;
 type FormaPagoMesa = 'ninguna' | 'efectivo' | 'virtual';
+
+function esPedidoDelivery(pedido: Pedido) {
+  return (
+    pedido.origen === 'delivery' ||
+    pedido.origen === 'delivery_whatsapp' ||
+    pedido.origen === 'delivery_manual' ||
+    pedido.tipo_servicio === 'delivery'
+  );
+}
+
+function shouldShowPedidoInMozo(pedido: Pedido) {
+  return !esPedidoDelivery(pedido);
+}
+
+function esMesaTecnicaDelivery(nombre: string) {
+  return nombre.trim().toLowerCase() === 'delivery';
+}
 
 export default function MesasMozoPage() {
   const [mesas, setMesas] = useState<MesaConCuenta[]>([]);
@@ -61,7 +83,6 @@ export default function MesasMozoPage() {
     setMensaje(null);
 
     try {
-      // 1) Mesas
       const { data: mesasData, error: errorMesas } = await supabase
         .from('mesas')
         .select('*')
@@ -80,7 +101,6 @@ export default function MesasMozoPage() {
         return;
       }
 
-      // 2) Pedidos abiertos (incluye 'solicitado' para que el mozo los vea)
       const { data: pedidosData, error: errorPedidos } = await supabase
         .from('pedidos')
         .select(`
@@ -90,6 +110,11 @@ export default function MesasMozoPage() {
           estado,
           paga_efectivo,
           forma_pago,
+          origen,
+          tipo_servicio,
+          medio_pago,
+          estado_pago,
+          efectivo_aprobado,
           items_pedido (
             id,
             cantidad,
@@ -117,32 +142,45 @@ export default function MesasMozoPage() {
           estado: p.estado,
           paga_efectivo: p.paga_efectivo,
           forma_pago: p.forma_pago,
+          origen: p.origen ?? null,
+          tipo_servicio: p.tipo_servicio ?? null,
+          medio_pago: p.medio_pago ?? null,
+          estado_pago: p.estado_pago ?? null,
+          efectivo_aprobado: p.efectivo_aprobado ?? null,
           items: p.items_pedido ?? [],
         };
-        if (!pedidosPorMesa[p.mesa_id]) {
-          pedidosPorMesa[p.mesa_id] = [];
+
+        if (!shouldShowPedidoInMozo(pedido)) {
+          return;
         }
-        pedidosPorMesa[p.mesa_id].push(pedido);
+
+        if (!pedidosPorMesa[pedido.mesa_id]) {
+          pedidosPorMesa[pedido.mesa_id] = [];
+        }
+
+        pedidosPorMesa[pedido.mesa_id].push(pedido);
       });
 
-      const mesasConCuenta: MesaConCuenta[] = (mesasData as any[]).map((m) => {
-        const pedidosMesa = pedidosPorMesa[m.id] ?? [];
+      const mesasConCuenta: MesaConCuenta[] = (mesasData as any[])
+        .map((m) => {
+          const pedidosMesa = pedidosPorMesa[m.id] ?? [];
 
-        const totalMesa = pedidosMesa.reduce((acc, p) => {
-          const subtotal = p.items.reduce((accItem, item) => {
-            const precio = item.producto?.precio ?? 0;
-            return accItem + precio * item.cantidad;
+          const totalMesa = pedidosMesa.reduce((acc, p) => {
+            const subtotal = p.items.reduce((accItem, item) => {
+              const precio = item.producto?.precio ?? 0;
+              return accItem + precio * item.cantidad;
+            }, 0);
+            return acc + subtotal;
           }, 0);
-          return acc + subtotal;
-        }, 0);
 
-        return {
-          id: m.id,
-          nombre: m.nombre as string,
-          pedidos: pedidosMesa,
-          totalMesa,
-        };
-      });
+          return {
+            id: m.id,
+            nombre: m.nombre as string,
+            pedidos: pedidosMesa,
+            totalMesa,
+          };
+        })
+        .filter((mesa) => !esMesaTecnicaDelivery(mesa.nombre));
 
       setMesas(mesasConCuenta);
     } catch (err) {
@@ -156,51 +194,64 @@ export default function MesasMozoPage() {
   useEffect(() => {
     cargarDatos();
 
-const canalPedidos = supabase
-  .channel('mozo-pedidos')
-  .on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'pedidos' },
-    (payload) => {
-      const nuevo: any = payload.new;
-      const viejo: any = payload.old;
+    const canalPedidos = supabase
+      .channel('mozo-pedidos')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pedidos' },
+        (payload) => {
+          const nuevo: any = payload.new;
+          const viejo: any = payload.old;
 
-      // 🔔 Sonido cuando pedido NUEVO llega en estado SOLICITADO
-      if (payload.eventType === 'INSERT' && nuevo.estado === 'solicitado') {
-        if (audioRef.current) {
-          audioRef.current.currentTime = 0;
-          audioRef.current.play().catch(() => {});
+          if (
+            payload.eventType === 'INSERT' &&
+            nuevo.estado === 'solicitado' &&
+            nuevo.origen !== 'delivery' &&
+            nuevo.origen !== 'delivery_whatsapp' &&
+            nuevo.origen !== 'delivery_manual' &&
+            nuevo.tipo_servicio !== 'delivery'
+          ) {
+            if (audioRef.current) {
+              audioRef.current.currentTime = 0;
+              audioRef.current.play().catch(() => {});
+            }
+          }
+
+          if (
+            payload.eventType === 'UPDATE' &&
+            viejo?.estado !== 'listo' &&
+            nuevo?.estado === 'listo' &&
+            nuevo?.origen !== 'delivery' &&
+            nuevo?.origen !== 'delivery_whatsapp' &&
+            nuevo?.origen !== 'delivery_manual' &&
+            nuevo?.tipo_servicio !== 'delivery'
+          ) {
+            if (audioRef.current) {
+              audioRef.current.currentTime = 0;
+              audioRef.current.play().catch(() => {});
+            }
+          }
+
+          const esSalon =
+            nuevo?.origen !== 'delivery' &&
+            nuevo?.origen !== 'delivery_whatsapp' &&
+            nuevo?.origen !== 'delivery_manual' &&
+            nuevo?.tipo_servicio !== 'delivery';
+
+          const pagoAntes = viejo?.paga_efectivo || viejo?.forma_pago === 'efectivo';
+          const pagoDespues = nuevo?.paga_efectivo || nuevo?.forma_pago === 'efectivo';
+
+          if (esSalon && !pagoAntes && pagoDespues) {
+            if (audioRef.current) {
+              audioRef.current.currentTime = 0;
+              audioRef.current.play().catch(() => {});
+            }
+          }
+
+          cargarDatos();
         }
-      }
-
-      // 🔔 Cuando el pedido pasa a LISTO
-      if (
-        payload.eventType === 'UPDATE' &&
-        viejo?.estado !== 'listo' &&
-        nuevo?.estado === 'listo'
-      ) {
-        if (audioRef.current) {
-          audioRef.current.currentTime = 0;
-          audioRef.current.play().catch(() => {});
-        }
-      }
-
-      // 🔔 Cuando cliente marca PAGO EN EFECTIVO
-      const pagoAntes = viejo?.paga_efectivo || viejo?.forma_pago === 'efectivo';
-      const pagoDespues = nuevo?.paga_efectivo || nuevo?.forma_pago === 'efectivo';
-
-      if (!pagoAntes && pagoDespues) {
-        if (audioRef.current) {
-          audioRef.current.currentTime = 0;
-          audioRef.current.play().catch(() => {});
-        }
-      }
-
-      cargarDatos();
-    }
-  )
-  .subscribe();
-
+      )
+      .subscribe();
 
     const canalItems = supabase
       .channel('mozo-items')
@@ -235,10 +286,21 @@ const canalPedidos = supabase
   };
 
   const formaPagoMesa = (mesa: MesaConCuenta): FormaPagoMesa => {
-    if (mesa.pedidos.some((p) => p.forma_pago === 'efectivo' || p.paga_efectivo)) {
+    if (
+      mesa.pedidos.some(
+        (p) =>
+          p.forma_pago === 'efectivo' ||
+          p.paga_efectivo ||
+          p.medio_pago === 'efectivo'
+      )
+    ) {
       return 'efectivo';
     }
-    if (mesa.pedidos.some((p) => p.forma_pago === 'virtual')) {
+    if (
+      mesa.pedidos.some(
+        (p) => p.forma_pago === 'virtual' || p.medio_pago === 'virtual'
+      )
+    ) {
       return 'virtual';
     }
     return 'ninguna';
@@ -327,17 +389,18 @@ const canalPedidos = supabase
       .update({ estado: 'cerrado' })
       .in('id', ids);
 
-   if (error) {
-  console.log('cerrarCuentaMesa error.message:', (error as any)?.message);
-  console.log('cerrarCuentaMesa error.code:', (error as any)?.code);
-  console.log('cerrarCuentaMesa error.details:', (error as any)?.details);
-  console.log('cerrarCuentaMesa error.hint:', (error as any)?.hint);
-  console.log('cerrarCuentaMesa error raw:', error);
-  setMensaje(`No se pudo cerrar la cuenta: ${(error as any)?.message ?? 'Error desconocido'}`);
-  setProcesandoMesaId(null);
-  return;
-}
-
+    if (error) {
+      console.log('cerrarCuentaMesa error.message:', (error as any)?.message);
+      console.log('cerrarCuentaMesa error.code:', (error as any)?.code);
+      console.log('cerrarCuentaMesa error.details:', (error as any)?.details);
+      console.log('cerrarCuentaMesa error.hint:', (error as any)?.hint);
+      console.log('cerrarCuentaMesa error raw:', error);
+      setMensaje(
+        `No se pudo cerrar la cuenta: ${(error as any)?.message ?? 'Error desconocido'}`
+      );
+      setProcesandoMesaId(null);
+      return;
+    }
 
     setMensaje(`Cuenta de ${mesa.nombre} cerrada correctamente.`);
     setProcesandoMesaId(null);
@@ -428,7 +491,6 @@ const canalPedidos = supabase
     cargarDatos();
   };
 
-  // 👉 mozo confirma / avanza estado del pedido
   const actualizarEstadoPedido = async (pedidoId: number, nuevoEstado: string) => {
     setActualizandoPedidoId(pedidoId);
     setMensaje(null);
@@ -477,7 +539,7 @@ const canalPedidos = supabase
           <div>
             <h1 className="text-2xl font-bold">Mesas – Vista de mozo</h1>
             <p className="text-sm text-slate-600">
-              Todas las mesas en simultáneo.
+              Todas las mesas del salón en simultáneo.
             </p>
           </div>
 
@@ -554,9 +616,7 @@ const canalPedidos = supabase
               >
                 <header className="flex items-baseline justify-between gap-2 mb-1">
                   <div>
-                    <h2 className="font-bold text-slate-900">
-                      {mesa.nombre}
-                    </h2>
+                    <h2 className="font-bold text-slate-900">{mesa.nombre}</h2>
                     <span className="text-[11px] text-slate-500">
                       ID {mesa.id}
                     </span>
@@ -593,12 +653,9 @@ const canalPedidos = supabase
                         className="border border-slate-200 rounded-lg px-2 py-1 bg-white/70"
                       >
                         <div className="flex justify-between items-baseline gap-2">
-                          <span className="font-semibold">
-                            Pedido #{p.id}
-                          </span>
+                          <span className="font-semibold">Pedido #{p.id}</span>
                           <span className="text-[11px] text-slate-500">
-                            {new Date(p.creado_en).toLocaleTimeString()}{' '}
-                            ·{' '}
+                            {new Date(p.creado_en).toLocaleTimeString()} ·{' '}
                             {p.estado === 'solicitado'
                               ? 'Esperando confirmación del mozo'
                               : p.estado === 'pendiente'
@@ -608,21 +665,16 @@ const canalPedidos = supabase
                               : 'Listo'}
                           </span>
                         </div>
+
                         <ul className="mt-1 space-y-[2px]">
                           {p.items.map((item) => (
-                            <li
-                              key={item.id}
-                              className="flex flex-col"
-                            >
+                            <li key={item.id} className="flex flex-col">
                               <div className="flex justify-between">
                                 <span>
-                                  {item.cantidad} ×{' '}
-                                  {item.producto?.nombre ?? '—'}
+                                  {item.cantidad} × {item.producto?.nombre ?? '—'}
                                 </span>
                                 <span>
-                                  $
-                                  {(item.producto?.precio ?? 0) *
-                                    item.cantidad}
+                                  ${(item.producto?.precio ?? 0) * item.cantidad}
                                 </span>
                               </div>
                               {item.comentarios && (
@@ -678,9 +730,7 @@ const canalPedidos = supabase
                 )}
 
                 <footer className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-semibold">
-                    Total: ${mesa.totalMesa}
-                  </p>
+                  <p className="font-semibold">Total: ${mesa.totalMesa}</p>
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => cerrarCuentaMesa(mesa.id)}
