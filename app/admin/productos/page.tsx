@@ -225,10 +225,10 @@ export default function AdminProductosPage() {
 
     try {
       const res = await fetch(`/api/productos/${p.id}/disponible`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ disponible: nuevoEstado }),
-      });
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ disponible: nuevoEstado }),
+});
 
       if (!res.ok) {
         throw new Error('No se pudo cambiar la disponibilidad.');

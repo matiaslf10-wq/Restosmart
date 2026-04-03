@@ -40,7 +40,12 @@ export default function MesaPage() {
   useEffect(() => {
     const cargarProductos = async () => {
       setCargando(true);
-      const { data, error } = await supabase.from('productos').select('*');
+      const { data, error } = await supabase
+  .from('productos')
+  .select('*')
+  .eq('disponible', true)
+  .order('categoria', { ascending: true })
+  .order('nombre', { ascending: true });
 
       if (error) {
         console.error('Error cargando productos:', error);

@@ -69,12 +69,13 @@ export default function AdminLoginPage() {
           />
 
           <button
-            onClick={login}
-            disabled={loading}
-            className="w-full bg-slate-800 text-white rounded-lg px-3 py-2 hover:bg-slate-700 disabled:opacity-40"
-          >
-            {loading ? 'Ingresando...' : 'Ingresar'}
-          </button>
+  type="button"
+  onClick={login}
+  disabled={loading}
+  className="w-full bg-slate-800 text-white rounded-lg px-3 py-2 hover:bg-slate-700 disabled:opacity-40"
+>
+  {loading ? 'Ingresando...' : 'Ingresar'}
+</button>
         </form>
       </div>
     </main>

@@ -54,7 +54,7 @@ export default function CuentaMesaPage() {
         )
       `)
       .eq('mesa_id', mesaId)
-      .in('estado', ['pendiente', 'en_preparacion', 'listo'])
+      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
       .order('creado_en', { ascending: true });
 
     if (error) {
@@ -138,7 +138,7 @@ export default function CuentaMesaPage() {
       .from('pedidos')
       .update({ paga_efectivo: true })
       .eq('mesa_id', mesaId)
-      .in('estado', ['pendiente', 'en_preparacion', 'listo']);
+      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
 
     if (error) {
       console.error('Error al marcar pago en efectivo desde cliente:', error);
