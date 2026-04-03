@@ -386,19 +386,32 @@ export default function MesaPage() {
               key={item.producto.id}
               className="bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm space-y-2"
             >
-              <div className="flex justify-between items-center gap-2">
-                <span className="font-medium">{item.producto.nombre}</span>
-                <div className="flex items-center gap-1">
-                  <span className="text-sm">Cantidad:</span>
-                  <input
-                    type="number"
-                    min={1}
-                    value={item.cantidad}
-                    onChange={(e) => cambiarCantidad(item.producto.id, Number(e.target.value))}
-                    className="w-16 border border-slate-300 rounded px-1 text-sm"
-                  />
-                </div>
-              </div>
+              <div className="flex justify-between items-start gap-2">
+  <span className="font-medium">{item.producto.nombre}</span>
+
+  <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1">
+      <span className="text-sm">Cantidad:</span>
+      <input
+        type="number"
+        min={1}
+        value={item.cantidad}
+        onChange={(e) => cambiarCantidad(item.producto.id, Number(e.target.value))}
+        className="w-16 border border-slate-300 rounded px-1 text-sm"
+      />
+    </div>
+
+    <button
+      type="button"
+      onClick={() => cambiarCantidad(item.producto.id, 0)}
+      className="w-7 h-7 rounded-full bg-rose-100 text-rose-700 border border-rose-200 text-sm font-bold hover:bg-rose-200"
+      title="Eliminar producto"
+      aria-label={`Eliminar ${item.producto.nombre}`}
+    >
+      ×
+    </button>
+  </div>
+</div>
               <textarea
                 className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
                 placeholder="Notas (ej: sin sal, bien jugoso...)"
