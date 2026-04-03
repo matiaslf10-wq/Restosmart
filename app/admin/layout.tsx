@@ -13,13 +13,11 @@ export default function AdminLayout({
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // 👉 Si estoy en /admin/login, NO chequeo nada, dejo pasar
     if (pathname === '/admin/login') {
       setReady(true);
       return;
     }
 
-    // 👉 Para el resto de rutas /admin/... sí chequeo sesión
     const sessionRaw =
       typeof window !== 'undefined'
         ? localStorage.getItem('admin_session')
@@ -42,7 +40,6 @@ export default function AdminLayout({
     }
   }, [pathname, router]);
 
-  // Mientras decide, muestro el loader
   if (!ready) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-slate-100">
@@ -51,17 +48,21 @@ export default function AdminLayout({
     );
   }
 
-  // 👉 En /admin/login renderizo SIN header ni nav
   if (pathname === '/admin/login') {
     return <>{children}</>;
   }
 
-  // 👉 En el resto de /admin/... muestro layout completo
   const navItems = [
     { href: '/admin', label: 'Dashboard' },
     { href: '/admin/productos', label: 'Menú / Productos' },
-      { href: '/admin/analytics', label: 'Analytics' },
+    { href: '/admin/delivery', label: 'Delivery' },
+    { href: '/admin/analytics', label: 'Analytics' },
   ];
+
+  const isActive = (href: string) => {
+    if (href === '/admin') return pathname === '/admin';
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
 
   const logout = () => {
     localStorage.removeItem('admin_session');
@@ -74,15 +75,14 @@ export default function AdminLayout({
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <span className="font-bold text-lg">Restosmart · Admin</span>
-            <nav className="flex items-center gap-2 text-sm">
+
+            <nav className="flex items-center gap-2 text-sm flex-wrap">
               {navItems.map((item) => (
                 <button
                   key={item.href}
                   onClick={() => router.push(item.href)}
-                  className={`px-2 py-1 rounded-md ${
-                    pathname === item.href
-                      ? 'bg-slate-700'
-                      : 'hover:bg-slate-800'
+                  className={`px-2 py-1 rounded-md transition ${
+                    isActive(item.href) ? 'bg-slate-700' : 'hover:bg-slate-800'
                   }`}
                 >
                   {item.label}
@@ -90,6 +90,7 @@ export default function AdminLayout({
               ))}
             </nav>
           </div>
+
           <button
             onClick={logout}
             className="text-xs bg-red-500 hover:bg-red-600 px-3 py-1 rounded-md"
