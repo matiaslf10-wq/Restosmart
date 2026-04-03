@@ -391,20 +391,39 @@ export default function MesaPage() {
 
   <div className="flex items-center gap-2">
     <div className="flex items-center gap-1">
-      <span className="text-sm">Cantidad:</span>
+      <button
+        type="button"
+        onClick={() => cambiarCantidad(item.producto.id, item.cantidad - 1)}
+        className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 border border-slate-300 text-base font-bold hover:bg-slate-200"
+        title="Restar una unidad"
+        aria-label={`Restar una unidad de ${item.producto.nombre}`}
+      >
+        -
+      </button>
+
       <input
         type="number"
         min={1}
         value={item.cantidad}
         onChange={(e) => cambiarCantidad(item.producto.id, Number(e.target.value))}
-        className="w-16 border border-slate-300 rounded px-1 text-sm"
+        className="w-14 border border-slate-300 rounded px-1 py-1 text-sm text-center"
       />
+
+      <button
+        type="button"
+        onClick={() => cambiarCantidad(item.producto.id, item.cantidad + 1)}
+        className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300 text-base font-bold hover:bg-emerald-200"
+        title="Sumar una unidad"
+        aria-label={`Sumar una unidad a ${item.producto.nombre}`}
+      >
+        +
+      </button>
     </div>
 
     <button
       type="button"
       onClick={() => cambiarCantidad(item.producto.id, 0)}
-      className="w-7 h-7 rounded-full bg-rose-100 text-rose-700 border border-rose-200 text-sm font-bold hover:bg-rose-200"
+      className="w-8 h-8 rounded-full bg-rose-100 text-rose-700 border border-rose-200 text-sm font-bold hover:bg-rose-200"
       title="Eliminar producto"
       aria-label={`Eliminar ${item.producto.nombre}`}
     >
