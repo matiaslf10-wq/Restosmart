@@ -54,6 +54,8 @@ export default function AdminLayout({
 
   const navItems = [
     { href: '/admin', label: 'Dashboard' },
+    { href: '/admin/configuracion', label: 'Configuración' },
+    { href: '/admin/operaciones', label: 'Operaciones' },
     { href: '/admin/productos', label: 'Menú / Productos' },
     { href: '/admin/delivery', label: 'Delivery' },
     { href: '/admin/analytics', label: 'Analytics' },
