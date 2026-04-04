@@ -21,17 +21,14 @@ type ItemCarrito = {
 
 type Mesa = {
   id: number;
+  numero: number | null;
   nombre: string;
 };
-
-function esMesaTecnicaDelivery(nombre: string | null | undefined) {
-  return (nombre ?? '').trim().toLowerCase() === 'delivery';
-}
 
 export default function MesaPage() {
   const params = useParams();
   const rawMesaId = params?.mesaId as string | string[] | undefined;
-  const mesaId = Number(Array.isArray(rawMesaId) ? rawMesaId[0] : rawMesaId);
+  const mesaNumero = Number(Array.isArray(rawMesaId) ? rawMesaId[0] : rawMesaId);
 
   const [mesa, setMesa] = useState<Mesa | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -48,7 +45,7 @@ export default function MesaPage() {
 
   useEffect(() => {
     const cargarDatosIniciales = async () => {
-      if (!mesaId || Number.isNaN(mesaId)) {
+      if (!mesaNumero || Number.isNaN(mesaNumero)) {
         setCargando(false);
         return;
       }
@@ -57,7 +54,11 @@ export default function MesaPage() {
 
       try {
         const [{ data: mesaData, error: mesaError }, { data, error }] = await Promise.all([
-          supabase.from('mesas').select('id, nombre').eq('id', mesaId).maybeSingle(),
+          supabase
+            .from('mesas')
+            .select('id, numero, nombre')
+            .eq('numero', mesaNumero)
+            .maybeSingle(),
           supabase
             .from('productos')
             .select('*')
@@ -109,20 +110,20 @@ export default function MesaPage() {
     };
 
     cargarDatosIniciales();
-  }, [mesaId]);
+  }, [mesaNumero]);
 
   useEffect(() => {
-    if (!mesaId || Number.isNaN(mesaId)) return;
+    if (!mesa?.id) return;
 
     const channel = supabase
-      .channel(`mesa-${mesaId}-notifs-cliente`)
+      .channel(`mesa-${mesa.id}-notifs-cliente`)
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
           table: 'pedidos',
-          filter: `mesa_id=eq.${mesaId}`,
+          filter: `mesa_id=eq.${mesa.id}`,
         },
         (payload) => {
           const nuevo: any = payload.new;
@@ -149,7 +150,7 @@ export default function MesaPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [mesaId]);
+  }, [mesa?.id]);
 
   const agregarAlCarrito = (producto: Producto) => {
     setCarrito((prev) => {
@@ -185,7 +186,7 @@ export default function MesaPage() {
   );
 
   const crearPedidoDesdeCarrito = async (formaPago: 'virtual' | 'efectivo') => {
-    if (!mesaId || Number.isNaN(mesaId)) return null;
+    if (!mesa?.id) return null;
 
     if (carrito.length === 0) {
       setMensaje('No hay productos en el pedido.');
@@ -197,7 +198,7 @@ export default function MesaPage() {
 
     try {
       const payload = {
-        mesa_id: mesaId,
+        mesa_id: mesa.id,
         estado: 'solicitado',
         total,
         paga_efectivo: formaPago === 'efectivo',
@@ -258,7 +259,7 @@ export default function MesaPage() {
   };
 
   const marcarPagoEfectivoDesdeCliente = async () => {
-    if (!mesaId || Number.isNaN(mesaId)) return;
+    if (!mesa?.id) return;
 
     setProcesandoPago(true);
     setMensaje(null);
@@ -281,7 +282,7 @@ export default function MesaPage() {
             estado_pago: 'aprobado',
             efectivo_aprobado: true,
           })
-          .eq('mesa_id', mesaId)
+          .eq('mesa_id', mesa.id)
           .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
         if (error) {
@@ -309,7 +310,7 @@ export default function MesaPage() {
 
     setMensaje(null);
 
-    if (mesaId && !Number.isNaN(mesaId)) {
+    if (mesa?.id) {
       if (carrito.length > 0) {
         const pedido = await crearPedidoDesdeCarrito('virtual');
         if (!pedido) return;
@@ -327,7 +328,7 @@ export default function MesaPage() {
             estado_pago: 'pendiente',
             efectivo_aprobado: false,
           })
-          .eq('mesa_id', mesaId)
+          .eq('mesa_id', mesa.id)
           .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
         if (error) {
@@ -349,7 +350,7 @@ export default function MesaPage() {
     if (urlPago) window.open(urlPago, '_blank');
   };
 
-  if (!mesaId || Number.isNaN(mesaId)) {
+  if (!mesaNumero || Number.isNaN(mesaNumero)) {
     return (
       <main className="min-h-screen flex items-center justify-center">
         <p>Falta el número de mesa en la URL.</p>
@@ -368,21 +369,9 @@ export default function MesaPage() {
   if (!mesa) {
     return (
       <main className="min-h-screen flex items-center justify-center px-4">
-        <p className="text-center">La mesa no existe o no se pudo cargar.</p>
-      </main>
-    );
-  }
-
-  if (esMesaTecnicaDelivery(mesa.nombre)) {
-    return (
-      <main className="min-h-screen flex items-center justify-center px-4">
-        <div className="max-w-md rounded-2xl border bg-white p-6 text-center shadow-sm">
-          <h1 className="text-xl font-semibold">Mesa no disponible para salón</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Esta mesa está reservada para el canal técnico de delivery. Para simular
-            un pedido de salón usá una mesa real, por ejemplo /mesa/2 o /mesa/3.
-          </p>
-        </div>
+        <p className="text-center">
+          La mesa no existe o no está habilitada en este momento.
+        </p>
       </main>
     );
   }
@@ -398,7 +387,9 @@ export default function MesaPage() {
 
       <div className="w-full max-w-lg space-y-4">
         <header className="text-center space-y-1">
-          <h1 className="text-2xl font-bold">Menú – {mesa.nombre}</h1>
+          <h1 className="text-2xl font-bold">
+            Menú – {mesa.numero != null ? `Mesa ${mesa.numero}` : mesa.nombre}
+          </h1>
           {mensaje && (
             <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg">
               {mensaje}

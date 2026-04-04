@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 
 type MesaRow = {
   id: number;
+  numero: number | null;
   nombre: string;
 };
 
@@ -54,10 +55,16 @@ function esPendienteAprobacionEfectivo(pedido: PedidoRow) {
   );
 }
 
+function getMesaDisplay(mesa: MesaRow | undefined) {
+  if (!mesa) return 'Mesa';
+  if (mesa.numero != null) return `Mesa ${mesa.numero}`;
+  return mesa.nombre || 'Delivery';
+}
+
 export async function GET() {
   try {
     const [mesasResult, pedidosResult, alertasResult] = await Promise.all([
-      supabase.from('mesas').select('id, nombre').order('id', { ascending: true }),
+      supabase.from('mesas').select('id, numero, nombre').order('id', { ascending: true }),
       supabase
         .from('pedidos')
         .select(
@@ -120,16 +127,16 @@ export async function GET() {
       ? []
       : ((alertasResult.data ?? []) as WhatsappAlertRow[]);
 
-    const mesasMap = new Map<number, string>();
+    const mesasMap = new Map<number, MesaRow>();
     mesas.forEach((mesa) => {
-      mesasMap.set(mesa.id, mesa.nombre);
+      mesasMap.set(mesa.id, mesa);
     });
 
     const salonPedidos = pedidos
       .filter((pedido) => !esDelivery(pedido))
       .map((pedido) => ({
         ...pedido,
-        mesa_nombre: pedido.mesa_id ? mesasMap.get(pedido.mesa_id) ?? 'Mesa' : 'Mesa',
+        mesa_nombre: pedido.mesa_id ? getMesaDisplay(mesasMap.get(pedido.mesa_id)) : 'Mesa',
       }))
       .slice(0, 20);
 
@@ -137,7 +144,7 @@ export async function GET() {
       .filter((pedido) => esDelivery(pedido))
       .map((pedido) => ({
         ...pedido,
-        mesa_nombre: pedido.mesa_id ? mesasMap.get(pedido.mesa_id) ?? 'Delivery' : 'Delivery',
+        mesa_nombre: pedido.mesa_id ? getMesaDisplay(mesasMap.get(pedido.mesa_id)) : 'Delivery',
       }))
       .slice(0, 20);
 

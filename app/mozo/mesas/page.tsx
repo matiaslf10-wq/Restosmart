@@ -30,6 +30,7 @@ type Pedido = {
 
 type MesaConCuenta = {
   id: number;
+  numero: number | null;
   nombre: string;
   pedidos: Pedido[];
   totalMesa: number;
@@ -52,8 +53,23 @@ function shouldShowPedidoInMozo(pedido: Pedido) {
   return !esPedidoDelivery(pedido);
 }
 
-function esMesaTecnicaDelivery(nombre: string) {
-  return nombre.trim().toLowerCase() === 'delivery';
+function esMesaTecnica(mesa: { numero: number | null }) {
+  return mesa.numero == null;
+}
+
+function getNextMesaNumero(mesas: Array<{ numero: number | null }>) {
+  const usados = new Set(
+    mesas
+      .map((m) => m.numero)
+      .filter((n): n is number => typeof n === 'number' && n > 0)
+  );
+
+  let candidato = 1;
+  while (usados.has(candidato)) {
+    candidato += 1;
+  }
+
+  return candidato;
 }
 
 export default function MesasMozoPage() {
@@ -175,12 +191,14 @@ export default function MesasMozoPage() {
 
           return {
             id: m.id,
+            numero: m.numero ?? null,
             nombre: m.nombre as string,
             pedidos: pedidosMesa,
             totalMesa,
           };
         })
-        .filter((mesa) => !esMesaTecnicaDelivery(mesa.nombre));
+        .filter((mesa) => !esMesaTecnica(mesa))
+        .sort((a, b) => (a.numero ?? 999999) - (b.numero ?? 999999));
 
       setMesas(mesasConCuenta);
     } catch (err) {
@@ -259,7 +277,6 @@ export default function MesasMozoPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'items_pedido' },
         () => {
-          console.log('RT items mozo');
           cargarDatos();
         }
       )
@@ -408,60 +425,85 @@ export default function MesasMozoPage() {
   };
 
   const agregarMesa = async () => {
-  setAgregandoMesa(true);
-  setMensaje(null);
+    setAgregandoMesa(true);
+    setMensaje(null);
 
-  const { data, error } = await supabase
-    .from('mesas')
-    .insert({ nombre: 'Mesa nueva' })
-    .select()
-    .single();
+    try {
+      const { data: mesasExistentes, error: errorMesas } = await supabase
+        .from('mesas')
+        .select('id, numero');
 
-  if (error || !data) {
-    console.error(error);
-    setMensaje('No se pudo agregar una nueva mesa.');
-    setAgregandoMesa(false);
-    return;
-  }
+      if (errorMesas) {
+        console.error(errorMesas);
+        setMensaje('No se pudo calcular el próximo número de mesa.');
+        setAgregandoMesa(false);
+        return;
+      }
 
-  const nombreFinal = `Mesa ${data.id}`;
+      const proximoNumero = getNextMesaNumero((mesasExistentes as Array<{ id: number; numero: number | null }>) ?? []);
 
-  const { error: errorUpdate } = await supabase
-    .from('mesas')
-    .update({ nombre: nombreFinal })
-    .eq('id', data.id);
+      const payload = {
+        numero: proximoNumero,
+        nombre: `Mesa ${proximoNumero}`,
+      };
 
-  if (errorUpdate) {
-    console.error(errorUpdate);
-    setMensaje('La mesa se creó, pero no se pudo asignar el nombre final.');
-    setAgregandoMesa(false);
-    cargarDatos();
-    return;
-  }
+      const { data, error } = await supabase
+        .from('mesas')
+        .insert(payload)
+        .select()
+        .single();
 
-  setMensaje(`Se agregó ${nombreFinal}.`);
-  setAgregandoMesa(false);
-  cargarDatos();
-};
+      if (error || !data) {
+        console.error(error);
+        setMensaje('No se pudo agregar una nueva mesa.');
+        setAgregandoMesa(false);
+        return;
+      }
+
+      setMensaje(`Se agregó Mesa ${proximoNumero}.`);
+      setAgregandoMesa(false);
+      cargarDatos();
+    } catch (error) {
+      console.error(error);
+      setMensaje('Ocurrió un error al agregar la mesa.');
+      setAgregandoMesa(false);
+    }
+  };
 
   const eliminarMesa = async (mesaId: number) => {
     const mesa = mesas.find((m) => m.id === mesaId);
     if (!mesa) return;
 
-    if (mesa.pedidos.length > 0) {
+    setEliminandoMesaId(mesaId);
+    setMensaje(null);
+
+    const { count, error: countError } = await supabase
+      .from('pedidos')
+      .select('*', { count: 'exact', head: true })
+      .eq('mesa_id', mesaId);
+
+    if (countError) {
+      console.error(countError);
+      setMensaje('No se pudo verificar si la mesa tiene pedidos asociados.');
+      setEliminandoMesaId(null);
+      return;
+    }
+
+    if ((count ?? 0) > 0) {
       setMensaje(
-        `No se puede eliminar ${mesa.nombre} porque tiene pedidos abiertos. Cerrá o cancelá primero.`
+        `No se puede eliminar ${mesa.nombre} porque tiene pedidos asociados en el historial.`
       );
+      setEliminandoMesaId(null);
       return;
     }
 
     const confirmar = window.confirm(
       `¿Eliminar ${mesa.nombre}? Esta acción no se puede deshacer.`
     );
-    if (!confirmar) return;
-
-    setEliminandoMesaId(mesaId);
-    setMensaje(null);
+    if (!confirmar) {
+      setEliminandoMesaId(null);
+      return;
+    }
 
     const { error } = await supabase
       .from('mesas')
@@ -470,7 +512,9 @@ export default function MesasMozoPage() {
 
     if (error) {
       console.error(error);
-      setMensaje('No se pudo eliminar la mesa.');
+      setMensaje(
+        `No se pudo eliminar la mesa: ${(error as any)?.message ?? 'Error desconocido'}`
+      );
       setEliminandoMesaId(null);
       return;
     }
@@ -628,9 +672,11 @@ export default function MesasMozoPage() {
               >
                 <header className="flex items-baseline justify-between gap-2 mb-1">
                   <div>
-                    <h2 className="font-bold text-slate-900">{mesa.nombre}</h2>
+                    <h2 className="font-bold text-slate-900">
+                      {mesa.numero != null ? `Mesa ${mesa.numero}` : mesa.nombre}
+                    </h2>
                     <span className="text-[11px] text-slate-500">
-                      ID {mesa.id}
+                      ID interno {mesa.id}
                     </span>
                   </div>
                   <div className="flex flex-col items-end gap-1">
