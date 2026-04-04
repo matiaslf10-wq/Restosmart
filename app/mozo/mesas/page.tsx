@@ -328,6 +328,37 @@ export default function MesasMozoPage() {
   printWindow.focus();
 };
 
+const descargarQrMesa = async (mesa: MesaConCuenta) => {
+  const numero = mesa.numero;
+  if (numero == null) return;
+
+  try {
+    const qrUrl = getMesaQrUrl(numero);
+    const response = await fetch(qrUrl);
+
+    if (!response.ok) {
+      throw new Error('No se pudo generar el PNG del QR.');
+    }
+
+    const blob = await response.blob();
+    const objectUrl = window.URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = `mesa-${numero}-qr.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(objectUrl);
+
+    setMensaje(`Se descargó el QR de Mesa ${numero} en PNG.`);
+  } catch (error) {
+    console.error(error);
+    setMensaje(`No se pudo descargar el QR en PNG de Mesa ${numero}.`);
+  }
+};
+
   const cargarDatos = async () => {
     setCargando(true);
     setMensaje(null);
@@ -944,35 +975,42 @@ export default function MesasMozoPage() {
                     {mesaUrl}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => abrirMesa(mesa.numero)}
-                      className="px-2 py-1 rounded-md bg-slate-800 text-white text-[11px] font-medium hover:bg-slate-700"
-                    >
-                      Abrir mesa
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => copiarLinkMesa(mesa.numero)}
-                      className="px-2 py-1 rounded-md bg-white border border-slate-300 text-slate-700 text-[11px] font-medium hover:bg-slate-50"
-                    >
-                      Copiar link
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => abrirQrMesa(mesa)}
-                      className="px-2 py-1 rounded-md bg-indigo-600 text-white text-[11px] font-medium hover:bg-indigo-700"
-                    >
-                      Ver QR
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => imprimirQrMesa(mesa)}
-                      className="px-2 py-1 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700"
-                    >
-                      Imprimir QR
-                    </button>
-                  </div>
+  <button
+    type="button"
+    onClick={() => abrirMesa(mesa.numero)}
+    className="px-2 py-1 rounded-md bg-slate-800 text-white text-[11px] font-medium hover:bg-slate-700"
+  >
+    Abrir mesa
+  </button>
+  <button
+    type="button"
+    onClick={() => copiarLinkMesa(mesa.numero)}
+    className="px-2 py-1 rounded-md bg-white border border-slate-300 text-slate-700 text-[11px] font-medium hover:bg-slate-50"
+  >
+    Copiar link
+  </button>
+  <button
+    type="button"
+    onClick={() => abrirQrMesa(mesa)}
+    className="px-2 py-1 rounded-md bg-indigo-600 text-white text-[11px] font-medium hover:bg-indigo-700"
+  >
+    Ver QR
+  </button>
+  <button
+    type="button"
+    onClick={() => imprimirQrMesa(mesa)}
+    className="px-2 py-1 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700"
+  >
+    Imprimir QR
+  </button>
+  <button
+    type="button"
+    onClick={() => descargarQrMesa(mesa)}
+    className="px-2 py-1 rounded-md bg-amber-500 text-white text-[11px] font-medium hover:bg-amber-600"
+  >
+    Descargar PNG
+  </button>
+</div>
                 </div>
 
                 {mesa.pedidos.length === 0 ? (
@@ -1135,28 +1173,35 @@ export default function MesasMozoPage() {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => abrirMesa(mesaQrActiva.numero)}
-          className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-        >
-          Abrir mesa
-        </button>
-        <button
-          type="button"
-          onClick={() => copiarLinkMesa(mesaQrActiva.numero)}
-          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          Copiar link
-        </button>
-        <button
-          type="button"
-          onClick={() => imprimirQrMesa(mesaQrActiva)}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-        >
-          Imprimir QR
-        </button>
-      </div>
+  <button
+    type="button"
+    onClick={() => abrirMesa(mesaQrActiva.numero)}
+    className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+  >
+    Abrir mesa
+  </button>
+  <button
+    type="button"
+    onClick={() => copiarLinkMesa(mesaQrActiva.numero)}
+    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+  >
+    Copiar link
+  </button>
+  <button
+    type="button"
+    onClick={() => imprimirQrMesa(mesaQrActiva)}
+    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+  >
+    Imprimir QR
+  </button>
+  <button
+    type="button"
+    onClick={() => descargarQrMesa(mesaQrActiva)}
+    className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+  >
+    Descargar PNG
+  </button>
+</div>
     </div>
   </div>
 ) : null}
