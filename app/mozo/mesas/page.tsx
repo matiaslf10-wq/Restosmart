@@ -81,6 +81,10 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#39;');
 }
 
+function getMesaDisplayName(mesa: MesaConCuenta | { numero: number | null; nombre: string }) {
+  return mesa.numero != null ? `Mesa ${mesa.numero}` : mesa.nombre;
+}
+
 export default function MesasMozoPage() {
   const [mesas, setMesas] = useState<MesaConCuenta[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -143,113 +147,186 @@ export default function MesasMozoPage() {
   };
 
   const imprimirQrMesa = (mesa: MesaConCuenta) => {
-    const numero = mesa.numero;
-    if (numero == null) return;
+  const numero = mesa.numero;
+  if (numero == null) return;
 
-    const mesaUrl = getMesaPublicUrl(numero);
-    const qrUrl = getMesaQrUrl(numero);
-    const titulo = `Mesa ${numero}`;
+  const mesaUrl = getMesaPublicUrl(numero);
+  const qrUrl = getMesaQrUrl(numero);
+  const mesaTitulo = getMesaDisplayName(mesa);
 
-    const printWindow = window.open('', '_blank', 'width=800,height=900');
+  const printWindow = window.open('', '_blank', 'width=900,height=1000');
 
-    if (!printWindow) {
-      setMensaje('No se pudo abrir la ventana de impresión. Revisá si el navegador la bloqueó.');
-      return;
-    }
+  if (!printWindow) {
+    setMensaje('No se pudo abrir la ventana de impresión. Revisá si el navegador la bloqueó.');
+    return;
+  }
 
-    const html = `
-      <!doctype html>
-      <html lang="es">
-        <head>
-          <meta charset="utf-8" />
-          <title>${escapeHtml(titulo)} - QR</title>
-          <style>
-            * { box-sizing: border-box; }
+  const html = `
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(mesaTitulo)} - QR</title>
+        <style>
+          * {
+            box-sizing: border-box;
+          }
+
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+            color: #0f172a;
+            font-family: Arial, Helvetica, sans-serif;
+          }
+
+          .page {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+          }
+
+          .card {
+            width: 100%;
+            max-width: 440px;
+            border: 3px solid #0f172a;
+            border-radius: 24px;
+            padding: 28px 24px;
+            text-align: center;
+          }
+
+          .mesa-kicker {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            color: #475569;
+            margin-bottom: 10px;
+          }
+
+          .mesa-title {
+            font-size: 42px;
+            line-height: 1;
+            font-weight: 800;
+            margin: 0 0 14px;
+          }
+
+          .mesa-subtitle {
+            font-size: 16px;
+            line-height: 1.4;
+            color: #334155;
+            margin: 0 0 24px;
+          }
+
+          .qr-wrap {
+            border: 2px solid #cbd5e1;
+            border-radius: 18px;
+            padding: 18px;
+            margin-bottom: 20px;
+          }
+
+          .qr {
+            width: 320px;
+            height: 320px;
+            max-width: 100%;
+            display: block;
+            margin: 0 auto;
+          }
+
+          .instruction {
+            font-size: 15px;
+            font-weight: 700;
+            margin-top: 18px;
+            color: #111827;
+          }
+
+          .url-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #64748b;
+            margin-top: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          }
+
+          .url {
+            margin-top: 8px;
+            font-size: 13px;
+            line-height: 1.4;
+            word-break: break-all;
+            color: #334155;
+          }
+
+          .footer {
+            margin-top: 18px;
+            font-size: 13px;
+            color: #64748b;
+          }
+
+          @media print {
+            @page {
+              size: auto;
+              margin: 12mm;
+            }
+
             body {
-              margin: 0;
-              font-family: Arial, Helvetica, sans-serif;
-              background: white;
-              color: #111827;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
             }
+
             .page {
-              min-height: 100vh;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              padding: 24px;
+              min-height: auto;
+              padding: 0;
             }
+
             .card {
-              width: 100%;
-              max-width: 420px;
-              border: 2px solid #111827;
-              border-radius: 18px;
-              padding: 24px;
-              text-align: center;
+              box-shadow: none;
             }
-            .title {
-              font-size: 28px;
-              font-weight: 700;
-              margin-bottom: 8px;
-            }
-            .subtitle {
-              font-size: 15px;
-              color: #475569;
-              margin-bottom: 20px;
-            }
-            .qr {
-              width: 320px;
-              height: 320px;
-              max-width: 100%;
-              display: block;
-              margin: 0 auto 20px;
-            }
-            .url {
-              font-size: 13px;
-              word-break: break-all;
-              color: #334155;
-              margin-top: 10px;
-            }
-            .note {
-              margin-top: 18px;
-              font-size: 14px;
-            }
-            @media print {
-              .page {
-                padding: 0;
-              }
-              .card {
-                border-width: 2px;
-                box-shadow: none;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="page">
-            <div class="card">
-              <div class="title">${escapeHtml(titulo)}</div>
-              <div class="subtitle">Escaneá para ver el menú y hacer el pedido</div>
-              <img class="qr" src="${escapeHtml(qrUrl)}" alt="${escapeHtml(titulo)} QR" />
-              <div class="url">${escapeHtml(mesaUrl)}</div>
-              <div class="note">Restosmart</div>
+          }
+        </style>
+      </head>
+      <body>
+        <div class="page">
+          <div class="card">
+            <div class="mesa-kicker">RESTOSMART</div>
+            <h1 class="mesa-title">${escapeHtml(mesaTitulo)}</h1>
+            <p class="mesa-subtitle">
+              Escaneá este código para ver el menú,<br />
+              pedir y pagar desde tu celular
+            </p>
+
+            <div class="qr-wrap">
+              <img class="qr" src="${escapeHtml(qrUrl)}" alt="${escapeHtml(mesaTitulo)} QR" />
+            </div>
+
+            <div class="instruction">Apuntá la cámara de tu celular al QR</div>
+
+            <div class="url-label">Link directo</div>
+            <div class="url">${escapeHtml(mesaUrl)}</div>
+
+            <div class="footer">
+              Si el QR no funciona, ingresá al link manualmente.
             </div>
           </div>
-          <script>
-            window.onload = function () {
-              setTimeout(function () {
-                window.print();
-              }, 300);
-            };
-          </script>
-        </body>
-      </html>
-    `;
+        </div>
 
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.focus();
-  };
+        <script>
+          window.onload = function () {
+            setTimeout(function () {
+              window.print();
+            }, 350);
+          };
+        </script>
+      </body>
+    </html>
+  `;
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
+};
 
   const cargarDatos = async () => {
     setCargando(true);
@@ -833,7 +910,7 @@ export default function MesasMozoPage() {
                 <header className="flex items-baseline justify-between gap-2 mb-1">
                   <div>
                     <h2 className="font-bold text-slate-900">
-                      {mesa.numero != null ? `Mesa ${mesa.numero}` : mesa.nombre}
+                      {getMesaDisplayName(mesa)}
                     </h2>
                     <span className="text-[11px] text-slate-500">
                       ID interno {mesa.id}
@@ -1019,66 +1096,70 @@ export default function MesasMozoPage() {
       </div>
 
       {mesaQrActiva ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-semibold">
-                  {mesaQrActiva.numero != null
-                    ? `QR · Mesa ${mesaQrActiva.numero}`
-                    : mesaQrActiva.nombre}
-                </h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Escaneá para abrir el menú de la mesa.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setMesaQrActiva(null)}
-                className="rounded-full border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50"
-              >
-                Cerrar
-              </button>
-            </div>
-
-            <div className="mt-4 rounded-xl border p-4">
-              <img
-                src={getMesaQrUrl(mesaQrActiva.numero)}
-                alt={`QR mesa ${mesaQrActiva.numero ?? ''}`}
-                className="mx-auto h-72 w-72 max-w-full"
-              />
-              <p className="mt-3 break-all text-center text-xs text-slate-600">
-                {getMesaPublicUrl(mesaQrActiva.numero)}
-              </p>
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => abrirMesa(mesaQrActiva.numero)}
-                className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-              >
-                Abrir mesa
-              </button>
-              <button
-                type="button"
-                onClick={() => copiarLinkMesa(mesaQrActiva.numero)}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Copiar link
-              </button>
-              <button
-                type="button"
-                onClick={() => imprimirQrMesa(mesaQrActiva)}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-              >
-                Imprimir QR
-              </button>
-            </div>
-          </div>
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
+    <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold tracking-[0.18em] text-slate-500">
+            RESTOSMART
+          </p>
+          <h2 className="mt-1 text-2xl font-bold">
+            {getMesaDisplayName(mesaQrActiva)}
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Escaneá para ver el menú, pedir y pagar.
+          </p>
         </div>
-      ) : null}
+
+        <button
+          type="button"
+          onClick={() => setMesaQrActiva(null)}
+          className="rounded-full border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50"
+        >
+          Cerrar
+        </button>
+      </div>
+
+      <div className="mt-4 rounded-2xl border p-4">
+        <img
+          src={getMesaQrUrl(mesaQrActiva.numero)}
+          alt={`QR ${getMesaDisplayName(mesaQrActiva)}`}
+          className="mx-auto h-72 w-72 max-w-full"
+        />
+        <p className="mt-3 text-center text-base font-semibold text-slate-900">
+          {getMesaDisplayName(mesaQrActiva)}
+        </p>
+        <p className="mt-2 break-all text-center text-xs text-slate-600">
+          {getMesaPublicUrl(mesaQrActiva.numero)}
+        </p>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => abrirMesa(mesaQrActiva.numero)}
+          className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+        >
+          Abrir mesa
+        </button>
+        <button
+          type="button"
+          onClick={() => copiarLinkMesa(mesaQrActiva.numero)}
+          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          Copiar link
+        </button>
+        <button
+          type="button"
+          onClick={() => imprimirQrMesa(mesaQrActiva)}
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+        >
+          Imprimir QR
+        </button>
+      </div>
+    </div>
+  </div>
+) : null}
     </main>
   );
 }
