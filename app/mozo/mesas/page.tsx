@@ -94,6 +94,32 @@ export default function MesasMozoPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const getMesaPublicUrl = (numero: number | null) => {
+    if (numero == null) return '';
+    if (typeof window === 'undefined') return `/mesa/${numero}`;
+    return `${window.location.origin}/mesa/${numero}`;
+  };
+
+  const copiarLinkMesa = async (numero: number | null) => {
+    if (numero == null) return;
+
+    const url = getMesaPublicUrl(numero);
+
+    try {
+      await navigator.clipboard.writeText(url);
+      setMensaje(`Link de Mesa ${numero} copiado: ${url}`);
+    } catch (error) {
+      console.error(error);
+      setMensaje(`No se pudo copiar el link de Mesa ${numero}.`);
+    }
+  };
+
+  const abrirMesa = (numero: number | null) => {
+    if (numero == null) return;
+    const url = getMesaPublicUrl(numero);
+    window.open(url, '_blank');
+  };
+
   const cargarDatos = async () => {
     setCargando(true);
     setMensaje(null);
@@ -440,7 +466,9 @@ export default function MesasMozoPage() {
         return;
       }
 
-      const proximoNumero = getNextMesaNumero((mesasExistentes as Array<{ id: number; numero: number | null }>) ?? []);
+      const proximoNumero = getNextMesaNumero(
+        (mesasExistentes as Array<{ id: number; numero: number | null }>) ?? []
+      );
 
       const payload = {
         numero: proximoNumero,
@@ -664,6 +692,7 @@ export default function MesasMozoPage() {
             const tiempo = tiempoMesa(mesa);
             const resumen = resumenCantidades(mesa);
             const formaPago = formaPagoMesa(mesa);
+            const mesaUrl = getMesaPublicUrl(mesa.numero);
 
             return (
               <article
@@ -697,6 +726,31 @@ export default function MesasMozoPage() {
                 <div className="text-xs text-slate-600 flex justify-between items-center mb-1">
                   <span>{resumen}</span>
                   {tiempo && <span>{tiempo}</span>}
+                </div>
+
+                <div className="mb-3 rounded-lg border border-slate-200 bg-white/80 p-2">
+                  <p className="text-[11px] font-medium text-slate-500">
+                    Link de la mesa
+                  </p>
+                  <p className="mt-1 break-all text-xs text-slate-700">
+                    {mesaUrl}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => abrirMesa(mesa.numero)}
+                      className="px-2 py-1 rounded-md bg-slate-800 text-white text-[11px] font-medium hover:bg-slate-700"
+                    >
+                      Abrir mesa
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => copiarLinkMesa(mesa.numero)}
+                      className="px-2 py-1 rounded-md bg-white border border-slate-300 text-slate-700 text-[11px] font-medium hover:bg-slate-50"
+                    >
+                      Copiar link
+                    </button>
+                  </div>
                 </div>
 
                 {mesa.pedidos.length === 0 ? (
