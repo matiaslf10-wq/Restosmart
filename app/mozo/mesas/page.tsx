@@ -408,29 +408,41 @@ export default function MesasMozoPage() {
   };
 
   const agregarMesa = async () => {
-    setAgregandoMesa(true);
-    setMensaje(null);
+  setAgregandoMesa(true);
+  setMensaje(null);
 
-    const numero = (mesas.length || 0) + 1;
-    const nombre = `Mesa ${numero}`;
+  const { data, error } = await supabase
+    .from('mesas')
+    .insert({ nombre: 'Mesa nueva' })
+    .select()
+    .single();
 
-    const { data, error } = await supabase
-      .from('mesas')
-      .insert({ nombre })
-      .select()
-      .single();
+  if (error || !data) {
+    console.error(error);
+    setMensaje('No se pudo agregar una nueva mesa.');
+    setAgregandoMesa(false);
+    return;
+  }
 
-    if (error || !data) {
-      console.error(error);
-      setMensaje('No se pudo agregar una nueva mesa.');
-      setAgregandoMesa(false);
-      return;
-    }
+  const nombreFinal = `Mesa ${data.id}`;
 
-    setMensaje(`Se agregó ${data.nombre}.`);
+  const { error: errorUpdate } = await supabase
+    .from('mesas')
+    .update({ nombre: nombreFinal })
+    .eq('id', data.id);
+
+  if (errorUpdate) {
+    console.error(errorUpdate);
+    setMensaje('La mesa se creó, pero no se pudo asignar el nombre final.');
     setAgregandoMesa(false);
     cargarDatos();
-  };
+    return;
+  }
+
+  setMensaje(`Se agregó ${nombreFinal}.`);
+  setAgregandoMesa(false);
+  cargarDatos();
+};
 
   const eliminarMesa = async (mesaId: number) => {
     const mesa = mesas.find((m) => m.id === mesaId);
