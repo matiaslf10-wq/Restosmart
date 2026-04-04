@@ -72,6 +72,15 @@ function getNextMesaNumero(mesas: Array<{ numero: number | null }>) {
   return candidato;
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 export default function MesasMozoPage() {
   const [mesas, setMesas] = useState<MesaConCuenta[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -81,6 +90,7 @@ export default function MesasMozoPage() {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [agregandoMesa, setAgregandoMesa] = useState(false);
   const [filtroMesas, setFiltroMesas] = useState<FiltroMesas>('todas');
+  const [mesaQrActiva, setMesaQrActiva] = useState<MesaConCuenta | null>(null);
 
   const [ahora, setAhora] = useState<number>(Date.now());
 
@@ -100,6 +110,14 @@ export default function MesasMozoPage() {
     return `${window.location.origin}/mesa/${numero}`;
   };
 
+  const getMesaQrUrl = (numero: number | null) => {
+    const mesaUrl = getMesaPublicUrl(numero);
+    if (!mesaUrl) return '';
+    return `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
+      mesaUrl
+    )}`;
+  };
+
   const copiarLinkMesa = async (numero: number | null) => {
     if (numero == null) return;
 
@@ -117,7 +135,120 @@ export default function MesasMozoPage() {
   const abrirMesa = (numero: number | null) => {
     if (numero == null) return;
     const url = getMesaPublicUrl(numero);
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const abrirQrMesa = (mesa: MesaConCuenta) => {
+    setMesaQrActiva(mesa);
+  };
+
+  const imprimirQrMesa = (mesa: MesaConCuenta) => {
+    const numero = mesa.numero;
+    if (numero == null) return;
+
+    const mesaUrl = getMesaPublicUrl(numero);
+    const qrUrl = getMesaQrUrl(numero);
+    const titulo = `Mesa ${numero}`;
+
+    const printWindow = window.open('', '_blank', 'width=800,height=900');
+
+    if (!printWindow) {
+      setMensaje('No se pudo abrir la ventana de impresión. Revisá si el navegador la bloqueó.');
+      return;
+    }
+
+    const html = `
+      <!doctype html>
+      <html lang="es">
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(titulo)} - QR</title>
+          <style>
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              font-family: Arial, Helvetica, sans-serif;
+              background: white;
+              color: #111827;
+            }
+            .page {
+              min-height: 100vh;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: 24px;
+            }
+            .card {
+              width: 100%;
+              max-width: 420px;
+              border: 2px solid #111827;
+              border-radius: 18px;
+              padding: 24px;
+              text-align: center;
+            }
+            .title {
+              font-size: 28px;
+              font-weight: 700;
+              margin-bottom: 8px;
+            }
+            .subtitle {
+              font-size: 15px;
+              color: #475569;
+              margin-bottom: 20px;
+            }
+            .qr {
+              width: 320px;
+              height: 320px;
+              max-width: 100%;
+              display: block;
+              margin: 0 auto 20px;
+            }
+            .url {
+              font-size: 13px;
+              word-break: break-all;
+              color: #334155;
+              margin-top: 10px;
+            }
+            .note {
+              margin-top: 18px;
+              font-size: 14px;
+            }
+            @media print {
+              .page {
+                padding: 0;
+              }
+              .card {
+                border-width: 2px;
+                box-shadow: none;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="page">
+            <div class="card">
+              <div class="title">${escapeHtml(titulo)}</div>
+              <div class="subtitle">Escaneá para ver el menú y hacer el pedido</div>
+              <img class="qr" src="${escapeHtml(qrUrl)}" alt="${escapeHtml(titulo)} QR" />
+              <div class="url">${escapeHtml(mesaUrl)}</div>
+              <div class="note">Restosmart</div>
+            </div>
+          </div>
+          <script>
+            window.onload = function () {
+              setTimeout(function () {
+                window.print();
+              }, 300);
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
   };
 
   const cargarDatos = async () => {
@@ -750,6 +881,20 @@ export default function MesasMozoPage() {
                     >
                       Copiar link
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => abrirQrMesa(mesa)}
+                      className="px-2 py-1 rounded-md bg-indigo-600 text-white text-[11px] font-medium hover:bg-indigo-700"
+                    >
+                      Ver QR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => imprimirQrMesa(mesa)}
+                      className="px-2 py-1 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700"
+                    >
+                      Imprimir QR
+                    </button>
                   </div>
                 </div>
 
@@ -872,6 +1017,68 @@ export default function MesasMozoPage() {
           })}
         </section>
       </div>
+
+      {mesaQrActiva ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-semibold">
+                  {mesaQrActiva.numero != null
+                    ? `QR · Mesa ${mesaQrActiva.numero}`
+                    : mesaQrActiva.nombre}
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Escaneá para abrir el menú de la mesa.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMesaQrActiva(null)}
+                className="rounded-full border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border p-4">
+              <img
+                src={getMesaQrUrl(mesaQrActiva.numero)}
+                alt={`QR mesa ${mesaQrActiva.numero ?? ''}`}
+                className="mx-auto h-72 w-72 max-w-full"
+              />
+              <p className="mt-3 break-all text-center text-xs text-slate-600">
+                {getMesaPublicUrl(mesaQrActiva.numero)}
+              </p>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => abrirMesa(mesaQrActiva.numero)}
+                className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+              >
+                Abrir mesa
+              </button>
+              <button
+                type="button"
+                onClick={() => copiarLinkMesa(mesaQrActiva.numero)}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Copiar link
+              </button>
+              <button
+                type="button"
+                onClick={() => imprimirQrMesa(mesaQrActiva)}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Imprimir QR
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
