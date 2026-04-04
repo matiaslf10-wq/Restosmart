@@ -40,8 +40,7 @@ function esDelivery(pedido: PedidoRow) {
   return (
     pedido.origen === 'delivery' ||
     pedido.origen === 'delivery_whatsapp' ||
-    pedido.origen === 'delivery_manual' ||
-    pedido.tipo_servicio === 'delivery'
+    pedido.origen === 'delivery_manual'
   );
 }
 

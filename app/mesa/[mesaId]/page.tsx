@@ -19,11 +19,21 @@ type ItemCarrito = {
   comentarios: string;
 };
 
+type Mesa = {
+  id: number;
+  nombre: string;
+};
+
+function esMesaTecnicaDelivery(nombre: string | null | undefined) {
+  return (nombre ?? '').trim().toLowerCase() === 'delivery';
+}
+
 export default function MesaPage() {
   const params = useParams();
   const rawMesaId = params?.mesaId as string | string[] | undefined;
   const mesaId = Number(Array.isArray(rawMesaId) ? rawMesaId[0] : rawMesaId);
 
+  const [mesa, setMesa] = useState<Mesa | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string | null>(null);
@@ -36,41 +46,71 @@ export default function MesaPage() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Cargar productos
   useEffect(() => {
-    const cargarProductos = async () => {
-      setCargando(true);
-      const { data, error } = await supabase
-  .from('productos')
-  .select('*')
-  .eq('disponible', true)
-  .order('categoria', { ascending: true })
-  .order('nombre', { ascending: true });
-
-      if (error) {
-        console.error('Error cargando productos:', error);
-      } else {
-        const lista = (data as Producto[]) ?? [];
-        setProductos(lista);
-
-        const cats = Array.from(
-          new Set(
-            lista
-              .map((p) => p.categoria)
-              .filter((c): c is string => !!c && c.trim() !== '')
-          )
-        ).sort((a, b) => a.localeCompare(b));
-
-        setCategorias(cats);
-        setCategoriaSeleccionada(null);
+    const cargarDatosIniciales = async () => {
+      if (!mesaId || Number.isNaN(mesaId)) {
+        setCargando(false);
+        return;
       }
-      setCargando(false);
+
+      setCargando(true);
+
+      try {
+        const [{ data: mesaData, error: mesaError }, { data, error }] = await Promise.all([
+          supabase.from('mesas').select('id, nombre').eq('id', mesaId).maybeSingle(),
+          supabase
+            .from('productos')
+            .select('*')
+            .eq('disponible', true)
+            .order('categoria', { ascending: true })
+            .order('nombre', { ascending: true }),
+        ]);
+
+        if (mesaError) {
+          console.error('Error cargando mesa:', {
+            message: mesaError.message,
+            details: (mesaError as any)?.details,
+            hint: (mesaError as any)?.hint,
+            code: (mesaError as any)?.code,
+            raw: mesaError,
+          });
+          setMensaje('No se pudo cargar la mesa.');
+        } else {
+          setMesa((mesaData as Mesa | null) ?? null);
+        }
+
+        if (error) {
+          console.error('Error cargando productos:', {
+            message: error.message,
+            details: (error as any)?.details,
+            hint: (error as any)?.hint,
+            code: (error as any)?.code,
+            raw: error,
+          });
+          setMensaje('No se pudieron cargar los productos.');
+        } else {
+          const lista = (data as Producto[]) ?? [];
+          setProductos(lista);
+
+          const cats = Array.from(
+            new Set(
+              lista
+                .map((p) => p.categoria)
+                .filter((c): c is string => !!c && c.trim() !== '')
+            )
+          ).sort((a, b) => a.localeCompare(b));
+
+          setCategorias(cats);
+          setCategoriaSeleccionada(null);
+        }
+      } finally {
+        setCargando(false);
+      }
     };
 
-    cargarProductos();
-  }, []);
+    cargarDatosIniciales();
+  }, [mesaId]);
 
-  // Suscripción: cambios de estado del pedido de ESTA mesa
   useEffect(() => {
     if (!mesaId || Number.isNaN(mesaId)) return;
 
@@ -139,9 +179,11 @@ export default function MesaPage() {
     );
   };
 
-  const total = carrito.reduce((acc, item) => acc + item.producto.precio * item.cantidad, 0);
+  const total = carrito.reduce(
+    (acc, item) => acc + item.producto.precio * item.cantidad,
+    0
+  );
 
-  // Crea un pedido desde el carrito
   const crearPedidoDesdeCarrito = async (formaPago: 'virtual' | 'efectivo') => {
     if (!mesaId || Number.isNaN(mesaId)) return null;
 
@@ -154,19 +196,34 @@ export default function MesaPage() {
     setMensaje(null);
 
     try {
+      const payload = {
+        mesa_id: mesaId,
+        estado: 'solicitado',
+        total,
+        paga_efectivo: formaPago === 'efectivo',
+        forma_pago: formaPago,
+        origen: 'salon',
+        tipo_servicio: 'mesa',
+        medio_pago: formaPago === 'efectivo' ? 'efectivo' : 'virtual',
+        estado_pago: formaPago === 'efectivo' ? 'aprobado' : 'pendiente',
+        efectivo_aprobado: formaPago === 'efectivo',
+      };
+
       const { data: pedido, error: errorPedido } = await supabase
         .from('pedidos')
-        .insert({
-          mesa_id: mesaId,
-          estado: 'solicitado',
-          paga_efectivo: formaPago === 'efectivo',
-          forma_pago: formaPago,
-        })
+        .insert(payload)
         .select()
         .single();
 
       if (errorPedido || !pedido) {
-        console.error('Error creando pedido:', errorPedido);
+        console.error('Error creando pedido:', {
+          message: errorPedido?.message,
+          details: (errorPedido as any)?.details,
+          hint: (errorPedido as any)?.hint,
+          code: (errorPedido as any)?.code,
+          raw: errorPedido,
+          payload,
+        });
         setMensaje('Hubo un error al crear el pedido.');
         return null;
       }
@@ -181,7 +238,14 @@ export default function MesaPage() {
       const { error: errorItems } = await supabase.from('items_pedido').insert(items);
 
       if (errorItems) {
-        console.error('Error guardando ítems:', errorItems);
+        console.error('Error guardando ítems:', {
+          message: errorItems.message,
+          details: (errorItems as any)?.details,
+          hint: (errorItems as any)?.hint,
+          code: (errorItems as any)?.code,
+          raw: errorItems,
+          items,
+        });
         setMensaje('Hubo un error al guardar los ítems del pedido.');
         return null;
       }
@@ -193,7 +257,6 @@ export default function MesaPage() {
     }
   };
 
-  // 🔵 Cliente marca que PAGA EN EFECTIVO
   const marcarPagoEfectivoDesdeCliente = async () => {
     if (!mesaId || Number.isNaN(mesaId)) return;
 
@@ -204,6 +267,7 @@ export default function MesaPage() {
       if (carrito.length > 0) {
         const pedido = await crearPedidoDesdeCarrito('efectivo');
         if (!pedido) return;
+
         setMensaje('Pedido generado. Avisamos que vas a pagar en efectivo 💵');
       } else {
         const { error } = await supabase
@@ -211,12 +275,23 @@ export default function MesaPage() {
           .update({
             paga_efectivo: true,
             forma_pago: 'efectivo',
+            origen: 'salon',
+            tipo_servicio: 'mesa',
+            medio_pago: 'efectivo',
+            estado_pago: 'aprobado',
+            efectivo_aprobado: true,
           })
           .eq('mesa_id', mesaId)
           .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
         if (error) {
-          console.error('Error al marcar pago en efectivo desde cliente:', error);
+          console.error('Error al marcar pago en efectivo desde cliente:', {
+            message: error.message,
+            details: (error as any)?.details,
+            hint: (error as any)?.hint,
+            code: (error as any)?.code,
+            raw: error,
+          });
           setMensaje('No se pudo marcar el pago en efectivo. Avisá al mozo.');
           return;
         }
@@ -228,9 +303,9 @@ export default function MesaPage() {
     }
   };
 
-  // 🟣 Cliente elige PAGO VIRTUAL
   const pagarVirtual = async () => {
-    const urlPago = process.env.NEXT_PUBLIC_PAGO_VIRTUAL_URL || 'https://www.mercadopago.com.ar';
+    const urlPago =
+      process.env.NEXT_PUBLIC_PAGO_VIRTUAL_URL || 'https://www.mercadopago.com.ar';
 
     setMensaje(null);
 
@@ -238,20 +313,31 @@ export default function MesaPage() {
       if (carrito.length > 0) {
         const pedido = await crearPedidoDesdeCarrito('virtual');
         if (!pedido) return;
+
         setMensaje('Pedido generado. Abrimos el pago virtual en una nueva ventana 💳');
       } else {
-        // ✅ CORRECCIÓN: pago virtual NO es efectivo
         const { error } = await supabase
           .from('pedidos')
           .update({
             paga_efectivo: false,
             forma_pago: 'virtual',
+            origen: 'salon',
+            tipo_servicio: 'mesa',
+            medio_pago: 'virtual',
+            estado_pago: 'pendiente',
+            efectivo_aprobado: false,
           })
           .eq('mesa_id', mesaId)
           .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
         if (error) {
-          console.error('Error al marcar pago virtual desde cliente:', error);
+          console.error('Error al marcar pago virtual desde cliente:', {
+            message: error.message,
+            details: (error as any)?.details,
+            hint: (error as any)?.hint,
+            code: (error as any)?.code,
+            raw: error,
+          });
           setMensaje('No se pudo marcar el pago virtual. Avisá al mozo.');
           return;
         }
@@ -271,9 +357,6 @@ export default function MesaPage() {
     );
   }
 
-  const productosFiltrados =
-    categoriaSeleccionada == null ? [] : productos.filter((p) => p.categoria === categoriaSeleccionada);
-
   if (cargando) {
     return (
       <main className="min-h-screen flex items-center justify-center">
@@ -282,13 +365,40 @@ export default function MesaPage() {
     );
   }
 
+  if (!mesa) {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-4">
+        <p className="text-center">La mesa no existe o no se pudo cargar.</p>
+      </main>
+    );
+  }
+
+  if (esMesaTecnicaDelivery(mesa.nombre)) {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-4">
+        <div className="max-w-md rounded-2xl border bg-white p-6 text-center shadow-sm">
+          <h1 className="text-xl font-semibold">Mesa no disponible para salón</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Esta mesa está reservada para el canal técnico de delivery. Para simular
+            un pedido de salón usá una mesa real, por ejemplo /mesa/2 o /mesa/3.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  const productosFiltrados =
+    categoriaSeleccionada == null
+      ? []
+      : productos.filter((p) => p.categoria === categoriaSeleccionada);
+
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center px-4 py-6">
       <audio ref={audioRef} src="/sounds/sonido.wav" preload="auto" className="hidden" />
 
       <div className="w-full max-w-lg space-y-4">
         <header className="text-center space-y-1">
-          <h1 className="text-2xl font-bold">Menú – Mesa {mesaId}</h1>
+          <h1 className="text-2xl font-bold">Menú – {mesa.nombre}</h1>
           {mensaje && (
             <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg">
               {mensaje}
@@ -296,11 +406,12 @@ export default function MesaPage() {
           )}
         </header>
 
-        {/* 1) CATEGORÍAS */}
         <section className="space-y-2">
           <h2 className="text-lg font-semibold text-center">Categorías</h2>
           {categorias.length === 0 && (
-            <p className="text-sm text-slate-600 text-center">No hay categorías configuradas.</p>
+            <p className="text-sm text-slate-600 text-center">
+              No hay categorías configuradas.
+            </p>
           )}
           <div className="flex flex-wrap justify-center gap-2">
             {categorias.map((cat) => {
@@ -309,7 +420,9 @@ export default function MesaPage() {
                 <button
                   key={cat}
                   type="button"
-                  onClick={() => setCategoriaSeleccionada((prev) => (prev === cat ? null : cat))}
+                  onClick={() =>
+                    setCategoriaSeleccionada((prev) => (prev === cat ? null : cat))
+                  }
                   className={
                     'px-3 py-1 rounded-full text-sm border ' +
                     (activa
@@ -322,19 +435,24 @@ export default function MesaPage() {
               );
             })}
           </div>
-          <p className="text-xs text-slate-500 text-center">Elegí una categoría para ver los platos.</p>
+          <p className="text-xs text-slate-500 text-center">
+            Elegí una categoría para ver los platos.
+          </p>
         </section>
 
-        {/* 2) LISTA DE PRODUCTOS */}
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Platos</h2>
 
           {categoriaSeleccionada == null && (
-            <p className="text-sm text-slate-600">Todavía no seleccionaste una categoría.</p>
+            <p className="text-sm text-slate-600">
+              Todavía no seleccionaste una categoría.
+            </p>
           )}
 
           {categoriaSeleccionada != null && productosFiltrados.length === 0 && (
-            <p className="text-sm text-slate-600">No hay productos disponibles en esta categoría.</p>
+            <p className="text-sm text-slate-600">
+              No hay productos disponibles en esta categoría.
+            </p>
           )}
 
           {categoriaSeleccionada != null && productosFiltrados.length > 0 && (
@@ -376,7 +494,6 @@ export default function MesaPage() {
           )}
         </section>
 
-        {/* CARRITO */}
         <section className="border-t border-slate-200 pt-4 space-y-3">
           <h2 className="text-xl font-semibold">Tu pedido</h2>
           {carrito.length === 0 && <p className="text-sm text-slate-600">El carrito está vacío.</p>}
@@ -387,50 +504,53 @@ export default function MesaPage() {
               className="bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm space-y-2"
             >
               <div className="flex justify-between items-start gap-2">
-  <span className="font-medium">{item.producto.nombre}</span>
+                <span className="font-medium">{item.producto.nombre}</span>
 
-  <div className="flex items-center gap-2">
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        onClick={() => cambiarCantidad(item.producto.id, item.cantidad - 1)}
-        className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 border border-slate-300 text-base font-bold hover:bg-slate-200"
-        title="Restar una unidad"
-        aria-label={`Restar una unidad de ${item.producto.nombre}`}
-      >
-        -
-      </button>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => cambiarCantidad(item.producto.id, item.cantidad - 1)}
+                      className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 border border-slate-300 text-base font-bold hover:bg-slate-200"
+                      title="Restar una unidad"
+                      aria-label={`Restar una unidad de ${item.producto.nombre}`}
+                    >
+                      -
+                    </button>
 
-      <input
-        type="number"
-        min={1}
-        value={item.cantidad}
-        onChange={(e) => cambiarCantidad(item.producto.id, Number(e.target.value))}
-        className="w-14 border border-slate-300 rounded px-1 py-1 text-sm text-center"
-      />
+                    <input
+                      type="number"
+                      min={1}
+                      value={item.cantidad}
+                      onChange={(e) =>
+                        cambiarCantidad(item.producto.id, Number(e.target.value))
+                      }
+                      className="w-14 border border-slate-300 rounded px-1 py-1 text-sm text-center"
+                    />
 
-      <button
-        type="button"
-        onClick={() => cambiarCantidad(item.producto.id, item.cantidad + 1)}
-        className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300 text-base font-bold hover:bg-emerald-200"
-        title="Sumar una unidad"
-        aria-label={`Sumar una unidad a ${item.producto.nombre}`}
-      >
-        +
-      </button>
-    </div>
+                    <button
+                      type="button"
+                      onClick={() => cambiarCantidad(item.producto.id, item.cantidad + 1)}
+                      className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300 text-base font-bold hover:bg-emerald-200"
+                      title="Sumar una unidad"
+                      aria-label={`Sumar una unidad a ${item.producto.nombre}`}
+                    >
+                      +
+                    </button>
+                  </div>
 
-    <button
-      type="button"
-      onClick={() => cambiarCantidad(item.producto.id, 0)}
-      className="w-8 h-8 rounded-full bg-rose-100 text-rose-700 border border-rose-200 text-sm font-bold hover:bg-rose-200"
-      title="Eliminar producto"
-      aria-label={`Eliminar ${item.producto.nombre}`}
-    >
-      ×
-    </button>
-  </div>
-</div>
+                  <button
+                    type="button"
+                    onClick={() => cambiarCantidad(item.producto.id, 0)}
+                    className="w-8 h-8 rounded-full bg-rose-100 text-rose-700 border border-rose-200 text-sm font-bold hover:bg-rose-200"
+                    title="Eliminar producto"
+                    aria-label={`Eliminar ${item.producto.nombre}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+
               <textarea
                 className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
                 placeholder="Notas (ej: sin sal, bien jugoso...)"
@@ -453,10 +573,11 @@ export default function MesaPage() {
           )}
         </section>
 
-        {/* FORMAS DE PAGO */}
         <section className="mt-4 border-t border-slate-200 pt-4 space-y-3">
           <h2 className="text-lg font-semibold">Formas de pago</h2>
-          <p className="text-sm text-slate-600">Cuando quieras pagar la cuenta, elegí una opción:</p>
+          <p className="text-sm text-slate-600">
+            Cuando quieras pagar la cuenta, elegí una opción:
+          </p>
 
           <div className="flex flex-col gap-2">
             <button
