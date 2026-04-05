@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
+const DELIVERY_MESA_ID = 0;
+
 type ItemPedido = {
   id: number;
   cantidad: number;
@@ -42,6 +44,7 @@ type FormaPagoMesa = 'ninguna' | 'efectivo' | 'virtual';
 
 function esPedidoDelivery(pedido: Pedido) {
   return (
+    pedido.mesa_id === DELIVERY_MESA_ID ||
     pedido.origen === 'delivery' ||
     pedido.origen === 'delivery_whatsapp' ||
     pedido.origen === 'delivery_manual' ||
@@ -53,8 +56,8 @@ function shouldShowPedidoInMozo(pedido: Pedido) {
   return !esPedidoDelivery(pedido);
 }
 
-function esMesaTecnica(mesa: { numero: number | null }) {
-  return mesa.numero == null;
+function esMesaTecnica(mesa: { id: number; numero: number | null }) {
+  return mesa.id === DELIVERY_MESA_ID || mesa.numero == null || mesa.numero <= 0;
 }
 
 function getNextMesaNumero(mesas: Array<{ numero: number | null }>) {
@@ -81,7 +84,9 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#39;');
 }
 
-function getMesaDisplayName(mesa: MesaConCuenta | { numero: number | null; nombre: string }) {
+function getMesaDisplayName(
+  mesa: MesaConCuenta | { numero: number | null; nombre: string }
+) {
   return mesa.numero != null ? `Mesa ${mesa.numero}` : mesa.nombre;
 }
 
@@ -97,7 +102,8 @@ function blobToDataUrl(blob: Blob): Promise<string> {
       }
     };
 
-    reader.onerror = () => reject(reader.error ?? new Error('Error leyendo archivo.'));
+    reader.onerror = () =>
+      reject(reader.error ?? new Error('Error leyendo archivo.'));
     reader.readAsDataURL(blob);
   });
 }
@@ -167,7 +173,9 @@ export default function MesasMozoPage() {
   const [cargando, setCargando] = useState(true);
   const [procesandoMesaId, setProcesandoMesaId] = useState<number | null>(null);
   const [eliminandoMesaId, setEliminandoMesaId] = useState<number | null>(null);
-  const [actualizandoPedidoId, setActualizandoPedidoId] = useState<number | null>(null);
+  const [actualizandoPedidoId, setActualizandoPedidoId] = useState<number | null>(
+    null
+  );
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [agregandoMesa, setAgregandoMesa] = useState(false);
   const [filtroMesas, setFiltroMesas] = useState<FiltroMesas>('todas');
@@ -186,7 +194,7 @@ export default function MesasMozoPage() {
   }, []);
 
   const getMesaPublicUrl = (numero: number | null) => {
-    if (numero == null) return '';
+    if (numero == null || numero <= 0) return '';
     if (typeof window === 'undefined') return `/mesa/${numero}`;
     return `${window.location.origin}/mesa/${numero}`;
   };
@@ -200,7 +208,7 @@ export default function MesasMozoPage() {
   };
 
   const copiarLinkMesa = async (numero: number | null) => {
-    if (numero == null) return;
+    if (numero == null || numero <= 0) return;
 
     const url = getMesaPublicUrl(numero);
 
@@ -214,7 +222,7 @@ export default function MesasMozoPage() {
   };
 
   const abrirMesa = (numero: number | null) => {
-    if (numero == null) return;
+    if (numero == null || numero <= 0) return;
     const url = getMesaPublicUrl(numero);
     window.open(url, '_blank', 'noopener,noreferrer');
   };
@@ -224,21 +232,23 @@ export default function MesasMozoPage() {
   };
 
   const imprimirQrMesa = (mesa: MesaConCuenta) => {
-  const numero = mesa.numero;
-  if (numero == null) return;
+    const numero = mesa.numero;
+    if (numero == null || numero <= 0) return;
 
-  const mesaUrl = getMesaPublicUrl(numero);
-  const qrUrl = getMesaQrUrl(numero);
-  const mesaTitulo = getMesaDisplayName(mesa);
+    const mesaUrl = getMesaPublicUrl(numero);
+    const qrUrl = getMesaQrUrl(numero);
+    const mesaTitulo = getMesaDisplayName(mesa);
 
-  const printWindow = window.open('', '_blank', 'width=900,height=1000');
+    const printWindow = window.open('', '_blank', 'width=900,height=1000');
 
-  if (!printWindow) {
-    setMensaje('No se pudo abrir la ventana de impresión. Revisá si el navegador la bloqueó.');
-    return;
-  }
+    if (!printWindow) {
+      setMensaje(
+        'No se pudo abrir la ventana de impresión. Revisá si el navegador la bloqueó.'
+      );
+      return;
+    }
 
-  const html = `
+    const html = `
     <!doctype html>
     <html lang="es">
       <head>
@@ -374,7 +384,9 @@ export default function MesasMozoPage() {
             </p>
 
             <div class="qr-wrap">
-              <img class="qr" src="${escapeHtml(qrUrl)}" alt="${escapeHtml(mesaTitulo)} QR" />
+              <img class="qr" src="${escapeHtml(qrUrl)}" alt="${escapeHtml(
+      mesaTitulo
+    )} QR" />
             </div>
 
             <div class="instruction">Apuntá la cámara de tu celular al QR</div>
@@ -399,97 +411,99 @@ export default function MesasMozoPage() {
     </html>
   `;
 
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.focus();
-};
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+  };
 
-const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
-  const numero = mesa.numero;
-  if (numero == null) return;
+  const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
+    const numero = mesa.numero;
+    if (numero == null || numero <= 0) return;
 
-  try {
-    const mesaTitulo = getMesaDisplayName(mesa);
-    const mesaUrl = getMesaPublicUrl(numero);
-    const qrUrl = getMesaQrUrl(numero);
+    try {
+      const mesaTitulo = getMesaDisplayName(mesa);
+      const mesaUrl = getMesaPublicUrl(numero);
+      const qrUrl = getMesaQrUrl(numero);
 
-    const qrResponse = await fetch(qrUrl);
+      const qrResponse = await fetch(qrUrl);
 
-    if (!qrResponse.ok) {
-      throw new Error('No se pudo generar el QR para el cartel.');
-    }
+      if (!qrResponse.ok) {
+        throw new Error('No se pudo generar el QR para el cartel.');
+      }
 
-    const qrBlob = await qrResponse.blob();
-    const qrDataUrl = await blobToDataUrl(qrBlob);
+      const qrBlob = await qrResponse.blob();
+      const qrDataUrl = await blobToDataUrl(qrBlob);
 
-    const svgMarkup = buildMesaPosterSvg({
-      mesaTitulo,
-      mesaUrl,
-      qrDataUrl,
-    });
+      const svgMarkup = buildMesaPosterSvg({
+        mesaTitulo,
+        mesaUrl,
+        qrDataUrl,
+      });
 
-    const svgBlob = new Blob([svgMarkup], {
-      type: 'image/svg+xml;charset=utf-8',
-    });
+      const svgBlob = new Blob([svgMarkup], {
+        type: 'image/svg+xml;charset=utf-8',
+      });
 
-    const svgUrl = URL.createObjectURL(svgBlob);
+      const svgUrl = URL.createObjectURL(svgBlob);
 
-    const img = new Image();
+      const img = new Image();
 
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1200;
-        canvas.height = 1800;
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 1200;
+          canvas.height = 1800;
 
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          throw new Error('No se pudo inicializar el canvas.');
-        }
-
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
-
-        canvas.toBlob((blob) => {
-          if (!blob) {
-            setMensaje(`No se pudo exportar el cartel PNG de ${mesaTitulo}.`);
-            URL.revokeObjectURL(svgUrl);
-            return;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            throw new Error('No se pudo inicializar el canvas.');
           }
 
-          const pngUrl = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = pngUrl;
-          a.download = `${mesaTitulo.toLowerCase().replace(/\s+/g, '-')}-cartel.png`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
 
-          URL.revokeObjectURL(pngUrl);
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              setMensaje(`No se pudo exportar el cartel PNG de ${mesaTitulo}.`);
+              URL.revokeObjectURL(svgUrl);
+              return;
+            }
+
+            const pngUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = pngUrl;
+            a.download = `${mesaTitulo
+              .toLowerCase()
+              .replace(/\s+/g, '-')}-cartel.png`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            URL.revokeObjectURL(pngUrl);
+            URL.revokeObjectURL(svgUrl);
+
+            setMensaje(`Se descargó el cartel PNG de ${mesaTitulo}.`);
+          }, 'image/png');
+        } catch (error) {
+          console.error(error);
           URL.revokeObjectURL(svgUrl);
+          setMensaje(`No se pudo generar el cartel PNG de ${mesaTitulo}.`);
+        }
+      };
 
-          setMensaje(`Se descargó el cartel PNG de ${mesaTitulo}.`);
-        }, 'image/png');
-      } catch (error) {
-        console.error(error);
+      img.onerror = () => {
         URL.revokeObjectURL(svgUrl);
-        setMensaje(`No se pudo generar el cartel PNG de ${mesaTitulo}.`);
-      }
-    };
+        setMensaje(`No se pudo renderizar el cartel PNG de ${mesaTitulo}.`);
+      };
 
-    img.onerror = () => {
-      URL.revokeObjectURL(svgUrl);
-      setMensaje(`No se pudo renderizar el cartel PNG de ${mesaTitulo}.`);
-    };
-
-    img.src = svgUrl;
-  } catch (error) {
-    console.error(error);
-    setMensaje(`No se pudo descargar el cartel PNG de Mesa ${numero}.`);
-  }
-};
+      img.src = svgUrl;
+    } catch (error) {
+      console.error(error);
+      setMensaje(`No se pudo descargar el cartel PNG de Mesa ${numero}.`);
+    }
+  };
 
   const cargarDatos = async () => {
     setCargando(true);
@@ -621,6 +635,7 @@ const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
           if (
             payload.eventType === 'INSERT' &&
             nuevo.estado === 'solicitado' &&
+            nuevo.mesa_id !== DELIVERY_MESA_ID &&
             nuevo.origen !== 'delivery' &&
             nuevo.origen !== 'delivery_whatsapp' &&
             nuevo.origen !== 'delivery_manual' &&
@@ -636,6 +651,7 @@ const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
             payload.eventType === 'UPDATE' &&
             viejo?.estado !== 'listo' &&
             nuevo?.estado === 'listo' &&
+            nuevo?.mesa_id !== DELIVERY_MESA_ID &&
             nuevo?.origen !== 'delivery' &&
             nuevo?.origen !== 'delivery_whatsapp' &&
             nuevo?.origen !== 'delivery_manual' &&
@@ -648,13 +664,16 @@ const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
           }
 
           const esSalon =
+            nuevo?.mesa_id !== DELIVERY_MESA_ID &&
             nuevo?.origen !== 'delivery' &&
             nuevo?.origen !== 'delivery_whatsapp' &&
             nuevo?.origen !== 'delivery_manual' &&
             nuevo?.tipo_servicio !== 'delivery';
 
-          const pagoAntes = viejo?.paga_efectivo || viejo?.forma_pago === 'efectivo';
-          const pagoDespues = nuevo?.paga_efectivo || nuevo?.forma_pago === 'efectivo';
+          const pagoAntes =
+            viejo?.paga_efectivo || viejo?.forma_pago === 'efectivo';
+          const pagoDespues =
+            nuevo?.paga_efectivo || nuevo?.forma_pago === 'efectivo';
 
           if (esSalon && !pagoAntes && pagoDespues) {
             if (audioRef.current) {
@@ -778,7 +797,9 @@ const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
       (acc, p) => acc + p.items.length,
       0
     );
-    return `${cantidadPedidos} pedido${cantidadPedidos !== 1 ? 's' : ''} · ${cantidadItems} ítem${cantidadItems !== 1 ? 's' : ''}`;
+    return `${cantidadPedidos} pedido${
+      cantidadPedidos !== 1 ? 's' : ''
+    } · ${cantidadItems} ítem${cantidadItems !== 1 ? 's' : ''}`;
   };
 
   const cerrarCuentaMesa = async (mesaId: number) => {
@@ -810,7 +831,9 @@ const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
       console.log('cerrarCuentaMesa error.hint:', (error as any)?.hint);
       console.log('cerrarCuentaMesa error raw:', error);
       setMensaje(
-        `No se pudo cerrar la cuenta: ${(error as any)?.message ?? 'Error desconocido'}`
+        `No se pudo cerrar la cuenta: ${
+          (error as any)?.message ?? 'Error desconocido'
+        }`
       );
       setProcesandoMesaId(null);
       return;
@@ -904,15 +927,14 @@ const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
       return;
     }
 
-    const { error } = await supabase
-      .from('mesas')
-      .delete()
-      .eq('id', mesaId);
+    const { error } = await supabase.from('mesas').delete().eq('id', mesaId);
 
     if (error) {
       console.error(error);
       setMensaje(
-        `No se pudo eliminar la mesa: ${(error as any)?.message ?? 'Error desconocido'}`
+        `No se pudo eliminar la mesa: ${
+          (error as any)?.message ?? 'Error desconocido'
+        }`
       );
       setEliminandoMesaId(null);
       return;
@@ -946,7 +968,10 @@ const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
     cargarDatos();
   };
 
-  const actualizarEstadoPedido = async (pedidoId: number, nuevoEstado: string) => {
+  const actualizarEstadoPedido = async (
+    pedidoId: number,
+    nuevoEstado: string
+  ) => {
     setActualizandoPedidoId(pedidoId);
     setMensaje(null);
 
@@ -995,6 +1020,10 @@ const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
             <h1 className="text-2xl font-bold">Mesas – Vista de mozo</h1>
             <p className="text-sm text-slate-600">
               Todas las mesas del salón en simultáneo.
+            </p>
+            <p className="text-sm text-slate-500">
+              La mesa técnica #{DELIVERY_MESA_ID} está reservada para delivery y no
+              aparece en esta vista.
             </p>
           </div>
 
@@ -1107,42 +1136,42 @@ const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
                     {mesaUrl}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
-  <button
-    type="button"
-    onClick={() => abrirMesa(mesa.numero)}
-    className="px-2 py-1 rounded-md bg-slate-800 text-white text-[11px] font-medium hover:bg-slate-700"
-  >
-    Abrir mesa
-  </button>
-  <button
-    type="button"
-    onClick={() => copiarLinkMesa(mesa.numero)}
-    className="px-2 py-1 rounded-md bg-white border border-slate-300 text-slate-700 text-[11px] font-medium hover:bg-slate-50"
-  >
-    Copiar link
-  </button>
-  <button
-    type="button"
-    onClick={() => abrirQrMesa(mesa)}
-    className="px-2 py-1 rounded-md bg-indigo-600 text-white text-[11px] font-medium hover:bg-indigo-700"
-  >
-    Ver QR
-  </button>
-  <button
-    type="button"
-    onClick={() => imprimirQrMesa(mesa)}
-    className="px-2 py-1 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700"
-  >
-    Imprimir QR
-  </button>
-  <button
-  type="button"
-  onClick={() => descargarCartelMesaPng(mesa)}
-  className="px-2 py-1 rounded-md bg-amber-500 text-white text-[11px] font-medium hover:bg-amber-600"
->
-  Descargar cartel PNG
-</button>
-</div>
+                    <button
+                      type="button"
+                      onClick={() => abrirMesa(mesa.numero)}
+                      className="px-2 py-1 rounded-md bg-slate-800 text-white text-[11px] font-medium hover:bg-slate-700"
+                    >
+                      Abrir mesa
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => copiarLinkMesa(mesa.numero)}
+                      className="px-2 py-1 rounded-md bg-white border border-slate-300 text-slate-700 text-[11px] font-medium hover:bg-slate-50"
+                    >
+                      Copiar link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => abrirQrMesa(mesa)}
+                      className="px-2 py-1 rounded-md bg-indigo-600 text-white text-[11px] font-medium hover:bg-indigo-700"
+                    >
+                      Ver QR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => imprimirQrMesa(mesa)}
+                      className="px-2 py-1 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700"
+                    >
+                      Imprimir QR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => descargarCartelMesaPng(mesa)}
+                      className="px-2 py-1 rounded-md bg-amber-500 text-white text-[11px] font-medium hover:bg-amber-600"
+                    >
+                      Descargar cartel PNG
+                    </button>
+                  </div>
                 </div>
 
                 {mesa.pedidos.length === 0 ? (
@@ -1266,77 +1295,77 @@ const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
       </div>
 
       {mesaQrActiva ? (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
-    <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold tracking-[0.18em] text-slate-500">
-            RESTOSMART
-          </p>
-          <h2 className="mt-1 text-2xl font-bold">
-            {getMesaDisplayName(mesaQrActiva)}
-          </h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Escaneá para ver el menú, pedir y pagar.
-          </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold tracking-[0.18em] text-slate-500">
+                  RESTOSMART
+                </p>
+                <h2 className="mt-1 text-2xl font-bold">
+                  {getMesaDisplayName(mesaQrActiva)}
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Escaneá para ver el menú, pedir y pagar.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMesaQrActiva(null)}
+                className="rounded-full border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border p-4">
+              <img
+                src={getMesaQrUrl(mesaQrActiva.numero)}
+                alt={`QR ${getMesaDisplayName(mesaQrActiva)}`}
+                className="mx-auto h-72 w-72 max-w-full"
+              />
+              <p className="mt-3 text-center text-base font-semibold text-slate-900">
+                {getMesaDisplayName(mesaQrActiva)}
+              </p>
+              <p className="mt-2 break-all text-center text-xs text-slate-600">
+                {getMesaPublicUrl(mesaQrActiva.numero)}
+              </p>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => abrirMesa(mesaQrActiva.numero)}
+                className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+              >
+                Abrir mesa
+              </button>
+              <button
+                type="button"
+                onClick={() => copiarLinkMesa(mesaQrActiva.numero)}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Copiar link
+              </button>
+              <button
+                type="button"
+                onClick={() => imprimirQrMesa(mesaQrActiva)}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Imprimir QR
+              </button>
+              <button
+                type="button"
+                onClick={() => descargarCartelMesaPng(mesaQrActiva)}
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+              >
+                Descargar cartel PNG
+              </button>
+            </div>
+          </div>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setMesaQrActiva(null)}
-          className="rounded-full border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50"
-        >
-          Cerrar
-        </button>
-      </div>
-
-      <div className="mt-4 rounded-2xl border p-4">
-        <img
-          src={getMesaQrUrl(mesaQrActiva.numero)}
-          alt={`QR ${getMesaDisplayName(mesaQrActiva)}`}
-          className="mx-auto h-72 w-72 max-w-full"
-        />
-        <p className="mt-3 text-center text-base font-semibold text-slate-900">
-          {getMesaDisplayName(mesaQrActiva)}
-        </p>
-        <p className="mt-2 break-all text-center text-xs text-slate-600">
-          {getMesaPublicUrl(mesaQrActiva.numero)}
-        </p>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-  <button
-    type="button"
-    onClick={() => abrirMesa(mesaQrActiva.numero)}
-    className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-  >
-    Abrir mesa
-  </button>
-  <button
-    type="button"
-    onClick={() => copiarLinkMesa(mesaQrActiva.numero)}
-    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-  >
-    Copiar link
-  </button>
-  <button
-    type="button"
-    onClick={() => imprimirQrMesa(mesaQrActiva)}
-    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-  >
-    Imprimir QR
-  </button>
-  <button
-  type="button"
-  onClick={() => descargarCartelMesaPng(mesaQrActiva)}
-  className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
->
-  Descargar cartel PNG
-</button>
-</div>
-    </div>
-  </div>
-) : null}
+      ) : null}
     </main>
   );
 }
