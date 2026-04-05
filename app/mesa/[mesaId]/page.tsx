@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
+const DELIVERY_MESA_ID = 0;
+
 type Producto = {
   id: number;
   nombre: string;
@@ -43,9 +45,11 @@ export default function MesaPage() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  const mesaValida = Number.isFinite(mesaNumero) && mesaNumero > DELIVERY_MESA_ID;
+
   useEffect(() => {
     const cargarDatosIniciales = async () => {
-      if (!mesaNumero || Number.isNaN(mesaNumero)) {
+      if (!mesaValida) {
         setCargando(false);
         return;
       }
@@ -110,7 +114,7 @@ export default function MesaPage() {
     };
 
     cargarDatosIniciales();
-  }, [mesaNumero]);
+  }, [mesaNumero, mesaValida]);
 
   useEffect(() => {
     if (!mesa?.id) return;
@@ -350,10 +354,12 @@ export default function MesaPage() {
     if (urlPago) window.open(urlPago, '_blank');
   };
 
-  if (!mesaNumero || Number.isNaN(mesaNumero)) {
+  if (!mesaValida) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
-        <p>Falta el número de mesa en la URL.</p>
+      <main className="min-h-screen flex items-center justify-center px-4">
+        <p className="text-center">
+          Esta URL no corresponde a una mesa del salón.
+        </p>
       </main>
     );
   }
@@ -455,7 +461,6 @@ export default function MesaPage() {
                 >
                   <div className="w-24 h-24 bg-slate-100 flex-shrink-0">
                     {p.imagen_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={p.imagen_url} alt={p.nombre} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-xs text-slate-400 px-1 text-center">

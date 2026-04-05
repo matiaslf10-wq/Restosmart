@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabaseClient';
 
 export const dynamic = 'force-dynamic';
 
+const DELIVERY_MESA_ID = 0;
+
 type MesaRow = {
   id: number;
   numero: number | null;
@@ -39,6 +41,8 @@ type WhatsappAlertRow = {
 
 function esDelivery(pedido: PedidoRow) {
   return (
+    pedido.mesa_id === DELIVERY_MESA_ID ||
+    pedido.tipo_servicio === 'delivery' ||
     pedido.origen === 'delivery' ||
     pedido.origen === 'delivery_whatsapp' ||
     pedido.origen === 'delivery_manual'
@@ -56,8 +60,9 @@ function esPendienteAprobacionEfectivo(pedido: PedidoRow) {
 }
 
 function getMesaDisplay(mesa: MesaRow | undefined) {
-  if (!mesa) return 'Mesa';
-  if (mesa.numero != null) return `Mesa ${mesa.numero}`;
+  if (!mesa) return 'Delivery';
+  if (mesa.id === DELIVERY_MESA_ID) return 'Delivery';
+  if (mesa.numero != null && mesa.numero > 0) return `Mesa ${mesa.numero}`;
   return mesa.nombre || 'Delivery';
 }
 
@@ -144,7 +149,7 @@ export async function GET() {
       .filter((pedido) => esDelivery(pedido))
       .map((pedido) => ({
         ...pedido,
-        mesa_nombre: pedido.mesa_id ? getMesaDisplay(mesasMap.get(pedido.mesa_id)) : 'Delivery',
+        mesa_nombre: 'Delivery',
       }))
       .slice(0, 20);
 
