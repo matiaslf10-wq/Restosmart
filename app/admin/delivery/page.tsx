@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+const DELIVERY_MESA_ID = 0;
+
 type DeliveryConfig = {
   activo: boolean;
   whatsapp_numero: string;
@@ -286,7 +288,7 @@ export default function AdminDeliveryPage() {
           : 'No se pudo actualizar el estado del pedido.'
       );
     } finally {
-      setProcessingOrderId(null);
+        setProcessingOrderId(null);
     }
   }
 
@@ -306,6 +308,15 @@ export default function AdminDeliveryPage() {
         <p className="mt-1 text-sm text-neutral-600">
           Desde acá podés definir el número de WhatsApp, medios de pago y
           comportamiento inicial del canal de delivery.
+        </p>
+      </div>
+
+      <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+        <p className="font-medium">Mesa técnica reservada para delivery</p>
+        <p className="mt-1">
+          Los pedidos de delivery deben usar la mesa #{DELIVERY_MESA_ID}. Esa
+          mesa queda reservada para este canal y no ocupa mesas físicas del
+          salón ni aparece en los QR de mesas.
         </p>
       </div>
 

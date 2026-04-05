@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import QRCode from 'react-qr-code';
 
+const DELIVERY_MESA_ID = 0;
+
 type Mesa = {
   id: number;
   nombre: string;
@@ -19,7 +21,6 @@ export default function AdminMesasPage() {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Cargar mesas
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setBaseUrl(window.location.origin);
@@ -32,6 +33,7 @@ export default function AdminMesasPage() {
       const { data, error } = await supabase
         .from('mesas')
         .select('*')
+        .gt('id', DELIVERY_MESA_ID)
         .order('id', { ascending: true });
 
       if (!error && data) {
@@ -53,7 +55,6 @@ export default function AdminMesasPage() {
     }
   };
 
-  // Crear nueva mesa
   const handleCrearMesa = async (e: React.FormEvent) => {
     e.preventDefault();
     setMensaje(null);
@@ -85,10 +86,15 @@ export default function AdminMesasPage() {
 
       const mesaNueva = data as Mesa;
 
-      // Agrego la nueva mesa a la lista y la ordeno por id
-      setMesas((prev) =>
-        [...prev, mesaNueva].sort((a, b) => a.id - b.id)
-      );
+      if (mesaNueva.id <= DELIVERY_MESA_ID) {
+        setMensaje(
+          `Se creó la mesa "${mesaNueva.nombre}", pero no se mostrará acá porque la mesa ${DELIVERY_MESA_ID} está reservada para delivery.`
+        );
+        setNuevoNombre('');
+        return;
+      }
+
+      setMesas((prev) => [...prev, mesaNueva].sort((a, b) => a.id - b.id));
       setNuevoNombre('');
       setMensaje(`Mesa "${mesaNueva.nombre}" creada con éxito (ID ${mesaNueva.id}).`);
     } finally {
@@ -107,12 +113,9 @@ export default function AdminMesasPage() {
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 print:bg-white">
       <div className="max-w-5xl mx-auto space-y-6">
-        {/* Header superior (solo pantalla) */}
         <header className="flex flex-col gap-2 print:hidden">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <h1 className="text-2xl font-bold">
-              Administración de mesas
-            </h1>
+            <h1 className="text-2xl font-bold">Administración de mesas</h1>
             <button
               onClick={handlePrint}
               className="px-3 py-1 rounded-lg bg-slate-800 text-white text-sm hover:bg-slate-700"
@@ -123,9 +126,12 @@ export default function AdminMesasPage() {
           <p className="text-sm text-slate-600">
             Cada QR apunta a <code>/mesa/[id]</code> en este sitio.
           </p>
+          <p className="text-sm text-slate-600">
+            La mesa #{DELIVERY_MESA_ID} está reservada para delivery y no se muestra
+            en este listado ni en los QR del salón.
+          </p>
         </header>
 
-        {/* Mensajes */}
         {mensaje && (
           <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg print:hidden">
             {mensaje}
@@ -137,7 +143,6 @@ export default function AdminMesasPage() {
           </p>
         )}
 
-        {/* Formulario para crear nueva mesa (no se imprime) */}
         <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3 print:hidden">
           <h2 className="text-lg font-semibold">Agregar nueva mesa</h2>
           <form
@@ -161,13 +166,13 @@ export default function AdminMesasPage() {
           </form>
           <p className="text-xs text-slate-500">
             El ID se genera automáticamente en la base de datos. Cada mesa nueva tendrá su propio QR.
+            La mesa #{DELIVERY_MESA_ID} queda reservada para delivery.
           </p>
         </section>
 
-        {/* QR de todas las mesas (esto sí se imprime) */}
         {mesas.length === 0 ? (
           <p className="text-slate-600">
-            No hay mesas cargadas en la base de datos.
+            No hay mesas físicas cargadas en la base de datos.
           </p>
         ) : (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 print:grid-cols-2">
