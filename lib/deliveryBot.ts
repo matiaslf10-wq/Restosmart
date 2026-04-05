@@ -34,6 +34,10 @@ function parseQuantityAndProduct(text: string) {
   };
 }
 
+function buildDeliveryPublicCode(pedidoId: number) {
+  return `DEL-${String(pedidoId).padStart(6, '0')}`;
+}
+
 function calcularTotal(carrito: DeliveryCartItem[]) {
   return carrito.reduce((acc, item) => {
     return acc + Number(item.precio ?? 0) * Number(item.cantidad ?? 0);
@@ -123,17 +127,32 @@ async function crearPedidoDeliveryDesdeConversacion(params: {
     medio_pago: esEfectivo ? 'efectivo' : 'mercadopago',
     estado_pago: esEfectivo ? 'esperando_aprobacion' : 'pendiente',
     efectivo_aprobado: false,
+    codigo_publico: null,
   };
 
   const { data: pedido, error: errorPedido } = await supabase
     .from('pedidos')
     .insert(payload)
-    .select('id, mesa_id, estado, estado_pago')
+    .select('id, mesa_id, estado, estado_pago, codigo_publico')
     .single();
 
   if (errorPedido || !pedido) {
     throw new Error(
       errorPedido?.message || 'No se pudo crear el pedido de delivery.'
+    );
+  }
+
+  const codigoPublico = buildDeliveryPublicCode(pedido.id);
+
+  const { error: errorCodigo } = await supabase
+    .from('pedidos')
+    .update({ codigo_publico: codigoPublico })
+    .eq('id', pedido.id);
+
+  if (errorCodigo) {
+    await supabase.from('pedidos').delete().eq('id', pedido.id);
+    throw new Error(
+      errorCodigo.message || 'No se pudo asignar el código público del pedido.'
     );
   }
 
@@ -153,7 +172,10 @@ async function crearPedidoDeliveryDesdeConversacion(params: {
     );
   }
 
-  return pedido;
+  return {
+    ...pedido,
+    codigo_publico: codigoPublico,
+  };
 }
 
 export async function handleIncomingWhatsAppMessage(
@@ -282,7 +304,7 @@ export async function handleIncomingWhatsAppMessage(
 
         await sendWhatsAppText(
           telefono,
-          `Tu pedido #${pedido.id} quedó registrado. Falta confirmar el pago para enviarlo a cocina.`
+          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}\n\nFalta confirmar el pago para enviarlo a cocina.`
         );
       } catch (error) {
         console.error(error);
@@ -310,7 +332,7 @@ export async function handleIncomingWhatsAppMessage(
 
         await sendWhatsAppText(
           telefono,
-          `Tu pedido #${pedido.id} quedó pendiente de validación en efectivo. En cuanto lo aprueben, entra a cocina.`
+          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}\n\nQuedó pendiente de validación en efectivo. En cuanto lo aprueben, entra a cocina.`
         );
       } catch (error) {
         console.error(error);
@@ -332,7 +354,7 @@ export async function handleIncomingWhatsAppMessage(
   if (conv.estado === 'esperando_aprobacion_efectivo') {
     await sendWhatsAppText(
       telefono,
-      'Tu pedido ya quedó registrado y está esperando aprobación del efectivo. Apenas lo aprueben, entra a cocina.'
+      'Tu pedido ya quedó registrado y está esperando aprobación del efectivo.'
     );
     return;
   }

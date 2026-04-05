@@ -17,6 +17,7 @@ type OperacionPedido = {
   medio_pago?: string | null;
   estado_pago?: string | null;
   efectivo_aprobado?: boolean | null;
+  codigo_publico?: string | null;
 };
 
 type WhatsappAlert = {
@@ -237,8 +238,8 @@ export default function AdminOperacionesPage() {
                             </span>
                           </div>
                           <h3 className="mt-2 text-base font-semibold">
-                            Pedido #{pedido.id}
-                          </h3>
+  {pedido.codigo_publico || `Pedido #${pedido.id}`}
+</h3>
                           <p className="text-sm text-neutral-600">
                             {formatDate(pedido.creado_en)}
                           </p>

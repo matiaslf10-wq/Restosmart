@@ -10,6 +10,7 @@ export async function GET() {
       .select(
         `
           id,
+          codigo_publico,
           creado_en,
           estado,
           total,

@@ -28,6 +28,7 @@ type PendingDeliveryOrder = {
   medio_pago: string | null;
   estado_pago: string | null;
   efectivo_aprobado: boolean | null;
+  codigo_publico?: string | null;
 };
 
 const DEFAULT_CONFIG: DeliveryConfig = {
@@ -529,8 +530,8 @@ export default function AdminDeliveryPage() {
                           Pendiente efectivo
                         </span>
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                          Pedido #{pedido.id}
-                        </span>
+  {pedido.codigo_publico || `Pedido #${pedido.id}`}
+</span>
                       </div>
 
                       <h3 className="text-base font-semibold">

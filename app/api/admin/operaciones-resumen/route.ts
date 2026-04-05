@@ -13,6 +13,7 @@ type MesaRow = {
 
 type PedidoRow = {
   id: number;
+  codigo_publico?: string | null;
   mesa_id: number | null;
   creado_en: string;
   estado: string;
@@ -75,6 +76,7 @@ export async function GET() {
         .select(
           `
             id,
+            codigo_publico,
             mesa_id,
             creado_en,
             estado,

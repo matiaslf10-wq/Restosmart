@@ -16,9 +16,27 @@ type Pedido = {
   creado_en: string;
   estado: string;
   items: ItemPedido[];
+  codigo_publico?: string | null;
+origen?: string | null;
+tipo_servicio?: string | null;
 };
 
 type FiltroEstado = 'todos' | 'pendiente' | 'en_preparacion' | 'listo';
+
+function esPedidoDelivery(pedido: Pedido) {
+  return (
+    pedido.mesa_id === 0 ||
+    pedido.tipo_servicio === 'delivery' ||
+    pedido.origen === 'delivery' ||
+    pedido.origen === 'delivery_whatsapp' ||
+    pedido.origen === 'delivery_manual'
+  );
+}
+
+function getPedidoLabel(pedido: Pedido) {
+  if (esPedidoDelivery(pedido)) return 'Delivery';
+  return `Mesa ${pedido.mesa_id}`;
+}
 
 export default function CocinaPage() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
@@ -54,6 +72,9 @@ export default function CocinaPage() {
           comentarios,
           producto:productos ( nombre )
         )
+          origen,
+tipo_servicio,
+codigo_publico,
       `)
       // Cocina solo ve los que ya están "en cocina"
       .in('estado', ['pendiente', 'en_preparacion', 'listo'])
@@ -66,6 +87,9 @@ export default function CocinaPage() {
         creado_en: p.creado_en,
         estado: p.estado,
         items: p.items_pedido ?? [],
+        origen: p.origen ?? null,
+tipo_servicio: p.tipo_servicio ?? null,
+codigo_publico: p.codigo_publico ?? null,
       }));
       setPedidos(formateados);
     }
@@ -198,8 +222,8 @@ export default function CocinaPage() {
               >
                 <header className="flex flex-wrap items-baseline justify-between gap-2">
                   <h3 className="font-semibold">
-                    Pedido #{p.id} – Mesa {p.mesa_id}
-                  </h3>
+  {p.codigo_publico || `Pedido #${p.id}`} – {getPedidoLabel(p)}
+</h3>
                   <div className="text-xs text-slate-300">
                     Hora: {new Date(p.creado_en).toLocaleTimeString()}
                     {' · '}
