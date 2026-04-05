@@ -85,6 +85,83 @@ function getMesaDisplayName(mesa: MesaConCuenta | { numero: number | null; nombr
   return mesa.numero != null ? `Mesa ${mesa.numero}` : mesa.nombre;
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('No se pudo convertir el archivo.'));
+      }
+    };
+
+    reader.onerror = () => reject(reader.error ?? new Error('Error leyendo archivo.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function buildMesaPosterSvg(params: {
+  mesaTitulo: string;
+  mesaUrl: string;
+  qrDataUrl: string;
+}) {
+  const { mesaTitulo, mesaUrl, qrDataUrl } = params;
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1800" viewBox="0 0 1200 1800">
+      <rect width="1200" height="1800" fill="#ffffff"/>
+      <rect x="70" y="70" width="1060" height="1660" rx="48" ry="48" fill="#ffffff" stroke="#0f172a" stroke-width="8"/>
+
+      <text x="600" y="190" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#64748b" letter-spacing="6">
+        RESTOSMART
+      </text>
+
+      <text x="600" y="320" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="110" font-weight="800" fill="#0f172a">
+        ${escapeHtml(mesaTitulo)}
+      </text>
+
+      <text x="600" y="415" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="38" fill="#334155">
+        Escaneá para ver el menú,
+      </text>
+
+      <text x="600" y="465" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="38" fill="#334155">
+        pedir y pagar desde tu celular
+      </text>
+
+      <rect x="220" y="560" width="760" height="760" rx="28" ry="28" fill="#ffffff" stroke="#cbd5e1" stroke-width="6"/>
+      <image href="${qrDataUrl}" x="290" y="630" width="620" height="620" preserveAspectRatio="xMidYMid meet"/>
+
+      <text x="600" y="1395" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700" fill="#111827">
+        Apuntá la cámara de tu celular al QR
+      </text>
+
+      <text x="600" y="1495" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#64748b" letter-spacing="3">
+        LINK DIRECTO
+      </text>
+
+      <foreignObject x="180" y="1525" width="840" height="120">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 26px;
+          line-height: 1.35;
+          color: #334155;
+          text-align: center;
+          word-break: break-all;
+          padding: 0 10px;
+        ">
+          ${escapeHtml(mesaUrl)}
+        </div>
+      </foreignObject>
+
+      <text x="600" y="1690" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#64748b">
+        Si el QR no funciona, ingresá al link manualmente
+      </text>
+    </svg>
+  `;
+}
+
 export default function MesasMozoPage() {
   const [mesas, setMesas] = useState<MesaConCuenta[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -328,34 +405,89 @@ export default function MesasMozoPage() {
   printWindow.focus();
 };
 
-const descargarQrMesa = async (mesa: MesaConCuenta) => {
+const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
   const numero = mesa.numero;
   if (numero == null) return;
 
   try {
+    const mesaTitulo = getMesaDisplayName(mesa);
+    const mesaUrl = getMesaPublicUrl(numero);
     const qrUrl = getMesaQrUrl(numero);
-    const response = await fetch(qrUrl);
 
-    if (!response.ok) {
-      throw new Error('No se pudo generar el PNG del QR.');
+    const qrResponse = await fetch(qrUrl);
+
+    if (!qrResponse.ok) {
+      throw new Error('No se pudo generar el QR para el cartel.');
     }
 
-    const blob = await response.blob();
-    const objectUrl = window.URL.createObjectURL(blob);
+    const qrBlob = await qrResponse.blob();
+    const qrDataUrl = await blobToDataUrl(qrBlob);
 
-    const a = document.createElement('a');
-    a.href = objectUrl;
-    a.download = `mesa-${numero}-qr.png`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const svgMarkup = buildMesaPosterSvg({
+      mesaTitulo,
+      mesaUrl,
+      qrDataUrl,
+    });
 
-    window.URL.revokeObjectURL(objectUrl);
+    const svgBlob = new Blob([svgMarkup], {
+      type: 'image/svg+xml;charset=utf-8',
+    });
 
-    setMensaje(`Se descargó el QR de Mesa ${numero} en PNG.`);
+    const svgUrl = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1200;
+        canvas.height = 1800;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          throw new Error('No se pudo inicializar el canvas.');
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            setMensaje(`No se pudo exportar el cartel PNG de ${mesaTitulo}.`);
+            URL.revokeObjectURL(svgUrl);
+            return;
+          }
+
+          const pngUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = pngUrl;
+          a.download = `${mesaTitulo.toLowerCase().replace(/\s+/g, '-')}-cartel.png`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+
+          URL.revokeObjectURL(pngUrl);
+          URL.revokeObjectURL(svgUrl);
+
+          setMensaje(`Se descargó el cartel PNG de ${mesaTitulo}.`);
+        }, 'image/png');
+      } catch (error) {
+        console.error(error);
+        URL.revokeObjectURL(svgUrl);
+        setMensaje(`No se pudo generar el cartel PNG de ${mesaTitulo}.`);
+      }
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(svgUrl);
+      setMensaje(`No se pudo renderizar el cartel PNG de ${mesaTitulo}.`);
+    };
+
+    img.src = svgUrl;
   } catch (error) {
     console.error(error);
-    setMensaje(`No se pudo descargar el QR en PNG de Mesa ${numero}.`);
+    setMensaje(`No se pudo descargar el cartel PNG de Mesa ${numero}.`);
   }
 };
 
@@ -1004,12 +1136,12 @@ const descargarQrMesa = async (mesa: MesaConCuenta) => {
     Imprimir QR
   </button>
   <button
-    type="button"
-    onClick={() => descargarQrMesa(mesa)}
-    className="px-2 py-1 rounded-md bg-amber-500 text-white text-[11px] font-medium hover:bg-amber-600"
-  >
-    Descargar PNG
-  </button>
+  type="button"
+  onClick={() => descargarCartelMesaPng(mesa)}
+  className="px-2 py-1 rounded-md bg-amber-500 text-white text-[11px] font-medium hover:bg-amber-600"
+>
+  Descargar cartel PNG
+</button>
 </div>
                 </div>
 
@@ -1195,12 +1327,12 @@ const descargarQrMesa = async (mesa: MesaConCuenta) => {
     Imprimir QR
   </button>
   <button
-    type="button"
-    onClick={() => descargarQrMesa(mesaQrActiva)}
-    className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
-  >
-    Descargar PNG
-  </button>
+  type="button"
+  onClick={() => descargarCartelMesaPng(mesaQrActiva)}
+  className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+>
+  Descargar cartel PNG
+</button>
 </div>
     </div>
   </div>
