@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
+
+function supabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 function normalizePaymentStatus(status: string | null | undefined) {
   const value = String(status ?? '').toLowerCase();
 
   if (value === 'approved' || value === 'authorized') return 'aprobado';
+
   if (
     value === 'pending' ||
     value === 'in_process' ||
@@ -12,6 +19,7 @@ function normalizePaymentStatus(status: string | null | undefined) {
   ) {
     return 'pendiente';
   }
+
   if (
     value === 'rejected' ||
     value === 'cancelled' ||
@@ -25,9 +33,9 @@ function normalizePaymentStatus(status: string | null | undefined) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-
   try {
+    const body = await request.json().catch(() => null);
+
     const eventType = String(body?.type ?? body?.topic ?? '').toLowerCase();
     const paymentId = body?.data?.id ?? body?.id ?? null;
 
@@ -44,16 +52,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-    });
+    if (
+      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      !process.env.SUPABASE_SERVICE_ROLE_KEY
+    ) {
+      return NextResponse.json(
+        { error: 'Faltan credenciales server de Supabase.' },
+        { status: 500 }
+      );
+    }
 
-    const payment = await mpRes.json();
+    const mpRes = await fetch(
+      `https://api.mercadopago.com/v1/payments/${paymentId}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      }
+    );
+
+    const payment = await mpRes.json().catch(() => null);
 
     if (!mpRes.ok) {
       console.error('Mercado Pago payment lookup error', payment);
@@ -64,11 +85,51 @@ export async function POST(request: NextRequest) {
     }
 
     const externalReference = String(payment?.external_reference ?? '').trim();
+
     if (!externalReference) {
-      return NextResponse.json({ ok: true, ignored: true, reason: 'sin external_reference' });
+      return NextResponse.json({
+        ok: true,
+        ignored: true,
+        reason: 'sin external_reference',
+      });
     }
 
     const estadoPago = normalizePaymentStatus(payment?.status);
+    const sb = supabaseAdmin();
+
+    const { data: pedidoActual, error: pedidoActualError } = await sb
+      .from('pedidos')
+      .select('id, codigo_publico, estado, estado_pago')
+      .eq('codigo_publico', externalReference)
+      .maybeSingle();
+
+    if (pedidoActualError) {
+      console.error('Error leyendo pedido actual por webhook MP:', pedidoActualError);
+      return NextResponse.json(
+        { error: `No se pudo leer el pedido: ${pedidoActualError.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (!pedidoActual) {
+      return NextResponse.json(
+        { error: 'No se encontró un pedido para ese external_reference.' },
+        { status: 404 }
+      );
+    }
+
+    if (
+      pedidoActual.estado === 'cancelado' ||
+      pedidoActual.estado === 'cerrado' ||
+      pedidoActual.estado === 'entregado'
+    ) {
+      return NextResponse.json({
+        ok: true,
+        ignored: true,
+        reason: `pedido_en_estado_${pedidoActual.estado}`,
+        pedido: pedidoActual,
+      });
+    }
 
     const updateBase = {
       medio_pago: 'mercadopago',
@@ -85,10 +146,10 @@ export async function POST(request: NextRequest) {
           }
         : updateBase;
 
-    const { data, error } = await supabase
+    const { data, error } = await sb
       .from('pedidos')
       .update(updatePayload)
-      .eq('codigo_publico', externalReference)
+      .eq('id', pedidoActual.id)
       .select('id, codigo_publico, estado, estado_pago')
       .single();
 
@@ -109,7 +170,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, pedido: data });
   } catch (error) {
-    console.error(error);
+    console.error('POST /api/pagos/webhook', error);
     return NextResponse.json({ error: 'Webhook error' }, { status: 500 });
   }
 }
