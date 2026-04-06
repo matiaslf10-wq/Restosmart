@@ -17,8 +17,8 @@ type Pedido = {
   estado: string;
   items: ItemPedido[];
   codigo_publico?: string | null;
-origen?: string | null;
-tipo_servicio?: string | null;
+  origen?: string | null;
+  tipo_servicio?: string | null;
 };
 
 type FiltroEstado = 'todos' | 'pendiente' | 'en_preparacion' | 'listo';
@@ -66,17 +66,16 @@ export default function CocinaPage() {
         mesa_id,
         creado_en,
         estado,
+        origen,
+        tipo_servicio,
+        codigo_publico,
         items_pedido (
           id,
           cantidad,
           comentarios,
           producto:productos ( nombre )
         )
-          origen,
-tipo_servicio,
-codigo_publico,
       `)
-      // Cocina solo ve los que ya están "en cocina"
       .in('estado', ['pendiente', 'en_preparacion', 'listo'])
       .order('creado_en', { ascending: true });
 
@@ -88,8 +87,8 @@ codigo_publico,
         estado: p.estado,
         items: p.items_pedido ?? [],
         origen: p.origen ?? null,
-tipo_servicio: p.tipo_servicio ?? null,
-codigo_publico: p.codigo_publico ?? null,
+        tipo_servicio: p.tipo_servicio ?? null,
+        codigo_publico: p.codigo_publico ?? null,
       }));
       setPedidos(formateados);
     }
@@ -111,7 +110,6 @@ codigo_publico: p.codigo_publico ?? null,
 
           const estadosCocina = ['pendiente', 'en_preparacion', 'listo'];
 
-          // 🔔 INSERT: entra directo a un estado visible por cocina
           if (payload.eventType === 'INSERT') {
             if (estadosCocina.includes(nuevo.estado)) {
               setDestacados((prev) => [...prev, nuevo.id]);
@@ -119,7 +117,6 @@ codigo_publico: p.codigo_publico ?? null,
             }
           }
 
-          // 🔔 UPDATE: cuando el mozo lo pasa de 'solicitado' → 'pendiente'
           if (payload.eventType === 'UPDATE') {
             if (
               estadosCocina.includes(nuevo.estado) &&
@@ -180,7 +177,6 @@ codigo_publico: p.codigo_publico ?? null,
         <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h1 className="text-2xl font-bold">Cocina (tiempo real)</h1>
 
-          {/* Filtros de estado */}
           <div className="flex flex-wrap gap-2">
             {[
               { value: 'todos', label: 'Todos' },
@@ -222,8 +218,8 @@ codigo_publico: p.codigo_publico ?? null,
               >
                 <header className="flex flex-wrap items-baseline justify-between gap-2">
                   <h3 className="font-semibold">
-  {p.codigo_publico || `Pedido #${p.id}`} – {getPedidoLabel(p)}
-</h3>
+                    {p.codigo_publico || `Pedido #${p.id}`} – {getPedidoLabel(p)}
+                  </h3>
                   <div className="text-xs text-slate-300">
                     Hora: {new Date(p.creado_en).toLocaleTimeString()}
                     {' · '}

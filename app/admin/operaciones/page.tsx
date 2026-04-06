@@ -179,9 +179,7 @@ export default function AdminOperacionesPage() {
             </article>
 
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
-              <p className="text-sm text-neutral-500">
-                Delivery · activos
-              </p>
+              <p className="text-sm text-neutral-500">Delivery · activos</p>
               <p className="mt-2 text-3xl font-semibold">
                 {data.resumen.deliveryActivos}
               </p>
@@ -237,9 +235,11 @@ export default function AdminOperacionesPage() {
                               {pedido.mesa_nombre || 'Mesa'}
                             </span>
                           </div>
+
                           <h3 className="mt-2 text-base font-semibold">
-  {pedido.codigo_publico || `Pedido #${pedido.id}`}
-</h3>
+                            {pedido.codigo_publico || `Pedido #${pedido.id}`}
+                          </h3>
+
                           <p className="text-sm text-neutral-600">
                             {formatDate(pedido.creado_en)}
                           </p>
@@ -290,7 +290,7 @@ export default function AdminOperacionesPage() {
                           </div>
 
                           <h3 className="mt-2 text-base font-semibold">
-                            Pedido #{pedido.id}
+                            {pedido.codigo_publico || `Pedido #${pedido.id}`}
                           </h3>
 
                           <p className="text-sm text-neutral-600">
