@@ -4,6 +4,10 @@ import { handleIncomingWhatsAppMessage } from '@/lib/deliveryBot';
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 
 export async function GET(request: NextRequest) {
+  if (!VERIFY_TOKEN) {
+    return new NextResponse('Server misconfigured', { status: 500 });
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const mode = searchParams.get('hub.mode');
   const token = searchParams.get('hub.verify_token');
@@ -17,9 +21,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-
   try {
+    const body = await request.json();
+
     const entry = body?.entry?.[0];
     const change = entry?.changes?.[0];
     const value = change?.value;
@@ -34,6 +38,7 @@ export async function POST(request: NextRequest) {
       message?.text?.body ||
       message?.button?.text ||
       message?.interactive?.button_reply?.title ||
+      message?.interactive?.list_reply?.title ||
       '';
 
     if (from && text) {
@@ -42,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error(error);
+    console.error('WhatsApp webhook error:', error);
     return NextResponse.json({ error: 'Webhook error' }, { status: 500 });
   }
 }
