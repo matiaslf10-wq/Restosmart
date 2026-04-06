@@ -20,6 +20,14 @@ type DeliveryConversation = {
   medio_pago?: string | null;
 };
 
+type PedidoDeliveryCreado = {
+  id: number;
+  mesa_id: number;
+  estado: string;
+  estado_pago: string;
+  codigo_publico: string;
+};
+
 function normalizeText(text: string) {
   return text.trim().toLowerCase();
 }
@@ -42,6 +50,14 @@ function calcularTotal(carrito: DeliveryCartItem[]) {
   return carrito.reduce((acc, item) => {
     return acc + Number(item.precio ?? 0) * Number(item.cantidad ?? 0);
   }, 0);
+}
+
+function getAppUrl() {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.APP_URL?.trim() ||
+    ''
+  );
 }
 
 async function getConversation(telefono: string) {
@@ -102,7 +118,7 @@ async function crearPedidoDeliveryDesdeConversacion(params: {
   telefono: string;
   conv: DeliveryConversation;
   medioPago: 'efectivo' | 'mercadopago';
-}) {
+}): Promise<PedidoDeliveryCreado> {
   const { telefono, conv, medioPago } = params;
 
   const carrito = Array.isArray(conv.carrito) ? conv.carrito : [];
@@ -175,6 +191,62 @@ async function crearPedidoDeliveryDesdeConversacion(params: {
   return {
     ...pedido,
     codigo_publico: codigoPublico,
+  };
+}
+
+async function crearPreferenciaMercadoPago(params: {
+  pedido: PedidoDeliveryCreado;
+  conv: DeliveryConversation;
+}) {
+  const { pedido, conv } = params;
+
+  const appUrl = getAppUrl();
+  if (!appUrl) {
+    throw new Error('Falta NEXT_PUBLIC_APP_URL o APP_URL.');
+  }
+
+  const carrito = Array.isArray(conv.carrito) ? conv.carrito : [];
+  if (carrito.length === 0) {
+    throw new Error('No hay ítems para generar la preferencia de pago.');
+  }
+
+  const items = carrito.map((item) => ({
+    title: item.nombre,
+    quantity: item.cantidad,
+    unit_price: Number(item.precio),
+    currency_id: 'ARS',
+  }));
+
+  const res = await fetch(`${appUrl}/api/pagos/crear-preferencia`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      items,
+      external_reference: pedido.codigo_publico,
+    }),
+    cache: 'no-store',
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(
+      data?.error?.message ||
+        data?.error ||
+        'No se pudo crear la preferencia de Mercado Pago.'
+    );
+  }
+
+  const paymentUrl = data?.init_point || data?.sandbox_init_point;
+
+  if (!paymentUrl) {
+    throw new Error('Mercado Pago no devolvió un link de pago.');
+  }
+
+  return {
+    paymentUrl: String(paymentUrl),
   };
 }
 
@@ -296,6 +368,11 @@ export async function handleIncomingWhatsAppMessage(
           medioPago: 'mercadopago',
         });
 
+        const preferencia = await crearPreferenciaMercadoPago({
+          pedido,
+          conv,
+        });
+
         await updateConversation(conv.id, {
           estado: 'esperando_pago',
           medio_pago: 'mercadopago',
@@ -304,13 +381,13 @@ export async function handleIncomingWhatsAppMessage(
 
         await sendWhatsAppText(
           telefono,
-          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}\n\nFalta confirmar el pago para enviarlo a cocina.`
+          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}\n\nPagalo acá:\n${preferencia.paymentUrl}\n\nCuando Mercado Pago confirme el cobro, entra a cocina.`
         );
       } catch (error) {
         console.error(error);
         await sendWhatsAppText(
           telefono,
-          'No pude registrar tu pedido en este momento. Probá nuevamente en unos minutos.'
+          'No pude registrar tu pedido o generar el link de pago en este momento. Probá nuevamente en unos minutos.'
         );
       }
       return;
@@ -362,7 +439,7 @@ export async function handleIncomingWhatsAppMessage(
   if (conv.estado === 'esperando_pago') {
     await sendWhatsAppText(
       telefono,
-      'Tu pedido ya quedó registrado. Falta confirmar el pago para enviarlo a cocina.'
+      'Tu pedido ya quedó registrado. Si ya pagaste, aguardá la confirmación. Si todavía no pagaste, pedime nuevamente el link.'
     );
   }
 }

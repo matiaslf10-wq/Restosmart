@@ -2,6 +2,14 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
 export async function sendWhatsAppText(to: string, body: string) {
+  if (!WHATSAPP_TOKEN) {
+    throw new Error('Falta WHATSAPP_ACCESS_TOKEN');
+  }
+
+  if (!WHATSAPP_PHONE_NUMBER_ID) {
+    throw new Error('Falta WHATSAPP_PHONE_NUMBER_ID');
+  }
+
   const res = await fetch(
     `https://graph.facebook.com/v23.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`,
     {
@@ -19,10 +27,13 @@ export async function sendWhatsAppText(to: string, body: string) {
     }
   );
 
-  const data = await res.json();
+  const data = await res.json().catch(() => null);
 
   if (!res.ok) {
-    throw new Error(data?.error?.message || 'No se pudo enviar WhatsApp');
+    throw new Error(
+      data?.error?.message ||
+        `No se pudo enviar WhatsApp (status ${res.status})`
+    );
   }
 
   return data;
