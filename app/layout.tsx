@@ -14,7 +14,20 @@ const manrope = Manrope({
 
 export const metadata: Metadata = {
   title: 'RestoSmart',
-  description: 'Software inteligente para restaurantes, bares, cafés y take away.',
+  description:
+    'Software inteligente para restaurantes, bares, cafés y take away. Un solo sistema para operar con mesas o en modo retiro.',
+  keywords: [
+    'restosmart',
+    'software gastronomico',
+    'menu digital',
+    'qr por mesa',
+    'take away',
+    'restaurante',
+    'bar',
+    'cafe',
+    'pedido digital',
+    'software para restaurantes',
+  ],
 };
 
 export default function RootLayout({

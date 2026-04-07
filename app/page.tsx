@@ -16,62 +16,65 @@ function PhoneMockup() {
 
           <div className="mt-4 grid gap-3">
             <div className="rounded-2xl border border-black/10 bg-white p-3">
-              <div className="text-xs text-zinc-500">Mesa 12</div>
-              <div className="mt-0.5 text-sm font-semibold">Menú digital (QR)</div>
+              <div className="text-xs text-zinc-500">Plan Esencial</div>
+              <div className="mt-0.5 text-sm font-semibold">
+                Un mismo sistema, dos modos
+              </div>
 
-              <div className="mt-3 grid grid-cols-[86px_1fr] gap-3 items-center">
-                <div className="rounded-xl border border-black/10 bg-white p-2">
-                  <svg viewBox="0 0 64 64" className="h-full w-full">
-                    <rect x="6" y="6" width="18" height="18" rx="2" className="fill-zinc-900" />
-                    <rect x="10" y="10" width="10" height="10" rx="1" className="fill-white" />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="rounded-full border border-black/10 bg-zinc-50 px-2 py-1 text-[10px] text-zinc-700">
+                  Restaurante
+                </span>
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] text-blue-700">
+                  Take Away
+                </span>
+              </div>
 
-                    <rect x="40" y="6" width="18" height="18" rx="2" className="fill-zinc-900" />
-                    <rect x="44" y="10" width="10" height="10" rx="1" className="fill-white" />
-
-                    <rect x="6" y="40" width="18" height="18" rx="2" className="fill-zinc-900" />
-                    <rect x="10" y="44" width="10" height="10" rx="1" className="fill-white" />
-
-                    <rect x="28" y="28" width="6" height="6" className="fill-zinc-900" />
-                    <rect x="36" y="28" width="4" height="4" className="fill-zinc-900" />
-                    <rect x="28" y="38" width="4" height="4" className="fill-zinc-900" />
-                    <rect x="44" y="36" width="6" height="6" className="fill-zinc-900" />
-                    <rect x="36" y="44" width="4" height="4" className="fill-zinc-900" />
-                    <rect x="52" y="28" width="4" height="10" className="fill-zinc-900" />
-                  </svg>
+              <div className="mt-3 grid gap-2">
+                <div className="rounded-xl border border-black/10 bg-white px-3 py-2">
+                  <div className="text-[11px] text-zinc-500">Modo restaurante</div>
+                  <div className="mt-0.5 text-xs font-semibold">
+                    QR por mesa · pedido digital · salón
+                  </div>
                 </div>
 
-                <div className="grid gap-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-semibold">Cafetería</div>
-                    <span className="rounded-full border border-black/10 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-600">
-                      Pedido rápido
-                    </span>
+                <div className="rounded-xl border border-black/10 bg-white px-3 py-2">
+                  <div className="text-[11px] text-zinc-500">Modo take away</div>
+                  <div className="mt-0.5 text-xs font-semibold">
+                    Pedido local · retiro en mostrador
                   </div>
-
-                  <div className="grid gap-1.5">
-                    {[
-                      { name: 'Flat White', price: '$ 3.200' },
-                      { name: 'Medialunas', price: '$ 1.800' },
-                      { name: 'Tostado', price: '$ 4.500' },
-                    ].map((p) => (
-                      <div
-                        key={p.name}
-                        className="flex items-center justify-between rounded-xl border border-black/10 bg-white px-3 py-2"
-                      >
-                        <div className="text-xs text-zinc-800">{p.name}</div>
-                        <div className="text-xs font-semibold">{p.price}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <button
-                    type="button"
-                    className="mt-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-                  >
-                    Ver menú completo
-                  </button>
                 </div>
               </div>
+            </div>
+
+            <div className="rounded-2xl border border-black/10 bg-white p-3">
+              <div className="text-xs text-zinc-500">Menú digital</div>
+              <div className="mt-0.5 text-sm font-semibold">
+                Experiencia simple para el cliente
+              </div>
+
+              <div className="mt-3 grid gap-1.5">
+                {[
+                  { name: 'Flat White', price: '$ 3.200' },
+                  { name: 'Medialunas', price: '$ 1.800' },
+                  { name: 'Tostado', price: '$ 4.500' },
+                ].map((p) => (
+                  <div
+                    key={p.name}
+                    className="flex items-center justify-between rounded-xl border border-black/10 bg-white px-3 py-2"
+                  >
+                    <div className="text-xs text-zinc-800">{p.name}</div>
+                    <div className="text-xs font-semibold">{p.price}</div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="mt-3 rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+              >
+                Confirmar pedido
+              </button>
             </div>
 
             <div className="rounded-2xl border border-black/10 bg-white p-3">
@@ -82,8 +85,8 @@ function PhoneMockup() {
                   <div className="h-full w-[68%] bg-blue-600/80" />
                 </div>
                 <div className="flex justify-between text-[11px] text-zinc-600">
-                  <span>Productos top</span>
-                  <span>Optimización</span>
+                  <span>Operación</span>
+                  <span>Decisiones</span>
                 </div>
               </div>
             </div>
@@ -192,14 +195,21 @@ export default function RestoSmartLanding() {
       <section className="mx-auto max-w-6xl px-5 py-14 md:py-20">
         <div className="grid items-center gap-10 md:grid-cols-2">
           <div className="grid gap-5">
-            <h1 className="text-4xl md:text-5xl font-bold tracking-tight">RestoSmart</h1>
+            <div className="inline-flex w-fit rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+              Un solo sistema · Restaurante o Take Away
+            </div>
+
+            <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
+              RestoSmart
+            </h1>
 
             <p className="text-lg text-zinc-700 leading-relaxed">
-              <span className="font-semibold">Software inteligente</span> para restaurantes,
-              bares, cafés y take away.
+              <span className="font-semibold">Software inteligente</span> para
+              restaurantes, bares, cafés y take away.
               <br />
-              Transformá tu negocio gastronómico{' '}
-              <span className="font-semibold">en un negocio inteligente.</span>
+              Un solo producto para operar{' '}
+              <span className="font-semibold">con mesas o sin mesas</span>, según
+              cómo trabaje tu negocio.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3">
@@ -209,15 +219,25 @@ export default function RestoSmartLanding() {
               >
                 Ver planes y precios
               </a>
+
+              <a
+                href="#contacto"
+                className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Quiero una propuesta
+              </a>
             </div>
 
             <div className="grid grid-cols-3 gap-3 pt-2 text-center">
               {[
-                { k: 'QR', v: 'Menú digital' },
+                { k: 'Modo', v: 'Restaurante o take away' },
                 { k: 'Pedidos', v: 'Más ágiles' },
                 { k: 'Data', v: 'Decisiones' },
               ].map((x) => (
-                <div key={x.k} className="rounded-2xl border border-black/10 bg-white p-3">
+                <div
+                  key={x.k}
+                  className="rounded-2xl border border-black/10 bg-white p-3"
+                >
                   <div className="text-sm font-bold">{x.k}</div>
                   <div className="text-xs text-zinc-600">{x.v}</div>
                 </div>
@@ -229,10 +249,80 @@ export default function RestoSmartLanding() {
         </div>
       </section>
 
+      <section className="border-t border-black/5 bg-zinc-50">
+        <div className="mx-auto max-w-6xl px-5 py-14">
+          <div className="max-w-2xl">
+            <h2 className="text-2xl md:text-3xl font-bold">
+              Un solo sistema, dos formas de operar
+            </h2>
+            <p className="mt-2 text-zinc-700">
+              El plan no cambia por el tipo de negocio. Lo que cambia es el modo de
+              operación.
+            </p>
+          </div>
+
+          <div className="mt-8 grid gap-4 md:grid-cols-2">
+            <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
+              <div className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                🍽️ Restaurante
+              </div>
+
+              <h3 className="mt-4 text-xl font-bold">Con mesas y salón</h3>
+              <p className="mt-2 text-sm text-zinc-700 leading-relaxed">
+                Ideal para locales donde la identificación del pedido se organiza por
+                mesa y la experiencia del cliente arranca desde un QR en el salón.
+              </p>
+
+              <ul className="mt-4 grid gap-2 text-sm text-zinc-800">
+                {[
+                  'QR por mesa',
+                  'Pedido desde mesa',
+                  'Cuenta y pago desde el celular',
+                  'Flujo de salón',
+                ].map((b) => (
+                  <li key={b} className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                    {b}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
+              <div className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                🛍️ Take Away
+              </div>
+
+              <h3 className="mt-4 text-xl font-bold">Sin mesas, con retiro</h3>
+              <p className="mt-2 text-sm text-zinc-700 leading-relaxed">
+                Ideal para negocios donde el pedido se identifica por cliente o por
+                número de orden y el retiro se resuelve en mostrador.
+              </p>
+
+              <ul className="mt-4 grid gap-2 text-sm text-zinc-800">
+                {[
+                  'Pedido local o retiro',
+                  'Sin depender de mesas',
+                  'Menú digital adaptado',
+                  'Misma base para escalar después',
+                ].map((b) => (
+                  <li key={b} className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
+                    {b}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="funciones" className="border-t border-black/5 bg-zinc-50">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="max-w-2xl">
-            <h2 className="text-2xl md:text-3xl font-bold">Funciones de RestoSmart</h2>
+            <h2 className="text-2xl md:text-3xl font-bold">
+              Funciones de RestoSmart
+            </h2>
             <p className="mt-2 text-zinc-700">
               Tres planes para ordenar la operación y escalar cuando lo necesites.
             </p>
@@ -246,8 +336,8 @@ export default function RestoSmartLanding() {
                 bullets: [
                   'Gestión de productos y categorías',
                   'Menú digital',
-                  'QR por mesa',
-                  'Pedido desde mesa y cuenta',
+                  'Modo restaurante o take away',
+                  'QR por mesa si operás con salón',
                   'Cocina y operación básica',
                 ],
               },
@@ -285,7 +375,9 @@ export default function RestoSmartLanding() {
                   </span>
                 </div>
 
-                <p className="mt-3 text-sm text-zinc-700 leading-relaxed">{c.desc}</p>
+                <p className="mt-3 text-sm text-zinc-700 leading-relaxed">
+                  {c.desc}
+                </p>
 
                 <ul className="mt-4 grid gap-2 text-sm text-zinc-800">
                   {c.bullets.map((b) => (
@@ -307,8 +399,8 @@ export default function RestoSmartLanding() {
                 </div>
                 <h3 className="mt-3 text-xl font-bold">WhatsApp Delivery</h3>
                 <p className="mt-2 text-sm text-zinc-700 leading-relaxed">
-                  Se contrata aparte por restaurante. No forma parte de las funcionalidades
-                  comunes de Esencial, Pro ni Intelligence.
+                  Se contrata aparte por restaurante. No forma parte de las
+                  funcionalidades comunes de Esencial, Pro ni Intelligence.
                 </p>
               </div>
 
@@ -346,15 +438,21 @@ export default function RestoSmartLanding() {
 
           <div className="mt-8 grid gap-6 md:grid-cols-3">
             <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
-              <h3 className="text-lg font-bold">Esencial</h3>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-lg font-bold">Esencial</h3>
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">
+                  Ideal para take away
+                </span>
+              </div>
+
               <div className="mt-4 text-3xl font-bold text-blue-600">
                 $12.000 <span className="text-sm text-zinc-500 font-medium">/ mes</span>
               </div>
               <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
                 <li>✔ Gestión de productos y categorías</li>
                 <li>✔ Menú digital</li>
-                <li>✔ QR por mesa</li>
-                <li>✔ Pedido desde mesa y cuenta</li>
+                <li>✔ Restaurante o take away</li>
+                <li>✔ QR por mesa si operás con salón</li>
                 <li>✔ Cocina y operación básica</li>
               </ul>
             </div>
@@ -395,21 +493,28 @@ export default function RestoSmartLanding() {
           <div className="mt-8 rounded-3xl border border-violet-200 bg-violet-50 p-6">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-sm font-semibold text-violet-800">WhatsApp Delivery</p>
+                <p className="text-sm font-semibold text-violet-800">
+                  WhatsApp Delivery
+                </p>
                 <p className="mt-1 text-sm text-violet-900">
                   Add-on opcional, con activación separada por restaurante.
                 </p>
               </div>
 
               <div className="text-left md:text-right">
-                <p className="text-lg font-bold text-violet-900">Cotización aparte</p>
-                <p className="text-xs text-violet-700">No incluido en ningún plan base</p>
+                <p className="text-lg font-bold text-violet-900">
+                  Cotización aparte
+                </p>
+                <p className="text-xs text-violet-700">
+                  No incluido en ningún plan base
+                </p>
               </div>
             </div>
           </div>
 
           <div className="mt-6 text-xs text-zinc-500">
-            Los planes se contratan por local. WhatsApp Delivery se ofrece siempre como
+            Los planes se contratan por local. El modo del negocio puede ser
+            restaurante o take away. WhatsApp Delivery se ofrece siempre como
             add-on separado.
           </div>
         </div>
@@ -433,8 +538,8 @@ export default function RestoSmartLanding() {
               },
               {
                 n: '2',
-                title: 'Tus clientes escanean el QR',
-                desc: 'Acceden al menú y realizan acciones en segundos.',
+                title: 'Elegís cómo operás',
+                desc: 'Definís si tu negocio trabaja con mesas o en modalidad take away.',
               },
               {
                 n: '3',
@@ -452,7 +557,9 @@ export default function RestoSmartLanding() {
                   </div>
                   <h3 className="text-lg font-bold">{s.title}</h3>
                 </div>
-                <p className="mt-3 text-sm text-zinc-700 leading-relaxed">{s.desc}</p>
+                <p className="mt-3 text-sm text-zinc-700 leading-relaxed">
+                  {s.desc}
+                </p>
               </div>
             ))}
           </div>
@@ -465,18 +572,21 @@ export default function RestoSmartLanding() {
             <div>
               <h2 className="text-2xl md:text-3xl font-bold">Quiénes somos</h2>
               <p className="mt-3 text-zinc-700 leading-relaxed">
-                En <span className="font-semibold">RestoSmart</span> desarrollamos soluciones
-                tecnológicas para el sector gastronómico, combinando software, análisis de
-                datos y experiencia en negocio.
+                En <span className="font-semibold">RestoSmart</span> desarrollamos
+                soluciones tecnológicas para el sector gastronómico, combinando
+                software, análisis de datos y experiencia en negocio.
               </p>
 
               <div className="mt-5 grid gap-3">
                 {[
                   'Implementación rápida y simple',
-                  'Pensado para operación real (cocina + salón)',
-                  'Escalable: de menú QR a inteligencia de negocio',
+                  'Pensado para operación real: salón, cocina y take away',
+                  'Escalable: de operación base a inteligencia de negocio',
                 ].map((t) => (
-                  <div key={t} className="rounded-2xl border border-black/10 bg-white p-4 text-sm">
+                  <div
+                    key={t}
+                    className="rounded-2xl border border-black/10 bg-white p-4 text-sm"
+                  >
                     {t}
                   </div>
                 ))}
@@ -486,7 +596,8 @@ export default function RestoSmartLanding() {
             <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
               <div className="text-sm font-semibold">Lo que buscamos</div>
               <p className="mt-2 text-sm text-zinc-700 leading-relaxed">
-                Menos fricción operativa, más ventas, y decisiones claras basadas en datos.
+                Menos fricción operativa, más ventas, y decisiones claras basadas en
+                datos.
               </p>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
@@ -496,7 +607,10 @@ export default function RestoSmartLanding() {
                   { k: 'Ventas', v: 'Más conversión' },
                   { k: 'Datos', v: 'Optimización' },
                 ].map((x) => (
-                  <div key={x.k} className="rounded-2xl border border-black/10 bg-zinc-50 p-4">
+                  <div
+                    key={x.k}
+                    className="rounded-2xl border border-black/10 bg-zinc-50 p-4"
+                  >
                     <div className="text-xs text-zinc-500">{x.k}</div>
                     <div className="text-sm font-bold">{x.v}</div>
                   </div>
@@ -527,7 +641,11 @@ export default function RestoSmartLanding() {
               },
               {
                 q: '¿Funciona para take away?',
-                a: 'Sí. Se adapta tanto a salón como a modalidad de retiro/take away.',
+                a: 'Sí. El mismo sistema puede configurarse para operar en modo restaurante o en modo take away, sin convertirlo en otro plan.',
+              },
+              {
+                q: '¿Take away es un plan distinto?',
+                a: 'No. Take away no es un plan separado: es una forma de operar el negocio dentro del sistema.',
               },
               {
                 q: '¿Qué pasa si se rompe o se pierde un QR?',
@@ -556,7 +674,9 @@ export default function RestoSmartLanding() {
                     +
                   </span>
                 </summary>
-                <p className="mt-3 text-sm text-zinc-700 leading-relaxed">{item.a}</p>
+                <p className="mt-3 text-sm text-zinc-700 leading-relaxed">
+                  {item.a}
+                </p>
               </details>
             ))}
           </div>
@@ -625,7 +745,7 @@ export default function RestoSmartLanding() {
                     className="min-h-[140px] rounded-2xl border border-black/10 bg-white p-4 text-sm outline-none focus:border-blue-600"
                     value={form.mensaje}
                     onChange={(e) => setForm((p) => ({ ...p, mensaje: e.target.value }))}
-                    placeholder="Contanos qué necesitás, cuántos locales tenés o qué plan te interesa."
+                    placeholder="Contanos qué necesitás, cuántos locales tenés, si operás con mesas o take away y qué plan te interesa."
                     required
                   />
                 </div>
@@ -655,7 +775,9 @@ export default function RestoSmartLanding() {
 
       <section className="border-t border-black/5 bg-blue-600">
         <div className="mx-auto max-w-6xl px-5 py-14 text-center text-white">
-          <h2 className="text-3xl font-bold">¿Listo para transformar tu negocio gastronomico?</h2>
+          <h2 className="text-3xl font-bold">
+            ¿Listo para transformar tu negocio gastronómico?
+          </h2>
           <p className="mt-4 text-blue-100 max-w-2xl mx-auto">
             Implementá RestoSmart en pocos días y empezá a operar con más control,
             mejor experiencia y decisiones más claras.
@@ -673,8 +795,8 @@ export default function RestoSmartLanding() {
         <div className="mx-auto max-w-6xl px-5 py-10">
           <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
             <div className="text-sm text-zinc-600">
-              <span className="font-semibold text-zinc-900">RestoSmart</span> — Software para
-              gastronomía
+              <span className="font-semibold text-zinc-900">RestoSmart</span> —
+              Software para gastronomía
             </div>
 
             <div className="flex flex-wrap gap-4 text-sm">
