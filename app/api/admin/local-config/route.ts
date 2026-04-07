@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireAdminAuth } from '@/lib/adminAuth';
+import {
+  normalizeBusinessMode,
+  type BusinessMode,
+} from '@/lib/plans';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,6 +19,7 @@ type LocalConfigRow = {
   horario_atencion?: string | null;
   google_analytics_id?: string | null;
   google_analytics_property_id?: string | null;
+  business_mode?: BusinessMode | string | null;
 };
 
 function normalizeRow(row?: LocalConfigRow | null) {
@@ -27,6 +32,7 @@ function normalizeRow(row?: LocalConfigRow | null) {
     horario_atencion: row?.horario_atencion ?? '',
     google_analytics_id: row?.google_analytics_id ?? '',
     google_analytics_property_id: row?.google_analytics_property_id ?? '',
+    business_mode: normalizeBusinessMode(row?.business_mode),
   };
 }
 
@@ -88,6 +94,7 @@ export async function PUT(request: NextRequest) {
         String(body?.google_analytics_id ?? '').trim() || null,
       google_analytics_property_id:
         String(body?.google_analytics_property_id ?? '').trim() || null,
+      business_mode: normalizeBusinessMode(body?.business_mode),
       updated_at: new Date().toISOString(),
     };
 

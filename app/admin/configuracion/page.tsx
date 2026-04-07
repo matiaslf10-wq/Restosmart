@@ -2,7 +2,13 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { formatPlanLabel, type PlanCode } from '@/lib/plans';
+import {
+  formatBusinessModeLabel,
+  formatPlanLabel,
+  normalizeBusinessMode,
+  type BusinessMode,
+  type PlanCode,
+} from '@/lib/plans';
 
 type AdminSessionPayload = {
   adminId: string;
@@ -11,6 +17,7 @@ type AdminSessionPayload = {
   exp: number;
   tenantId?: string;
   plan?: PlanCode;
+  business_mode?: BusinessMode;
   addons?: {
     whatsapp_delivery?: boolean;
   };
@@ -23,6 +30,7 @@ type AdminSessionPayload = {
     id: string;
     slug: string;
     plan: PlanCode;
+    business_mode?: BusinessMode;
   } | null;
 };
 
@@ -35,6 +43,7 @@ type LocalConfig = {
   horario_atencion: string;
   google_analytics_id: string;
   google_analytics_property_id: string;
+  business_mode: BusinessMode;
 };
 
 type DeliveryConfig = {
@@ -58,6 +67,7 @@ const DEFAULT_LOCAL: LocalConfig = {
   horario_atencion: '',
   google_analytics_id: '',
   google_analytics_property_id: '',
+  business_mode: 'restaurant',
 };
 
 const DEFAULT_DELIVERY: DeliveryConfig = {
@@ -89,6 +99,14 @@ export default function AdminConfiguracionPage() {
   const deliveryAddonEnabled = !!addons.whatsapp_delivery;
   const analyticsEnabled = !!capabilities.analytics;
   const tenantLabel = sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
+  const businessModeLabel = formatBusinessModeLabel(localForm.business_mode);
+
+  const waiterModeStatus =
+    localForm.business_mode === 'takeaway'
+      ? 'No aplica'
+      : capabilities.waiter_mode
+      ? 'Activo'
+      : 'Bloqueado';
 
   const analyticsHint = useMemo(() => {
     if (analyticsEnabled) {
@@ -140,6 +158,12 @@ export default function AdminConfiguracionPage() {
           );
         }
 
+        const resolvedBusinessMode = normalizeBusinessMode(
+          localData?.business_mode ??
+            session?.business_mode ??
+            session?.restaurant?.business_mode
+        );
+
         setLocalForm({
           nombre_local: localData?.nombre_local ?? '',
           direccion: localData?.direccion ?? '',
@@ -150,6 +174,7 @@ export default function AdminConfiguracionPage() {
           google_analytics_id: localData?.google_analytics_id ?? '',
           google_analytics_property_id:
             localData?.google_analytics_property_id ?? '',
+          business_mode: resolvedBusinessMode,
         });
 
         if (session?.addons?.whatsapp_delivery) {
@@ -305,12 +330,12 @@ export default function AdminConfiguracionPage() {
       <div>
         <h1 className="text-2xl font-semibold">Configuración del local</h1>
         <p className="mt-1 text-sm text-neutral-600">
-          Acá definís la ficha del negocio, las integraciones y, si está activo,
-          el add-on de WhatsApp Delivery.
+          Acá definís la ficha del negocio, su modo de operación, las integraciones
+          y, si está activo, el add-on de WhatsApp Delivery.
         </p>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-5">
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-wide text-neutral-500">Plan</p>
           <p className="mt-1 text-xl font-bold">{planLabel}</p>
@@ -322,10 +347,15 @@ export default function AdminConfiguracionPage() {
         </div>
 
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-neutral-500">Modo mozo</p>
-          <p className="mt-1 text-xl font-bold">
-            {capabilities.waiter_mode ? 'Activo' : 'Bloqueado'}
+          <p className="text-xs uppercase tracking-wide text-neutral-500">
+            Modo de negocio
           </p>
+          <p className="mt-1 text-xl font-bold">{businessModeLabel}</p>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-neutral-500">Modo mozo</p>
+          <p className="mt-1 text-xl font-bold">{waiterModeStatus}</p>
         </div>
 
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -422,6 +452,86 @@ export default function AdminConfiguracionPage() {
                 placeholder="Lun a Dom 12:00 a 23:30"
               />
             </label>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-medium">Modo de operación</h2>
+              <p className="mt-1 text-sm text-neutral-600">
+                El plan sigue siendo el mismo. Acá solo definís si el negocio
+                trabaja con mesas o en modalidad take away.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label
+              className={`cursor-pointer rounded-2xl border p-4 transition ${
+                localForm.business_mode === 'restaurant'
+                  ? 'border-black bg-neutral-50'
+                  : 'border-neutral-200 bg-white hover:border-neutral-300'
+              }`}
+            >
+              <input
+                type="radio"
+                name="business_mode"
+                className="sr-only"
+                checked={localForm.business_mode === 'restaurant'}
+                onChange={() => updateLocal('business_mode', 'restaurant')}
+              />
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold">🍽️ Restaurante</p>
+                  <p className="mt-1 text-sm text-neutral-600">
+                    Flujo orientado a salón, mesas, QR por mesa y operación con mozo
+                    cuando el plan lo permita.
+                  </p>
+                </div>
+              </div>
+            </label>
+
+            <label
+              className={`cursor-pointer rounded-2xl border p-4 transition ${
+                localForm.business_mode === 'takeaway'
+                  ? 'border-black bg-neutral-50'
+                  : 'border-neutral-200 bg-white hover:border-neutral-300'
+              }`}
+            >
+              <input
+                type="radio"
+                name="business_mode"
+                className="sr-only"
+                checked={localForm.business_mode === 'takeaway'}
+                onChange={() => updateLocal('business_mode', 'takeaway')}
+              />
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold">🛍️ Take Away</p>
+                  <p className="mt-1 text-sm text-neutral-600">
+                    Sin mesas. El pedido se identifica por cliente o número de orden
+                    y el retiro se resuelve en mostrador.
+                  </p>
+                </div>
+              </div>
+            </label>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            {localForm.business_mode === 'restaurant' ? (
+              <>
+                Este negocio quedará configurado para operar con lógica de salón.
+                Más adelante, las pantallas de mesas, mozo y QR se mostrarán según
+                este modo y según el plan contratado.
+              </>
+            ) : (
+              <>
+                Este negocio quedará configurado en modo take away. La idea es
+                ocultar la lógica de mesas y adaptar la experiencia a retiro por
+                mostrador, sin cambiar de plan ni migrar datos.
+              </>
+            )}
           </div>
         </section>
 
