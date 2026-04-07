@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { formatPlanLabel, type PlanCode } from '@/lib/plans';
 
 type RowPedidosHora = { hora: string; pedidos: number };
 type RowTopProductos = {
@@ -15,16 +17,12 @@ type RowTiemposPedido = {
   mesa_id: number;
   creado_en: string;
   estado_actual: string;
-
   min_mozo_confirma: number | null;
   min_espera_cocina: number | null;
   min_preparacion: number | null;
   min_total_hasta_listo: number | null;
 };
 
-// ⚠️ Importante: para que el rango "Desde/Hasta" respete Argentina (UTC-03)
-// no usamos toISOString() con "T00:00:00" local sin offset, porque puede correrse el día.
-// Forzamos el offset -03:00 (Buenos Aires).
 function toIsoStartOfDayAR(localDate: string) {
   return new Date(localDate + 'T00:00:00-03:00').toISOString();
 }
@@ -34,7 +32,8 @@ function toIsoEndOfDayAR(localDate: string) {
 }
 
 export default function AdminAnalyticsPage() {
-  // Rango por defecto: últimos 7 días
+  const router = useRouter();
+
   const today = new Date();
   const yyyy = today.getFullYear();
   const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -47,6 +46,10 @@ export default function AdminAnalyticsPage() {
   const d2 = String(sevenDaysAgo.getDate()).padStart(2, '0');
   const sevenDaysAgoStr = `${y2}-${m2}-${d2}`;
 
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [canViewAnalytics, setCanViewAnalytics] = useState(false);
+  const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
+
   const [desde, setDesde] = useState(sevenDaysAgoStr);
   const [hasta, setHasta] = useState(todayStr);
 
@@ -57,11 +60,10 @@ export default function AdminAnalyticsPage() {
   const [topProductos, setTopProductos] = useState<RowTopProductos[]>([]);
   const [tiempos, setTiempos] = useState<RowTiemposPedido[]>([]);
   const [kpiPedidosTotal, setKpiPedidosTotal] = useState(0);
-const [kpiPedidosCerrados, setKpiPedidosCerrados] = useState(0);
-const [kpiPedidosCancelados, setKpiPedidosCancelados] = useState(0);
-const [kpiIngresos, setKpiIngresos] = useState(0);
-const [kpiTicketProm, setKpiTicketProm] = useState<number | null>(null);
-
+  const [kpiPedidosCerrados, setKpiPedidosCerrados] = useState(0);
+  const [kpiPedidosCancelados, setKpiPedidosCancelados] = useState(0);
+  const [kpiIngresos, setKpiIngresos] = useState(0);
+  const [kpiTicketProm, setKpiTicketProm] = useState<number | null>(null);
 
   const isoDesde = useMemo(() => toIsoStartOfDayAR(desde), [desde]);
   const isoHasta = useMemo(() => toIsoEndOfDayAR(hasta), [hasta]);
@@ -71,56 +73,53 @@ const [kpiTicketProm, setKpiTicketProm] = useState<number | null>(null);
     setErrorMsg(null);
 
     try {
-      // 0) KPIs base (rango)
-const { data: pedidosRango, error: errPedidosRango } = await supabase
-  .from('pedidos')
-  .select(
-    `
-    id,
-    estado,
-    creado_en,
-    items_pedido (
-      cantidad,
-      producto:productos ( precio )
-    )
-  `
-  )
-  .gte('creado_en', isoDesde)
-  .lte('creado_en', isoHasta);
+      const { data: pedidosRango, error: errPedidosRango } = await supabase
+        .from('pedidos')
+        .select(
+          `
+          id,
+          estado,
+          creado_en,
+          items_pedido (
+            cantidad,
+            producto:productos ( precio )
+          )
+        `
+        )
+        .gte('creado_en', isoDesde)
+        .lte('creado_en', isoHasta);
 
-if (errPedidosRango) throw errPedidosRango;
+      if (errPedidosRango) throw errPedidosRango;
 
-const lista = (pedidosRango ?? []) as any[];
+      const lista = (pedidosRango ?? []) as any[];
 
-const total = lista.length;
-const cerrados = lista.filter((p) => p.estado === 'cerrado').length;
-const cancelados = lista.filter((p) => p.estado === 'cancelado').length;
+      const total = lista.length;
+      const cerrados = lista.filter((p) => p.estado === 'cerrado').length;
+      const cancelados = lista.filter((p) => p.estado === 'cancelado').length;
 
-// ingresos: sumamos SOLO pedidos cerrados
-const ingresos = lista
-  .filter((p) => p.estado === 'cerrado')
-  .reduce((acc: number, p: any) => {
-    const items = p.items_pedido ?? [];
-    const subtotal = items.reduce((a: number, it: any) => {
-      const precio = it.producto?.precio ?? 0;
-      const cant = it.cantidad ?? 0;
-      return a + precio * cant;
-    }, 0);
-    return acc + subtotal;
-  }, 0);
+      const ingresos = lista
+        .filter((p) => p.estado === 'cerrado')
+        .reduce((acc: number, p: any) => {
+          const items = p.items_pedido ?? [];
+          const subtotal = items.reduce((a: number, it: any) => {
+            const precio = it.producto?.precio ?? 0;
+            const cant = it.cantidad ?? 0;
+            return a + precio * cant;
+          }, 0);
+          return acc + subtotal;
+        }, 0);
 
-setKpiPedidosTotal(total);
-setKpiPedidosCerrados(cerrados);
-setKpiPedidosCancelados(cancelados);
-setKpiIngresos(ingresos);
+      setKpiPedidosTotal(total);
+      setKpiPedidosCerrados(cerrados);
+      setKpiPedidosCancelados(cancelados);
+      setKpiIngresos(ingresos);
 
-if (cerrados > 0) {
-  setKpiTicketProm(Math.round((ingresos / cerrados) * 100) / 100);
-} else {
-  setKpiTicketProm(null);
-}
+      if (cerrados > 0) {
+        setKpiTicketProm(Math.round((ingresos / cerrados) * 100) / 100);
+      } else {
+        setKpiTicketProm(null);
+      }
 
-      // 1) Pedidos por hora
       const r1 = await supabase
         .from('vw_pedidos_por_hora')
         .select('*')
@@ -131,7 +130,6 @@ if (cerrados > 0) {
       if (r1.error) throw r1.error;
       setPedidosHora((r1.data ?? []) as any);
 
-      // 2) Top productos (POR RANGO) usando RPC
       const r2 = await supabase.rpc('fn_top_productos_rango', {
         p_desde: isoDesde,
         p_hasta: isoHasta,
@@ -141,7 +139,6 @@ if (cerrados > 0) {
       if (r2.error) throw r2.error;
       setTopProductos((r2.data ?? []) as any);
 
-      // 3) Tiempos (solo pedidos creados en rango)
       const r3 = await supabase
         .from('vw_tiempos_pedido')
         .select(
@@ -171,9 +168,52 @@ if (cerrados > 0) {
   };
 
   useEffect(() => {
-    cargar();
+    let active = true;
+
+    async function bootstrap() {
+      try {
+        const res = await fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        if (!res.ok) {
+          router.replace('/admin/login');
+          return;
+        }
+
+        const data = await res.json().catch(() => null);
+        const session = data?.session;
+
+        if (!active) return;
+
+        const plan = (session?.plan ?? 'esencial') as PlanCode;
+        const enabled = !!session?.capabilities?.analytics;
+
+        setCurrentPlan(plan);
+        setCanViewAnalytics(enabled);
+
+        if (enabled) {
+          await cargar();
+        }
+      } catch (error) {
+        console.error('No se pudo verificar acceso a analytics', error);
+        if (!active) return;
+        setCanViewAnalytics(false);
+      } finally {
+        if (active) {
+          setCheckingAccess(false);
+        }
+      }
+    }
+
+    bootstrap();
+
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [router]);
 
   const promedio = (vals: (number | null)[]) => {
     const xs = vals.filter(
@@ -202,7 +242,6 @@ if (cerrados > 0) {
   );
 
   const outliers = useMemo(() => {
-    // pedidos con total >= 30 min (ajustalo como quieras)
     return tiempos
       .filter((t) => (t.min_total_hasta_listo ?? 0) >= 30)
       .sort(
@@ -211,6 +250,79 @@ if (cerrados > 0) {
       )
       .slice(0, 10);
   }, [tiempos]);
+
+  if (checkingAccess) {
+    return (
+      <main className="min-h-screen bg-slate-50 px-4 py-6">
+        <div className="max-w-6xl mx-auto">
+          <p className="text-slate-600">Verificando acceso a analytics…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!canViewAnalytics) {
+    return (
+      <main className="min-h-screen bg-slate-50 px-4 py-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="rounded-3xl border border-blue-200 bg-white p-8 shadow-sm">
+            <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 border border-blue-200">
+              Disponible en Intelligence
+            </span>
+
+            <h1 className="mt-4 text-3xl font-bold text-slate-900">
+              Analytics avanzados
+            </h1>
+
+            <p className="mt-3 text-slate-600 leading-relaxed">
+              Tu plan actual es <strong>{formatPlanLabel(currentPlan)}</strong>.
+              Los reportes avanzados, KPIs ejecutivos y análisis de rendimiento
+              forman parte de <strong>Intelligence</strong>.
+            </p>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-semibold text-slate-900">
+                  Incluye en Intelligence
+                </p>
+                <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                  <li>• KPIs operativos y comerciales</li>
+                  <li>• Ranking de productos</li>
+                  <li>• Tiempos de preparación y outliers</li>
+                  <li>• Vista ejecutiva para decisiones</li>
+                </ul>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-semibold text-slate-900">
+                  Próximo paso sugerido
+                </p>
+                <p className="mt-3 text-sm text-slate-700">
+                  Si querés, después de este bloque te dejo también el copy de
+                  upgrade para esta pantalla y para la landing.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <a
+                href="/#precios"
+                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Ver planes
+              </a>
+              <button
+                onClick={() => router.push('/admin')}
+                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Volver al dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6">
@@ -263,75 +375,81 @@ if (cerrados > 0) {
           <p className="text-slate-600">Cargando analytics…</p>
         ) : (
           <>
-            {/* KPIs */}
-{/* KPIs */}
-<section className="grid gap-3 md:grid-cols-4">
-  {/* KPIs gerenciales */}
-  <div className="bg-white border border-slate-200 rounded-xl p-3">
-    <div className="text-xs text-slate-500">Pedidos totales</div>
-    <div className="text-xl font-bold">{kpiPedidosTotal}</div>
-  </div>
+            <section className="grid gap-3 md:grid-cols-4">
+              <div className="bg-white border border-slate-200 rounded-xl p-3">
+                <div className="text-xs text-slate-500">Pedidos totales</div>
+                <div className="text-xl font-bold">{kpiPedidosTotal}</div>
+              </div>
 
-  <div className="bg-white border border-slate-200 rounded-xl p-3">
-    <div className="text-xs text-slate-500">Pedidos cerrados</div>
-    <div className="text-xl font-bold">{kpiPedidosCerrados}</div>
-  </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3">
+                <div className="text-xs text-slate-500">Pedidos cerrados</div>
+                <div className="text-xl font-bold">{kpiPedidosCerrados}</div>
+              </div>
 
-  <div className="bg-white border border-slate-200 rounded-xl p-3">
-    <div className="text-xs text-slate-500">Pedidos cancelados</div>
-    <div className="text-xl font-bold">{kpiPedidosCancelados}</div>
-  </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3">
+                <div className="text-xs text-slate-500">Pedidos cancelados</div>
+                <div className="text-xl font-bold">{kpiPedidosCancelados}</div>
+              </div>
 
-  <div className="bg-white border border-slate-200 rounded-xl p-3">
-    <div className="text-xs text-slate-500">Ingresos (cerrados)</div>
-    <div className="text-xl font-bold">
-      ${Number(kpiIngresos ?? 0).toFixed(0)}
-    </div>
-  </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3">
+                <div className="text-xs text-slate-500">Ingresos (cerrados)</div>
+                <div className="text-xl font-bold">
+                  ${Number(kpiIngresos ?? 0).toFixed(0)}
+                </div>
+              </div>
 
-  <div className="bg-white border border-slate-200 rounded-xl p-3 md:col-span-2">
-    <div className="text-xs text-slate-500">Ticket promedio (cerrados)</div>
-    <div className="text-xl font-bold">
-      {kpiTicketProm == null ? '—' : `$${kpiTicketProm.toFixed(0)}`}
-    </div>
-    <div className="text-[11px] text-slate-500 mt-1">
-      Calculado como ingresos / cantidad de pedidos cerrados
-    </div>
-  </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3 md:col-span-2">
+                <div className="text-xs text-slate-500">
+                  Ticket promedio (cerrados)
+                </div>
+                <div className="text-xl font-bold">
+                  {kpiTicketProm == null ? '—' : `$${kpiTicketProm.toFixed(0)}`}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1">
+                  Calculado como ingresos / cantidad de pedidos cerrados
+                </div>
+              </div>
 
-  <div className="bg-white border border-slate-200 rounded-xl p-3 md:col-span-2">
-    <div className="text-xs text-slate-500">% cancelación</div>
-    <div className="text-xl font-bold">
-      {kpiPedidosTotal === 0
-        ? '—'
-        : `${Math.round((kpiPedidosCancelados / kpiPedidosTotal) * 100)}%`}
-    </div>
-  </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3 md:col-span-2">
+                <div className="text-xs text-slate-500">% cancelación</div>
+                <div className="text-xl font-bold">
+                  {kpiPedidosTotal === 0
+                    ? '—'
+                    : `${Math.round(
+                        (kpiPedidosCancelados / kpiPedidosTotal) * 100
+                      )}%`}
+                </div>
+              </div>
 
-  {/* KPIs operativos (los tuyos) */}
-  <div className="bg-white border border-slate-200 rounded-xl p-3">
-    <div className="text-xs text-slate-500">Prom. mozo confirma (min)</div>
-    <div className="text-xl font-bold">{promMozo ?? '—'}</div>
-  </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3">
+                <div className="text-xs text-slate-500">
+                  Prom. mozo confirma (min)
+                </div>
+                <div className="text-xl font-bold">{promMozo ?? '—'}</div>
+              </div>
 
-  <div className="bg-white border border-slate-200 rounded-xl p-3">
-    <div className="text-xs text-slate-500">Prom. espera cocina (min)</div>
-    <div className="text-xl font-bold">{promCola ?? '—'}</div>
-  </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3">
+                <div className="text-xs text-slate-500">
+                  Prom. espera cocina (min)
+                </div>
+                <div className="text-xl font-bold">{promCola ?? '—'}</div>
+              </div>
 
-  <div className="bg-white border border-slate-200 rounded-xl p-3">
-    <div className="text-xs text-slate-500">Prom. preparación (min)</div>
-    <div className="text-xl font-bold">{promPrep ?? '—'}</div>
-  </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3">
+                <div className="text-xs text-slate-500">
+                  Prom. preparación (min)
+                </div>
+                <div className="text-xl font-bold">{promPrep ?? '—'}</div>
+              </div>
 
-  <div className="bg-white border border-slate-200 rounded-xl p-3">
-    <div className="text-xs text-slate-500">Prom. total hasta listo (min)</div>
-    <div className="text-xl font-bold">{promTotal ?? '—'}</div>
-  </div>
-</section>
+              <div className="bg-white border border-slate-200 rounded-xl p-3">
+                <div className="text-xs text-slate-500">
+                  Prom. total hasta listo (min)
+                </div>
+                <div className="text-xl font-bold">{promTotal ?? '—'}</div>
+              </div>
+            </section>
 
-
-            {/* Pedidos por hora */}
             <section className="bg-white border border-slate-200 rounded-xl p-4">
               <h2 className="font-semibold text-slate-900 mb-2">
                 Pedidos por hora
@@ -362,7 +480,6 @@ if (cerrados > 0) {
               )}
             </section>
 
-            {/* Top productos */}
             <section className="bg-white border border-slate-200 rounded-xl p-4">
               <h2 className="font-semibold text-slate-900 mb-2">
                 Ranking de productos más vendidos en el período seleccionado
@@ -400,7 +517,6 @@ if (cerrados > 0) {
               )}
             </section>
 
-            {/* Outliers */}
             <section className="bg-white border border-slate-200 rounded-xl p-4">
               <h2 className="font-semibold text-slate-900 mb-2">
                 Pedidos lentos (outliers ≥ 30 min)

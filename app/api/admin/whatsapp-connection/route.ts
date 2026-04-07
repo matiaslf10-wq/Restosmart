@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireAdminAuth } from '@/lib/adminAuth';
+import { getFallbackAdminAccess, resolveAdminAccess } from '@/lib/adminAccess';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID?.trim() || 'default';
 
 const ALLOWED_STATUS = new Set([
   'pending',
@@ -66,9 +66,15 @@ async function getConnectionByTenantId(tenantId: string) {
 }
 
 export async function GET(request: NextRequest) {
+  const auth = requireAdminAuth(request);
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
-    const tenantId =
-      request.nextUrl.searchParams.get('tenantId')?.trim() || DEFAULT_TENANT_ID;
+    const access = await resolveAdminAccess().catch(() => getFallbackAdminAccess());
+    const tenantId = access.tenantId;
 
     const connection = await getConnectionByTenantId(tenantId);
 
@@ -94,6 +100,12 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  const auth = requireAdminAuth(request);
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
     const body = await request.json().catch(() => null);
 
@@ -104,7 +116,9 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const tenantId = normalizeText(body.tenant_id) || DEFAULT_TENANT_ID;
+    const access = await resolveAdminAccess().catch(() => getFallbackAdminAccess());
+    const tenantId = access.tenantId;
+    const addonAlreadyEnabled = !!access.addons.whatsapp_delivery;
 
     const existing = await getConnectionByTenantId(tenantId);
 
@@ -119,7 +133,7 @@ export async function PUT(request: NextRequest) {
     const payload = {
       tenant_id: tenantId,
       local_id: normalizeNullableText(body.local_id),
-      add_on_enabled: normalizeBoolean(body.add_on_enabled, false),
+      add_on_enabled: addonAlreadyEnabled ? true : false,
       status: inferredStatus,
       provider: normalizeText(body.provider) || 'meta_cloud',
       waba_id: normalizeNullableText(body.waba_id),

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireAdminAuth } from '@/lib/adminAuth';
+import { getFallbackAdminAccess, resolveAdminAccess } from '@/lib/adminAccess';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,10 +64,36 @@ function normalizeRow(row?: DeliveryConfigRow | null) {
   };
 }
 
+async function ensureDeliveryAddonEnabled() {
+  const access = await resolveAdminAccess().catch(() => getFallbackAdminAccess());
+
+  if (!access.addons.whatsapp_delivery) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        {
+          error:
+            'WhatsApp Delivery no está activo para este restaurante. Se contrata como add-on separado.',
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return {
+    ok: true as const,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const auth = requireAdminAuth(request);
   if (!auth.ok) {
     return auth.response;
+  }
+
+  const addon = await ensureDeliveryAddonEnabled();
+  if (!addon.ok) {
+    return addon.response;
   }
 
   try {
@@ -105,6 +132,11 @@ export async function PUT(request: NextRequest) {
   const auth = requireAdminAuth(request);
   if (!auth.ok) {
     return auth.response;
+  }
+
+  const addon = await ensureDeliveryAddonEnabled();
+  if (!addon.ok) {
+    return addon.response;
   }
 
   try {

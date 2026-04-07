@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { formatPlanLabel, type PlanCode } from '@/lib/plans';
 
 const DELIVERY_MESA_ID = 0;
-const DEFAULT_TENANT_ID = 'default';
 
 type DeliveryConfig = {
   activo: boolean;
@@ -70,7 +71,7 @@ const DEFAULT_CONFIG: DeliveryConfig = {
 };
 
 const DEFAULT_CONNECTION: WhatsAppConnectionForm = {
-  tenant_id: DEFAULT_TENANT_ID,
+  tenant_id: 'default',
   local_id: '',
   add_on_enabled: false,
   status: 'pending',
@@ -199,6 +200,12 @@ function getTokenHealth(tokenExpiresAt: string) {
 }
 
 export default function AdminDeliveryPage() {
+  const router = useRouter();
+
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [deliveryEnabled, setDeliveryEnabled] = useState(false);
+  const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
+
   const [form, setForm] = useState<DeliveryConfig>(DEFAULT_CONFIG);
   const [connectionForm, setConnectionForm] =
     useState<WhatsAppConnectionForm>(DEFAULT_CONNECTION);
@@ -223,164 +230,203 @@ export default function AdminDeliveryPage() {
     [connectionForm.token_expires_at]
   );
 
+  async function cargarConfiguracion() {
+    try {
+      setCargando(true);
+      setError('');
+      setMensaje('');
+
+      const res = await fetch('/api/admin/delivery-config', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(
+          data?.error || 'No se pudo cargar la configuración de delivery.'
+        );
+      }
+
+      setForm({
+        activo: !!data.activo,
+        whatsapp_numero: data.whatsapp_numero ?? '',
+        whatsapp_nombre_mostrado: data.whatsapp_nombre_mostrado ?? '',
+        acepta_efectivo:
+          data.acepta_efectivo === undefined ? true : !!data.acepta_efectivo,
+        efectivo_requiere_aprobacion:
+          data.efectivo_requiere_aprobacion === undefined
+            ? true
+            : !!data.efectivo_requiere_aprobacion,
+        acepta_mercadopago: !!data.acepta_mercadopago,
+        mensaje_bienvenida:
+          data.mensaje_bienvenida ?? DEFAULT_CONFIG.mensaje_bienvenida,
+        tiempo_estimado_min: Number(
+          data.tiempo_estimado_min ?? DEFAULT_CONFIG.tiempo_estimado_min
+        ),
+        costo_envio: Number(data.costo_envio ?? 0),
+      });
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo cargar la configuración de delivery.'
+      );
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  async function cargarConexionWhatsapp() {
+    try {
+      setLoadingConnection(true);
+      setConnectionError('');
+      setConnectionMessage('');
+
+      const res = await fetch('/api/admin/whatsapp-connection', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(
+          data?.error || 'No se pudo cargar la conexión de WhatsApp.'
+        );
+      }
+
+      const connection = data?.connection;
+
+      if (!connection) {
+        setConnectionForm((prev) => ({
+          ...DEFAULT_CONNECTION,
+          add_on_enabled: true,
+        }));
+        return;
+      }
+
+      setConnectionForm({
+        tenant_id: connection.tenant_id ?? 'default',
+        local_id: connection.local_id ?? '',
+        add_on_enabled: !!connection.add_on_enabled,
+        status: (connection.status ?? 'pending') as WhatsAppConnectionStatus,
+        provider: connection.provider ?? 'meta_cloud',
+        waba_id: connection.waba_id ?? '',
+        phone_number_id: connection.phone_number_id ?? '',
+        display_phone_number: connection.display_phone_number ?? '',
+        business_account_id: connection.business_account_id ?? '',
+        access_token: connection.access_token ?? '',
+        token_expires_at: formatDateTimeLocalInput(connection.token_expires_at),
+        webhook_subscribed_at: formatDateTimeLocalInput(
+          connection.webhook_subscribed_at
+        ),
+        app_scope_granted: !!connection.app_scope_granted,
+        last_error: connection.last_error ?? '',
+      });
+    } catch (err) {
+      console.error(err);
+      setConnectionError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo cargar la conexión de WhatsApp.'
+      );
+    } finally {
+      setLoadingConnection(false);
+    }
+  }
+
+  async function reloadPendingOrders() {
+    try {
+      setLoadingPending(true);
+      setPendingError('');
+
+      const res = await fetch('/api/admin/delivery-pedidos-pendientes', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(
+          data?.error || 'No se pudieron actualizar los pedidos pendientes.'
+        );
+      }
+
+      setPendingOrders(Array.isArray(data?.pedidos) ? data.pedidos : []);
+    } catch (err) {
+      console.error(err);
+      setPendingError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudieron actualizar los pedidos pendientes.'
+      );
+    } finally {
+      setLoadingPending(false);
+    }
+  }
+
   useEffect(() => {
     let activo = true;
 
-    async function cargarConfiguracion() {
+    async function bootstrap() {
       try {
-        setCargando(true);
-        setError('');
-        setMensaje('');
-
-        const res = await fetch('/api/admin/delivery-config', {
+        const sessionRes = await fetch('/api/admin/session', {
           method: 'GET',
           cache: 'no-store',
         });
 
-        if (!res.ok) {
-          throw new Error('No se pudo cargar la configuración de delivery.');
-        }
-
-        const data = await res.json();
-
-        if (!activo) return;
-
-        setForm({
-          activo: !!data.activo,
-          whatsapp_numero: data.whatsapp_numero ?? '',
-          whatsapp_nombre_mostrado: data.whatsapp_nombre_mostrado ?? '',
-          acepta_efectivo:
-            data.acepta_efectivo === undefined ? true : !!data.acepta_efectivo,
-          efectivo_requiere_aprobacion:
-            data.efectivo_requiere_aprobacion === undefined
-              ? true
-              : !!data.efectivo_requiere_aprobacion,
-          acepta_mercadopago: !!data.acepta_mercadopago,
-          mensaje_bienvenida:
-            data.mensaje_bienvenida ?? DEFAULT_CONFIG.mensaje_bienvenida,
-          tiempo_estimado_min: Number(
-            data.tiempo_estimado_min ?? DEFAULT_CONFIG.tiempo_estimado_min
-          ),
-          costo_envio: Number(data.costo_envio ?? 0),
-        });
-      } catch (err) {
-        console.error(err);
-        if (!activo) return;
-        setError(
-          'No se pudo cargar la configuración. Verificá la API /api/admin/delivery-config.'
-        );
-      } finally {
-        if (activo) setCargando(false);
-      }
-    }
-
-    async function cargarConexionWhatsapp() {
-      try {
-        setLoadingConnection(true);
-        setConnectionError('');
-        setConnectionMessage('');
-
-        const res = await fetch(
-          `/api/admin/whatsapp-connection?tenantId=${encodeURIComponent(
-            DEFAULT_TENANT_ID
-          )}`,
-          {
-            method: 'GET',
-            cache: 'no-store',
-          }
-        );
-
-        const data = await res.json().catch(() => null);
-
-        if (!res.ok) {
-          throw new Error(
-            data?.error || 'No se pudo cargar la conexión de WhatsApp.'
-          );
-        }
-
-        if (!activo) return;
-
-        const connection = data?.connection;
-
-        if (!connection) {
-          setConnectionForm(DEFAULT_CONNECTION);
+        if (!sessionRes.ok) {
+          router.replace('/admin/login');
           return;
         }
 
-        setConnectionForm({
-          tenant_id: connection.tenant_id ?? DEFAULT_TENANT_ID,
-          local_id: connection.local_id ?? '',
-          add_on_enabled: !!connection.add_on_enabled,
-          status: (connection.status ?? 'pending') as WhatsAppConnectionStatus,
-          provider: connection.provider ?? 'meta_cloud',
-          waba_id: connection.waba_id ?? '',
-          phone_number_id: connection.phone_number_id ?? '',
-          display_phone_number: connection.display_phone_number ?? '',
-          business_account_id: connection.business_account_id ?? '',
-          access_token: connection.access_token ?? '',
-          token_expires_at: formatDateTimeLocalInput(connection.token_expires_at),
-          webhook_subscribed_at: formatDateTimeLocalInput(
-            connection.webhook_subscribed_at
-          ),
-          app_scope_granted: !!connection.app_scope_granted,
-          last_error: connection.last_error ?? '',
-        });
-      } catch (err) {
-        console.error(err);
+        const sessionData = await sessionRes.json().catch(() => null);
+        const session = sessionData?.session;
+
         if (!activo) return;
-        setConnectionError(
-          err instanceof Error
-            ? err.message
-            : 'No se pudo cargar la conexión de WhatsApp.'
-        );
-      } finally {
-        if (activo) setLoadingConnection(false);
-      }
-    }
 
-    async function cargarPendientes() {
-      try {
-        setLoadingPending(true);
-        setPendingError('');
+        const plan = (session?.plan ?? 'esencial') as PlanCode;
+        const enabled = !!session?.capabilities?.delivery;
 
-        const res = await fetch('/api/admin/delivery-pedidos-pendientes', {
-          method: 'GET',
-          cache: 'no-store',
-        });
+        setCurrentPlan(plan);
+        setDeliveryEnabled(enabled);
 
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          throw new Error(
-            data?.error || 'No se pudieron cargar los pedidos pendientes.'
-          );
+        if (!enabled) {
+          return;
         }
 
-        const data = await res.json();
+        setConnectionForm((prev) => ({
+          ...prev,
+          add_on_enabled: true,
+        }));
 
-        if (!activo) return;
-
-        setPendingOrders(Array.isArray(data?.pedidos) ? data.pedidos : []);
+        await Promise.all([
+          cargarConfiguracion(),
+          cargarConexionWhatsapp(),
+          reloadPendingOrders(),
+        ]);
       } catch (err) {
         console.error(err);
         if (!activo) return;
-        setPendingError(
-          err instanceof Error
-            ? err.message
-            : 'No se pudieron cargar los pedidos pendientes.'
-        );
+        setDeliveryEnabled(false);
       } finally {
-        if (activo) setLoadingPending(false);
+        if (activo) {
+          setCheckingAccess(false);
+        }
       }
     }
 
-    cargarConfiguracion();
-    cargarConexionWhatsapp();
-    cargarPendientes();
+    bootstrap();
 
     return () => {
       activo = false;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
 
   function updateField<K extends keyof DeliveryConfig>(
     key: K,
@@ -450,7 +496,10 @@ export default function AdminDeliveryPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(connectionForm),
+        body: JSON.stringify({
+          ...connectionForm,
+          add_on_enabled: true,
+        }),
       });
 
       const data = await res.json().catch(() => null);
@@ -468,7 +517,7 @@ export default function AdminDeliveryPage() {
           ...prev,
           tenant_id: connection.tenant_id ?? prev.tenant_id,
           local_id: connection.local_id ?? '',
-          add_on_enabled: !!connection.add_on_enabled,
+          add_on_enabled: true,
           status: (connection.status ?? prev.status) as WhatsAppConnectionStatus,
           provider: connection.provider ?? prev.provider,
           waba_id: connection.waba_id ?? '',
@@ -495,37 +544,6 @@ export default function AdminDeliveryPage() {
       );
     } finally {
       setSavingConnection(false);
-    }
-  }
-
-  async function reloadPendingOrders() {
-    try {
-      setLoadingPending(true);
-      setPendingError('');
-
-      const res = await fetch('/api/admin/delivery-pedidos-pendientes', {
-        method: 'GET',
-        cache: 'no-store',
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        throw new Error(
-          data?.error || 'No se pudieron actualizar los pedidos pendientes.'
-        );
-      }
-
-      setPendingOrders(Array.isArray(data?.pedidos) ? data.pedidos : []);
-    } catch (err) {
-      console.error(err);
-      setPendingError(
-        err instanceof Error
-          ? err.message
-          : 'No se pudieron actualizar los pedidos pendientes.'
-      );
-    } finally {
-      setLoadingPending(false);
     }
   }
 
@@ -567,6 +585,77 @@ export default function AdminDeliveryPage() {
     } finally {
       setProcessingOrderId(null);
     }
+  }
+
+  if (checkingAccess) {
+    return (
+      <main className="p-6">
+        <h1 className="mb-4 text-2xl font-semibold">Delivery</h1>
+        <p>Verificando acceso al add-on…</p>
+      </main>
+    );
+  }
+
+  if (!deliveryEnabled) {
+    return (
+      <main className="p-6">
+        <div className="max-w-4xl">
+          <div className="rounded-3xl border border-violet-200 bg-white p-8 shadow-sm">
+            <span className="inline-flex rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 border border-violet-200">
+              Add-on opcional
+            </span>
+
+            <h1 className="mt-4 text-3xl font-bold text-slate-900">
+              WhatsApp Delivery
+            </h1>
+
+            <p className="mt-3 text-slate-600 leading-relaxed">
+              Este módulo no forma parte de las funcionalidades comunes de
+              Esencial, Pro o Intelligence. Se activa aparte por restaurante.
+            </p>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-semibold text-slate-900">
+                  Estado actual del restaurante
+                </p>
+                <p className="mt-2 text-sm text-slate-700">
+                  Plan: <strong>{formatPlanLabel(currentPlan)}</strong>
+                </p>
+                <p className="mt-2 text-sm text-slate-700">
+                  WhatsApp Delivery: <strong>No activo</strong>
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-semibold text-slate-900">Qué incluye</p>
+                <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                  <li>• Chatbot de pedidos por WhatsApp</li>
+                  <li>• Configuración de cobro y operación</li>
+                  <li>• Envío del pedido a la operación</li>
+                  <li>• Conexión técnica con Meta</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <a
+                href="mailto:contacto@restosmart.com?subject=Activar%20WhatsApp%20Delivery"
+                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Solicitar activación
+              </a>
+              <button
+                onClick={() => router.push('/admin')}
+                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Volver al dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   if (cargando) {
@@ -632,9 +721,7 @@ export default function AdminDeliveryPage() {
                 <p className="text-xs uppercase tracking-wide text-neutral-500">
                   Add-on
                 </p>
-                <p className="mt-1 font-medium">
-                  {connectionForm.add_on_enabled ? 'Habilitado' : 'Deshabilitado'}
-                </p>
+                <p className="mt-1 font-medium">Activo</p>
               </div>
 
               <div className="rounded-xl border bg-slate-50 p-3">
@@ -665,18 +752,7 @@ export default function AdminDeliveryPage() {
             ) : null}
 
             <form onSubmit={guardarConexionWhatsapp} className="grid gap-6">
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="flex items-center gap-3 rounded-xl border p-3">
-                  <input
-                    type="checkbox"
-                    checked={connectionForm.add_on_enabled}
-                    onChange={(e) =>
-                      updateConnectionField('add_on_enabled', e.target.checked)
-                    }
-                  />
-                  <span>Habilitar add-on WhatsApp Delivery para este restaurante</span>
-                </label>
-
+              <div className="grid gap-3 md:grid-cols-1">
                 <label className="flex items-center gap-3 rounded-xl border p-3">
                   <input
                     type="checkbox"
