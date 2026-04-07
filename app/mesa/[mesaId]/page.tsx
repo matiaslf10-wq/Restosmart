@@ -27,6 +27,12 @@ type Mesa = {
   nombre: string;
 };
 
+type PedidoCreado = {
+  id: number;
+  estado: string;
+  mesa_id: number;
+};
+
 export default function MesaPage() {
   const params = useParams();
   const rawMesaId = params?.mesaId as string | string[] | undefined;
@@ -189,7 +195,25 @@ export default function MesaPage() {
     0
   );
 
-  const crearPedidoDesdeCarrito = async (formaPago: 'virtual' | 'efectivo') => {
+  const getMensajePedidoCreado = (
+    pedido: PedidoCreado,
+    formaPago: 'virtual' | 'efectivo'
+  ) => {
+    const pagoTexto =
+      formaPago === 'efectivo'
+        ? 'Registramos que vas a pagar en efectivo 💵'
+        : 'Abrimos el pago virtual en una nueva ventana 💳';
+
+    if (pedido.estado === 'solicitado') {
+      return `Pedido generado. Quedó pendiente de confirmación del mozo. ${pagoTexto}`;
+    }
+
+    return `Pedido generado y enviado a cocina. ${pagoTexto}`;
+  };
+
+  const crearPedidoDesdeCarrito = async (
+    formaPago: 'virtual' | 'efectivo'
+  ): Promise<PedidoCreado | null> => {
     if (!mesa?.id) return null;
 
     if (carrito.length === 0) {
@@ -203,60 +227,43 @@ export default function MesaPage() {
     try {
       const payload = {
         mesa_id: mesa.id,
-        estado: 'solicitado',
         total,
-        paga_efectivo: formaPago === 'efectivo',
         forma_pago: formaPago,
+        paga_efectivo: formaPago === 'efectivo',
         origen: 'salon',
         tipo_servicio: 'mesa',
         medio_pago: formaPago === 'efectivo' ? 'efectivo' : 'virtual',
         estado_pago: formaPago === 'efectivo' ? 'aprobado' : 'pendiente',
         efectivo_aprobado: formaPago === 'efectivo',
+        items: carrito.map((item) => ({
+          producto_id: item.producto.id,
+          cantidad: item.cantidad,
+          comentarios: item.comentarios || null,
+        })),
       };
 
-      const { data: pedido, error: errorPedido } = await supabase
-        .from('pedidos')
-        .insert(payload)
-        .select()
-        .single();
+      const res = await fetch('/api/pedidos', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
 
-      if (errorPedido || !pedido) {
-        console.error('Error creando pedido:', {
-          message: errorPedido?.message,
-          details: (errorPedido as any)?.details,
-          hint: (errorPedido as any)?.hint,
-          code: (errorPedido as any)?.code,
-          raw: errorPedido,
+      const body = await res.json().catch(() => null);
+
+      if (!res.ok || !body?.pedido) {
+        console.error('Error creando pedido por API:', {
+          status: res.status,
+          body,
           payload,
         });
-        setMensaje('Hubo un error al crear el pedido.');
-        return null;
-      }
-
-      const items = carrito.map((item) => ({
-        pedido_id: pedido.id,
-        producto_id: item.producto.id,
-        cantidad: item.cantidad,
-        comentarios: item.comentarios || null,
-      }));
-
-      const { error: errorItems } = await supabase.from('items_pedido').insert(items);
-
-      if (errorItems) {
-        console.error('Error guardando ítems:', {
-          message: errorItems.message,
-          details: (errorItems as any)?.details,
-          hint: (errorItems as any)?.hint,
-          code: (errorItems as any)?.code,
-          raw: errorItems,
-          items,
-        });
-        setMensaje('Hubo un error al guardar los ítems del pedido.');
+        setMensaje(body?.error || 'Hubo un error al crear el pedido.');
         return null;
       }
 
       setCarrito([]);
-      return pedido;
+      return body.pedido as PedidoCreado;
     } finally {
       setEnviando(false);
     }
@@ -273,7 +280,7 @@ export default function MesaPage() {
         const pedido = await crearPedidoDesdeCarrito('efectivo');
         if (!pedido) return;
 
-        setMensaje('Pedido generado. Avisamos que vas a pagar en efectivo 💵');
+        setMensaje(getMensajePedidoCreado(pedido, 'efectivo'));
       } else {
         const { error } = await supabase
           .from('pedidos')
@@ -297,11 +304,11 @@ export default function MesaPage() {
             code: (error as any)?.code,
             raw: error,
           });
-          setMensaje('No se pudo marcar el pago en efectivo. Avisá al mozo.');
+          setMensaje('No se pudo marcar el pago en efectivo. Avisá al personal.');
           return;
         }
 
-        setMensaje('Listo, avisamos que vas a pagar en efectivo 💵');
+        setMensaje('Listo, registramos que vas a pagar en efectivo 💵');
       }
     } finally {
       setProcesandoPago(false);
@@ -319,7 +326,7 @@ export default function MesaPage() {
         const pedido = await crearPedidoDesdeCarrito('virtual');
         if (!pedido) return;
 
-        setMensaje('Pedido generado. Abrimos el pago virtual en una nueva ventana 💳');
+        setMensaje(getMensajePedidoCreado(pedido, 'virtual'));
       } else {
         const { error } = await supabase
           .from('pedidos')
@@ -343,7 +350,7 @@ export default function MesaPage() {
             code: (error as any)?.code,
             raw: error,
           });
-          setMensaje('No se pudo marcar el pago virtual. Avisá al mozo.');
+          setMensaje('No se pudo marcar el pago virtual. Avisá al personal.');
           return;
         }
 
@@ -594,7 +601,7 @@ export default function MesaPage() {
           </div>
 
           <p className="text-xs text-slate-500">
-            El mozo verá tu elección en el sistema. Si algo no funciona, avisale 😊
+            El local verá tu elección en el sistema. Si algo no funciona, avisale al personal 😊
           </p>
         </section>
       </div>
