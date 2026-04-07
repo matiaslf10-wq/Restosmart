@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const DELIVERY_MESA_ID = 0;
+const DEFAULT_TENANT_ID = 'default';
 
 type DeliveryConfig = {
   activo: boolean;
@@ -31,6 +32,30 @@ type PendingDeliveryOrder = {
   codigo_publico?: string | null;
 };
 
+type WhatsAppConnectionStatus =
+  | 'pending'
+  | 'connected'
+  | 'expired'
+  | 'error'
+  | 'disconnected';
+
+type WhatsAppConnectionForm = {
+  tenant_id: string;
+  local_id: string;
+  add_on_enabled: boolean;
+  status: WhatsAppConnectionStatus;
+  provider: string;
+  waba_id: string;
+  phone_number_id: string;
+  display_phone_number: string;
+  business_account_id: string;
+  access_token: string;
+  token_expires_at: string;
+  webhook_subscribed_at: string;
+  app_scope_granted: boolean;
+  last_error: string;
+};
+
 const DEFAULT_CONFIG: DeliveryConfig = {
   activo: false,
   whatsapp_numero: '',
@@ -42,6 +67,23 @@ const DEFAULT_CONFIG: DeliveryConfig = {
     'Hola 👋 Gracias por comunicarte con nosotros. Decime qué querés pedir y te ayudamos con tu compra.',
   tiempo_estimado_min: 45,
   costo_envio: 0,
+};
+
+const DEFAULT_CONNECTION: WhatsAppConnectionForm = {
+  tenant_id: DEFAULT_TENANT_ID,
+  local_id: '',
+  add_on_enabled: false,
+  status: 'pending',
+  provider: 'meta_cloud',
+  waba_id: '',
+  phone_number_id: '',
+  display_phone_number: '',
+  business_account_id: '',
+  access_token: '',
+  token_expires_at: '',
+  webhook_subscribed_at: '',
+  app_scope_granted: false,
+  last_error: '',
 };
 
 function formatMoney(value: number | string | null | undefined) {
@@ -67,17 +109,119 @@ function formatDate(value: string) {
   }
 }
 
+function formatDateTimeLocalInput(value: string | null | undefined) {
+  if (!value) return '';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  const yyyy = date.getFullYear();
+  const mm = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const hh = pad(date.getHours());
+  const mi = pad(date.getMinutes());
+
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+function getStatusLabel(status: WhatsAppConnectionStatus) {
+  switch (status) {
+    case 'connected':
+      return 'Conectado';
+    case 'expired':
+      return 'Vencido';
+    case 'error':
+      return 'Con error';
+    case 'disconnected':
+      return 'Desconectado';
+    case 'pending':
+    default:
+      return 'Pendiente';
+  }
+}
+
+function getStatusClasses(status: WhatsAppConnectionStatus) {
+  switch (status) {
+    case 'connected':
+      return 'bg-green-100 text-green-800 border-green-200';
+    case 'expired':
+      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    case 'error':
+      return 'bg-red-100 text-red-800 border-red-200';
+    case 'disconnected':
+      return 'bg-slate-100 text-slate-700 border-slate-200';
+    case 'pending':
+    default:
+      return 'bg-blue-100 text-blue-800 border-blue-200';
+  }
+}
+
+function getTokenHealth(tokenExpiresAt: string) {
+  if (!tokenExpiresAt) {
+    return {
+      tone: 'neutral' as const,
+      text: 'Sin vencimiento cargado',
+    };
+  }
+
+  const now = Date.now();
+  const expiresAt = new Date(tokenExpiresAt).getTime();
+
+  if (Number.isNaN(expiresAt)) {
+    return {
+      tone: 'danger' as const,
+      text: 'Fecha de vencimiento inválida',
+    };
+  }
+
+  const diffDays = Math.floor((expiresAt - now) / (1000 * 60 * 60 * 24));
+
+  if (expiresAt <= now) {
+    return {
+      tone: 'danger' as const,
+      text: 'Token vencido',
+    };
+  }
+
+  if (diffDays <= 7) {
+    return {
+      tone: 'warn' as const,
+      text: `Token por vencer (${diffDays} día/s)`,
+    };
+  }
+
+  return {
+    tone: 'ok' as const,
+    text: `Token vigente (${diffDays} día/s restantes)`,
+  };
+}
+
 export default function AdminDeliveryPage() {
   const [form, setForm] = useState<DeliveryConfig>(DEFAULT_CONFIG);
+  const [connectionForm, setConnectionForm] =
+    useState<WhatsAppConnectionForm>(DEFAULT_CONNECTION);
+
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState('');
   const [error, setError] = useState('');
 
+  const [loadingConnection, setLoadingConnection] = useState(true);
+  const [savingConnection, setSavingConnection] = useState(false);
+  const [connectionMessage, setConnectionMessage] = useState('');
+  const [connectionError, setConnectionError] = useState('');
+
   const [pendingOrders, setPendingOrders] = useState<PendingDeliveryOrder[]>([]);
   const [loadingPending, setLoadingPending] = useState(true);
   const [pendingError, setPendingError] = useState('');
   const [processingOrderId, setProcessingOrderId] = useState<number | null>(null);
+
+  const tokenHealth = useMemo(
+    () => getTokenHealth(connectionForm.token_expires_at),
+    [connectionForm.token_expires_at]
+  );
 
   useEffect(() => {
     let activo = true;
@@ -126,9 +270,71 @@ export default function AdminDeliveryPage() {
           'No se pudo cargar la configuración. Verificá la API /api/admin/delivery-config.'
         );
       } finally {
-        if (activo) {
-          setCargando(false);
+        if (activo) setCargando(false);
+      }
+    }
+
+    async function cargarConexionWhatsapp() {
+      try {
+        setLoadingConnection(true);
+        setConnectionError('');
+        setConnectionMessage('');
+
+        const res = await fetch(
+          `/api/admin/whatsapp-connection?tenantId=${encodeURIComponent(
+            DEFAULT_TENANT_ID
+          )}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          }
+        );
+
+        const data = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          throw new Error(
+            data?.error || 'No se pudo cargar la conexión de WhatsApp.'
+          );
         }
+
+        if (!activo) return;
+
+        const connection = data?.connection;
+
+        if (!connection) {
+          setConnectionForm(DEFAULT_CONNECTION);
+          return;
+        }
+
+        setConnectionForm({
+          tenant_id: connection.tenant_id ?? DEFAULT_TENANT_ID,
+          local_id: connection.local_id ?? '',
+          add_on_enabled: !!connection.add_on_enabled,
+          status: (connection.status ?? 'pending') as WhatsAppConnectionStatus,
+          provider: connection.provider ?? 'meta_cloud',
+          waba_id: connection.waba_id ?? '',
+          phone_number_id: connection.phone_number_id ?? '',
+          display_phone_number: connection.display_phone_number ?? '',
+          business_account_id: connection.business_account_id ?? '',
+          access_token: connection.access_token ?? '',
+          token_expires_at: formatDateTimeLocalInput(connection.token_expires_at),
+          webhook_subscribed_at: formatDateTimeLocalInput(
+            connection.webhook_subscribed_at
+          ),
+          app_scope_granted: !!connection.app_scope_granted,
+          last_error: connection.last_error ?? '',
+        });
+      } catch (err) {
+        console.error(err);
+        if (!activo) return;
+        setConnectionError(
+          err instanceof Error
+            ? err.message
+            : 'No se pudo cargar la conexión de WhatsApp.'
+        );
+      } finally {
+        if (activo) setLoadingConnection(false);
       }
     }
 
@@ -163,13 +369,12 @@ export default function AdminDeliveryPage() {
             : 'No se pudieron cargar los pedidos pendientes.'
         );
       } finally {
-        if (activo) {
-          setLoadingPending(false);
-        }
+        if (activo) setLoadingPending(false);
       }
     }
 
     cargarConfiguracion();
+    cargarConexionWhatsapp();
     cargarPendientes();
 
     return () => {
@@ -182,6 +387,16 @@ export default function AdminDeliveryPage() {
     value: DeliveryConfig[K]
   ) {
     setForm((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }
+
+  function updateConnectionField<K extends keyof WhatsAppConnectionForm>(
+    key: K,
+    value: WhatsAppConnectionForm[K]
+  ) {
+    setConnectionForm((prev) => ({
       ...prev,
       [key]: value,
     }));
@@ -219,6 +434,67 @@ export default function AdminDeliveryPage() {
       );
     } finally {
       setGuardando(false);
+    }
+  }
+
+  async function guardarConexionWhatsapp(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+
+    try {
+      setSavingConnection(true);
+      setConnectionMessage('');
+      setConnectionError('');
+
+      const res = await fetch('/api/admin/whatsapp-connection', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(connectionForm),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(
+          data?.error || 'No se pudo guardar la conexión de WhatsApp.'
+        );
+      }
+
+      const connection = data?.connection;
+
+      if (connection) {
+        setConnectionForm((prev) => ({
+          ...prev,
+          tenant_id: connection.tenant_id ?? prev.tenant_id,
+          local_id: connection.local_id ?? '',
+          add_on_enabled: !!connection.add_on_enabled,
+          status: (connection.status ?? prev.status) as WhatsAppConnectionStatus,
+          provider: connection.provider ?? prev.provider,
+          waba_id: connection.waba_id ?? '',
+          phone_number_id: connection.phone_number_id ?? '',
+          display_phone_number: connection.display_phone_number ?? '',
+          business_account_id: connection.business_account_id ?? '',
+          access_token: connection.access_token ?? '',
+          token_expires_at: formatDateTimeLocalInput(connection.token_expires_at),
+          webhook_subscribed_at: formatDateTimeLocalInput(
+            connection.webhook_subscribed_at
+          ),
+          app_scope_granted: !!connection.app_scope_granted,
+          last_error: connection.last_error ?? '',
+        }));
+      }
+
+      setConnectionMessage('Conexión técnica de WhatsApp guardada correctamente.');
+    } catch (err) {
+      console.error(err);
+      setConnectionError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo guardar la conexión de WhatsApp.'
+      );
+    } finally {
+      setSavingConnection(false);
     }
   }
 
@@ -319,6 +595,279 @@ export default function AdminDeliveryPage() {
         </p>
       </div>
 
+      <section className="mb-8 rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-medium">
+              Conexión técnica de WhatsApp Delivery
+            </h2>
+            <p className="mt-1 text-sm text-neutral-600">
+              Por ahora esta sección permite cargar manualmente la conexión técnica
+              del restaurante. Después la reemplazamos por el onboarding con Meta.
+            </p>
+          </div>
+
+          <span
+            className={`rounded-full border px-3 py-1 text-xs font-medium ${getStatusClasses(
+              connectionForm.status
+            )}`}
+          >
+            {getStatusLabel(connectionForm.status)}
+          </span>
+        </div>
+
+        {loadingConnection ? (
+          <p className="text-sm text-neutral-600">Cargando conexión técnica...</p>
+        ) : (
+          <>
+            <div className="mb-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border bg-slate-50 p-3">
+                <p className="text-xs uppercase tracking-wide text-neutral-500">
+                  Tenant actual
+                </p>
+                <p className="mt-1 font-medium">{connectionForm.tenant_id}</p>
+              </div>
+
+              <div className="rounded-xl border bg-slate-50 p-3">
+                <p className="text-xs uppercase tracking-wide text-neutral-500">
+                  Add-on
+                </p>
+                <p className="mt-1 font-medium">
+                  {connectionForm.add_on_enabled ? 'Habilitado' : 'Deshabilitado'}
+                </p>
+              </div>
+
+              <div className="rounded-xl border bg-slate-50 p-3">
+                <p className="text-xs uppercase tracking-wide text-neutral-500">
+                  Salud del token
+                </p>
+                <p className="mt-1 font-medium">{tokenHealth.text}</p>
+              </div>
+            </div>
+
+            {connectionForm.last_error ? (
+              <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+                <span className="font-medium">Último error:</span>{' '}
+                {connectionForm.last_error}
+              </div>
+            ) : null}
+
+            {connectionError ? (
+              <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {connectionError}
+              </div>
+            ) : null}
+
+            {connectionMessage ? (
+              <div className="mb-4 rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+                {connectionMessage}
+              </div>
+            ) : null}
+
+            <form onSubmit={guardarConexionWhatsapp} className="grid gap-6">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="flex items-center gap-3 rounded-xl border p-3">
+                  <input
+                    type="checkbox"
+                    checked={connectionForm.add_on_enabled}
+                    onChange={(e) =>
+                      updateConnectionField('add_on_enabled', e.target.checked)
+                    }
+                  />
+                  <span>Habilitar add-on WhatsApp Delivery para este restaurante</span>
+                </label>
+
+                <label className="flex items-center gap-3 rounded-xl border p-3">
+                  <input
+                    type="checkbox"
+                    checked={connectionForm.app_scope_granted}
+                    onChange={(e) =>
+                      updateConnectionField('app_scope_granted', e.target.checked)
+                    }
+                  />
+                  <span>Permisos de app otorgados</span>
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Estado de conexión</span>
+                  <select
+                    value={connectionForm.status}
+                    onChange={(e) =>
+                      updateConnectionField(
+                        'status',
+                        e.target.value as WhatsAppConnectionStatus
+                      )
+                    }
+                    className="rounded-xl border px-3 py-2"
+                  >
+                    <option value="pending">Pendiente</option>
+                    <option value="connected">Conectado</option>
+                    <option value="expired">Vencido</option>
+                    <option value="error">Con error</option>
+                    <option value="disconnected">Desconectado</option>
+                  </select>
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Provider</span>
+                  <input
+                    type="text"
+                    value={connectionForm.provider}
+                    onChange={(e) =>
+                      updateConnectionField('provider', e.target.value)
+                    }
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Local ID</span>
+                  <input
+                    type="text"
+                    value={connectionForm.local_id}
+                    onChange={(e) =>
+                      updateConnectionField('local_id', e.target.value)
+                    }
+                    placeholder="Opcional"
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Display phone number</span>
+                  <input
+                    type="text"
+                    value={connectionForm.display_phone_number}
+                    onChange={(e) =>
+                      updateConnectionField('display_phone_number', e.target.value)
+                    }
+                    placeholder="Ej. 54 11 1234 5678"
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Phone Number ID</span>
+                  <input
+                    type="text"
+                    value={connectionForm.phone_number_id}
+                    onChange={(e) =>
+                      updateConnectionField('phone_number_id', e.target.value)
+                    }
+                    placeholder="ID técnico de Meta"
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">WABA ID</span>
+                  <input
+                    type="text"
+                    value={connectionForm.waba_id}
+                    onChange={(e) =>
+                      updateConnectionField('waba_id', e.target.value)
+                    }
+                    placeholder="WhatsApp Business Account ID"
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Business Account ID</span>
+                  <input
+                    type="text"
+                    value={connectionForm.business_account_id}
+                    onChange={(e) =>
+                      updateConnectionField(
+                        'business_account_id',
+                        e.target.value
+                      )
+                    }
+                    placeholder="Business Portfolio / Account ID"
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Webhook subscribed at</span>
+                  <input
+                    type="datetime-local"
+                    value={connectionForm.webhook_subscribed_at}
+                    onChange={(e) =>
+                      updateConnectionField(
+                        'webhook_subscribed_at',
+                        e.target.value
+                      )
+                    }
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Token expires at</span>
+                  <input
+                    type="datetime-local"
+                    value={connectionForm.token_expires_at}
+                    onChange={(e) =>
+                      updateConnectionField('token_expires_at', e.target.value)
+                    }
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Último error</span>
+                  <input
+                    type="text"
+                    value={connectionForm.last_error}
+                    onChange={(e) =>
+                      updateConnectionField('last_error', e.target.value)
+                    }
+                    placeholder="Opcional"
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+              </div>
+
+              <label className="grid gap-2">
+                <span className="text-sm font-medium">Access token</span>
+                <input
+                  type="password"
+                  value={connectionForm.access_token}
+                  onChange={(e) =>
+                    updateConnectionField('access_token', e.target.value)
+                  }
+                  placeholder="Pegá el token técnico de Meta"
+                  className="rounded-xl border px-3 py-2"
+                />
+              </label>
+
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  disabled={savingConnection}
+                  className="rounded-xl bg-black px-5 py-3 text-white disabled:opacity-60"
+                >
+                  {savingConnection
+                    ? 'Guardando conexión...'
+                    : 'Guardar conexión técnica'}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
+      </section>
+
       <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
         <p className="font-medium">Mesa técnica reservada para delivery</p>
         <p className="mt-1">
@@ -346,9 +895,8 @@ export default function AdminDeliveryPage() {
           <h2 className="mb-4 text-lg font-medium">WhatsApp</h2>
 
           <p className="mb-4 text-sm text-neutral-600">
-            Esta pantalla sigue manejando la configuración operativa del canal.
-            En el próximo cambio vamos a sumar el estado técnico de conexión con Meta
-            por restaurante.
+            Esta sección sigue manejando la operación del canal: mensaje de
+            bienvenida, número visible, medios de pago y tiempos.
           </p>
 
           <div className="grid gap-4 md:grid-cols-2">
