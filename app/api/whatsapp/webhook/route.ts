@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleIncomingWhatsAppMessage } from '@/lib/deliveryBot';
+import {
+  clearWhatsAppConnectionError,
+  getLegacyExpectedPhoneNumberId,
+  getWebhookVerifyToken,
+  getWhatsAppConnectionByPhoneNumberId,
+  isMetaSignatureValid,
+  markWhatsAppConnectionError,
+} from '@/lib/whatsapp';
+import type { IncomingWhatsAppMessage, MetaWebhookBody } from '@/types/whatsapp';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
-const EXPECTED_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
 function extractMessageText(message: any) {
   return (
@@ -20,8 +26,44 @@ function extractMessageText(message: any) {
   );
 }
 
+function extractIncomingMessages(body: MetaWebhookBody): IncomingWhatsAppMessage[] {
+  const messages: IncomingWhatsAppMessage[] = [];
+  const entries = Array.isArray(body?.entry) ? body.entry : [];
+
+  for (const entry of entries) {
+    const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+
+    for (const change of changes) {
+      const value = change?.value;
+      const phoneNumberId = value?.metadata?.phone_number_id ?? null;
+      const displayPhoneNumber = value?.metadata?.display_phone_number ?? null;
+      const changeMessages = Array.isArray(value?.messages) ? value.messages : [];
+
+      for (const message of changeMessages) {
+        const from = message?.from;
+        const text = extractMessageText(message)?.trim?.() || '';
+        const messageId = message?.id || '';
+
+        if (!from || !text || !messageId) continue;
+
+        messages.push({
+          from,
+          text,
+          messageId,
+          phoneNumberId,
+          displayPhoneNumber,
+        });
+      }
+    }
+  }
+
+  return messages;
+}
+
 export async function GET(request: NextRequest) {
-  if (!VERIFY_TOKEN) {
+  const verifyToken = getWebhookVerifyToken();
+
+  if (!verifyToken) {
     return new NextResponse('Server misconfigured', { status: 500 });
   }
 
@@ -30,7 +72,7 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+  if (mode === 'subscribe' && token === verifyToken) {
     return new NextResponse(challenge ?? '', { status: 200 });
   }
 
@@ -38,44 +80,86 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const signature = request.headers.get('x-hub-signature-256');
+  const rawBody = await request.text();
+
+  if (!isMetaSignatureValid(rawBody, signature)) {
+    return NextResponse.json({ ok: false, error: 'Invalid signature' }, { status: 401 });
+  }
+
+  let body: MetaWebhookBody;
+
   try {
-    const body = await request.json();
+    body = JSON.parse(rawBody);
+  } catch (error) {
+    console.error('WhatsApp webhook JSON inválido:', error);
+    return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
+  }
 
-    const entries = Array.isArray(body?.entry) ? body.entry : [];
+  try {
+    const incomingMessages = extractIncomingMessages(body);
+    const legacyPhoneNumberId = getLegacyExpectedPhoneNumberId();
 
-    for (const entry of entries) {
-      const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+    for (const message of incomingMessages) {
+      let connection = null;
 
-      for (const change of changes) {
-        const value = change?.value;
-        const messages = Array.isArray(value?.messages) ? value.messages : [];
-        const incomingPhoneNumberId = value?.metadata?.phone_number_id;
+      if (message.phoneNumberId) {
+        try {
+          connection = await getWhatsAppConnectionByPhoneNumberId(message.phoneNumberId);
+        } catch (error) {
+          console.error('Error buscando conexión WhatsApp:', error);
+        }
+      }
 
-        const isSamplePayload =
-          !!incomingPhoneNumberId &&
-          !!EXPECTED_PHONE_NUMBER_ID &&
-          incomingPhoneNumberId !== EXPECTED_PHONE_NUMBER_ID;
+      const isLegacyFallback =
+        !!message.phoneNumberId &&
+        !!legacyPhoneNumberId &&
+        message.phoneNumberId === legacyPhoneNumberId;
 
-        if (isSamplePayload) {
-          console.log(
-            'WhatsApp webhook: payload de prueba detectado, no se responde automáticamente.'
+      if (!connection && !isLegacyFallback) {
+        console.warn(
+          'WhatsApp webhook: phone_number_id no asociado. No se procesa automáticamente.',
+          message.phoneNumberId
+        );
+        continue;
+      }
+
+      if (connection) {
+        if (!connection.add_on_enabled) {
+          console.warn(
+            'WhatsApp webhook: add-on deshabilitado para tenant',
+            connection.tenant_id
           );
           continue;
         }
 
-        for (const message of messages) {
-          const from = message?.from;
-          const text = extractMessageText(message);
+        if (connection.status !== 'connected') {
+          console.warn(
+            'WhatsApp webhook: conexión no activa para tenant',
+            connection.tenant_id,
+            connection.status
+          );
+          continue;
+        }
+      }
 
-          if (!from || !text) {
-            continue;
-          }
+      try {
+        await handleIncomingWhatsAppMessage({
+          telefono: message.from,
+          incomingText: message.text,
+          connection,
+        });
 
-          try {
-            await handleIncomingWhatsAppMessage(from, text);
-          } catch (error) {
-            console.error('Error procesando mensaje de WhatsApp:', error);
-          }
+        if (connection) {
+          await clearWhatsAppConnectionError(connection.id);
+        }
+      } catch (error) {
+        console.error('Error procesando mensaje de WhatsApp:', error);
+
+        if (connection) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Error procesando mensaje';
+          await markWhatsAppConnectionError(connection.id, errorMessage);
         }
       }
     }

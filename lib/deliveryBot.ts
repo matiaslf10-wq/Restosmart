@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { sendWhatsAppText } from './whatsapp';
+import type { WhatsAppConnection } from '@/types/whatsapp';
 
 const DELIVERY_MESA_ID = 0;
 const MAX_MENU_ITEMS = 20;
@@ -40,6 +41,12 @@ type DeliveryConfig = {
   mensaje_bienvenida: string;
   tiempo_estimado_min: number;
   costo_envio: number;
+};
+
+type HandleIncomingWhatsAppMessageParams = {
+  telefono: string;
+  incomingText: string;
+  connection?: WhatsAppConnection | null;
 };
 
 const DEFAULT_DELIVERY_CONFIG: DeliveryConfig = {
@@ -86,11 +93,7 @@ function calcularSubtotal(carrito: DeliveryCartItem[]) {
 }
 
 function getAppUrl() {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.APP_URL?.trim() ||
-    ''
-  );
+  return process.env.NEXT_PUBLIC_APP_URL?.trim() || process.env.APP_URL?.trim() || '';
 }
 
 function normalizeDeliveryConfig(row: Record<string, unknown> | null | undefined): DeliveryConfig {
@@ -111,15 +114,14 @@ function normalizeDeliveryConfig(row: Record<string, unknown> | null | undefined
     mensaje_bienvenida:
       String(row?.mensaje_bienvenida ?? '').trim() ||
       DEFAULT_DELIVERY_CONFIG.mensaje_bienvenida,
-    tiempo_estimado_min: Number(row?.tiempo_estimado_min ?? DEFAULT_DELIVERY_CONFIG.tiempo_estimado_min) || DEFAULT_DELIVERY_CONFIG.tiempo_estimado_min,
+    tiempo_estimado_min:
+      Number(row?.tiempo_estimado_min ?? DEFAULT_DELIVERY_CONFIG.tiempo_estimado_min) ||
+      DEFAULT_DELIVERY_CONFIG.tiempo_estimado_min,
     costo_envio: Number(row?.costo_envio ?? 0) || 0,
   };
 }
 
-function addOrMergeCartItem(
-  carrito: DeliveryCartItem[],
-  nuevoItem: DeliveryCartItem
-) {
+function addOrMergeCartItem(carrito: DeliveryCartItem[], nuevoItem: DeliveryCartItem) {
   const existingIndex = carrito.findIndex(
     (item) => item.producto_id === nuevoItem.producto_id
   );
@@ -232,9 +234,7 @@ async function findProductByName(name: string) {
     .maybeSingle();
 
   if (result.error) {
-    throw new Error(
-      result.error.message || 'No se pudo buscar el producto.'
-    );
+    throw new Error(result.error.message || 'No se pudo buscar el producto.');
   }
 
   return result.data;
@@ -351,7 +351,9 @@ async function crearPedidoDeliveryDesdeConversacion(params: {
     comentarios: null,
   }));
 
-  const { error: errorItems } = await supabaseAdmin.from('items_pedido').insert(items);
+  const { error: errorItems } = await supabaseAdmin
+    .from('items_pedido')
+    .insert(items);
 
   if (errorItems) {
     await supabaseAdmin.from('pedidos').delete().eq('id', pedido.id);
@@ -422,17 +424,31 @@ async function crearPreferenciaMercadoPago(params: {
   };
 }
 
-export async function handleIncomingWhatsAppMessage(
+async function reply(
   telefono: string,
-  incomingText: string
+  body: string,
+  connection?: WhatsAppConnection | null
 ) {
+  await sendWhatsAppText({
+    to: telefono,
+    body,
+    connection: connection ?? null,
+  });
+}
+
+export async function handleIncomingWhatsAppMessage({
+  telefono,
+  incomingText,
+  connection = null,
+}: HandleIncomingWhatsAppMessageParams) {
   const text = normalizeText(incomingText);
   const deliveryConfig = await getDeliveryConfig();
 
   if (!deliveryConfig.activo) {
-    await sendWhatsAppText(
+    await reply(
       telefono,
-      'En este momento el canal de delivery está pausado. Probá nuevamente más tarde.'
+      'En este momento el canal de delivery está pausado. Probá nuevamente más tarde.',
+      connection
     );
     return;
   }
@@ -443,9 +459,10 @@ export async function handleIncomingWhatsAppMessage(
     const products = await listAvailableProducts();
 
     if (!products.length) {
-      await sendWhatsAppText(
+      await reply(
         telefono,
-        'En este momento no hay productos disponibles para delivery.'
+        'En este momento no hay productos disponibles para delivery.',
+        connection
       );
       return;
     }
@@ -469,9 +486,10 @@ export async function handleIncomingWhatsAppMessage(
 
     const extrasText = extras.length ? `\n\n${extras.join('\n')}` : '';
 
-    await sendWhatsAppText(
+    await reply(
       telefono,
-      `${deliveryConfig.mensaje_bienvenida}\n\nTe paso el menú:\n\n${menuText}${extrasText}\n\nPara agregar productos escribí por ejemplo:\n2 x hamburguesa\n1 x coca cola\n\nCuando termines, escribí: confirmar`
+      `${deliveryConfig.mensaje_bienvenida}\n\nTe paso el menú:\n\n${menuText}${extrasText}\n\nPara agregar productos escribí por ejemplo:\n2 x hamburguesa\n1 x coca cola\n\nCuando termines, escribí: confirmar`,
+      connection
     );
     return;
   }
@@ -481,25 +499,29 @@ export async function handleIncomingWhatsAppMessage(
       const carrito = conv.carrito ?? [];
 
       if (!carrito.length) {
-        await sendWhatsAppText(
+        await reply(
           telefono,
-          'Todavía no agregaste productos. Escribime por ejemplo: 2 x hamburguesa'
+          'Todavía no agregaste productos. Escribime por ejemplo: 2 x hamburguesa',
+          connection
         );
         return;
       }
 
       if (!deliveryConfig.acepta_mercadopago && !deliveryConfig.acepta_efectivo) {
-        await sendWhatsAppText(
+        await reply(
           telefono,
-          'En este momento no hay medios de pago habilitados para delivery.'
+          'En este momento no hay medios de pago habilitados para delivery.',
+          connection
         );
         return;
       }
 
       await updateConversation(conv.id, { estado: 'pidiendo_nombre' });
-      await sendWhatsAppText(
+
+      await reply(
         telefono,
-        'Perfecto. ¿A nombre de quién va el pedido?'
+        'Perfecto. ¿A nombre de quién va el pedido?',
+        connection
       );
       return;
     }
@@ -507,9 +529,10 @@ export async function handleIncomingWhatsAppMessage(
     const parsed = parseQuantityAndProduct(incomingText);
 
     if (!parsed) {
-      await sendWhatsAppText(
+      await reply(
         telefono,
-        'No entendí ese formato. Probá así: 2 x hamburguesa'
+        'No entendí ese formato. Probá así: 2 x hamburguesa',
+        connection
       );
       return;
     }
@@ -517,9 +540,10 @@ export async function handleIncomingWhatsAppMessage(
     const product = await findProductByName(parsed.nombre);
 
     if (!product) {
-      await sendWhatsAppText(
+      await reply(
         telefono,
-        `No encontré "${parsed.nombre}". Probá con otro nombre del menú.`
+        `No encontré "${parsed.nombre}". Probá con otro nombre del menú.`,
+        connection
       );
       return;
     }
@@ -534,9 +558,10 @@ export async function handleIncomingWhatsAppMessage(
 
     await updateConversation(conv.id, { carrito: nextCart });
 
-    await sendWhatsAppText(
+    await reply(
       telefono,
-      `Agregado: ${parsed.cantidad} x ${product.nombre}\nEscribí otro producto o "confirmar".`
+      `Agregado: ${parsed.cantidad} x ${product.nombre}\nEscribí otro producto o "confirmar".`,
+      connection
     );
     return;
   }
@@ -547,9 +572,10 @@ export async function handleIncomingWhatsAppMessage(
       nombre_cliente: incomingText.trim(),
     });
 
-    await sendWhatsAppText(
+    await reply(
       telefono,
-      'Pasame la dirección de entrega, por favor.'
+      'Pasame la dirección de entrega, por favor.',
+      connection
     );
     return;
   }
@@ -560,16 +586,21 @@ export async function handleIncomingWhatsAppMessage(
       direccion: incomingText.trim(),
     });
 
-    await sendWhatsAppText(telefono, buildPaymentOptionsMessage(deliveryConfig));
+    await reply(
+      telefono,
+      buildPaymentOptionsMessage(deliveryConfig),
+      connection
+    );
     return;
   }
 
   if (conv.estado === 'pidiendo_pago') {
     if (text === '1' || text.includes('mercado')) {
       if (!deliveryConfig.acepta_mercadopago) {
-        await sendWhatsAppText(
+        await reply(
           telefono,
-          'Mercado Pago no está habilitado en este momento. Elegí otra forma de pago.'
+          'Mercado Pago no está habilitado en este momento. Elegí otra forma de pago.',
+          connection
         );
         return;
       }
@@ -598,15 +629,17 @@ export async function handleIncomingWhatsAppMessage(
             ? `\nEnvío: $${deliveryConfig.costo_envio}`
             : '';
 
-        await sendWhatsAppText(
+        await reply(
           telefono,
-          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}${envioText}\n\nPagalo acá:\n${preferencia.paymentUrl}\n\nCuando Mercado Pago confirme el cobro, entra a cocina.`
+          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}${envioText}\n\nPagalo acá:\n${preferencia.paymentUrl}\n\nCuando Mercado Pago confirme el cobro, entra a cocina.`,
+          connection
         );
       } catch (error) {
         console.error(error);
-        await sendWhatsAppText(
+        await reply(
           telefono,
-          'No pude registrar tu pedido o generar el link de pago en este momento. Probá nuevamente en unos minutos.'
+          'No pude registrar tu pedido o generar el link de pago en este momento. Probá nuevamente en unos minutos.',
+          connection
         );
       }
       return;
@@ -614,9 +647,10 @@ export async function handleIncomingWhatsAppMessage(
 
     if (text === '2' || text.includes('efectivo')) {
       if (!deliveryConfig.acepta_efectivo) {
-        await sendWhatsAppText(
+        await reply(
           telefono,
-          'El pago en efectivo no está habilitado en este momento. Elegí otra forma de pago.'
+          'El pago en efectivo no está habilitado en este momento. Elegí otra forma de pago.',
+          connection
         );
         return;
       }
@@ -646,31 +680,35 @@ export async function handleIncomingWhatsAppMessage(
           ? 'Quedó pendiente de validación en efectivo. En cuanto lo aprueben, entra a cocina.'
           : 'Tu pedido ya quedó confirmado y pasó a preparación.';
 
-        await sendWhatsAppText(
+        await reply(
           telefono,
-          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}${envioText}\n\n${cierre}`
+          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}${envioText}\n\n${cierre}`,
+          connection
         );
       } catch (error) {
         console.error(error);
-        await sendWhatsAppText(
+        await reply(
           telefono,
-          'No pude registrar tu pedido en este momento. Probá nuevamente en unos minutos.'
+          'No pude registrar tu pedido en este momento. Probá nuevamente en unos minutos.',
+          connection
         );
       }
       return;
     }
 
-    await sendWhatsAppText(
+    await reply(
       telefono,
-      buildPaymentOptionsMessage(deliveryConfig)
+      buildPaymentOptionsMessage(deliveryConfig),
+      connection
     );
     return;
   }
 
   if (conv.estado === 'esperando_aprobacion_efectivo') {
-    await sendWhatsAppText(
+    await reply(
       telefono,
-      'Tu pedido ya quedó registrado y está esperando aprobación del efectivo.'
+      'Tu pedido ya quedó registrado y está esperando aprobación del efectivo.',
+      connection
     );
     return;
   }
@@ -681,9 +719,10 @@ export async function handleIncomingWhatsAppMessage(
         const pedido = await getLatestPendingMercadoPagoOrderByPhone(telefono);
 
         if (!pedido) {
-          await sendWhatsAppText(
+          await reply(
             telefono,
-            'No encontré un pedido pendiente de pago para reenviar el link.'
+            'No encontré un pedido pendiente de pago para reenviar el link.',
+            connection
           );
           return;
         }
@@ -693,38 +732,44 @@ export async function handleIncomingWhatsAppMessage(
           conv,
         });
 
-        await sendWhatsAppText(
+        await reply(
           telefono,
-          `Acá tenés nuevamente el link de pago de tu pedido ${pedido.codigo_publico}:\n${preferencia.paymentUrl}`
+          `Acá tenés nuevamente el link de pago de tu pedido ${pedido.codigo_publico}:\n${preferencia.paymentUrl}`,
+          connection
         );
       } catch (error) {
         console.error(error);
-        await sendWhatsAppText(
+        await reply(
           telefono,
-          'No pude reenviar el link de pago en este momento. Probá nuevamente en unos minutos.'
+          'No pude reenviar el link de pago en este momento. Probá nuevamente en unos minutos.',
+          connection
         );
       }
       return;
     }
 
-    await sendWhatsAppText(
+    await reply(
       telefono,
-      'Tu pedido ya quedó registrado. Si ya pagaste, aguardá la confirmación. Si todavía no pagaste, escribime "link" y te lo reenvío.'
+      'Tu pedido ya quedó registrado. Si ya pagaste, aguardá la confirmación. Si todavía no pagaste, escribime "link" y te lo reenvío.',
+      connection
     );
     return;
   }
 
   if (conv.estado === 'pedido_registrado') {
-    await sendWhatsAppText(
+    await reply(
       telefono,
-      'Tu pedido ya quedó registrado. En unos minutos te avisamos si hay alguna novedad.'
+      'Tu pedido ya quedó registrado. En unos minutos te avisamos si hay alguna novedad.',
+      connection
     );
     return;
   }
 
   await updateConversation(conv.id, { estado: 'inicio' });
-  await sendWhatsAppText(
+
+  await reply(
     telefono,
-    'Escribime "hola" o "menu" y arrancamos el pedido de delivery.'
+    'Escribime "hola" o "menu" y arrancamos el pedido de delivery.',
+    connection
   );
 }

@@ -289,7 +289,7 @@ export default function AdminDeliveryPage() {
           : 'No se pudo actualizar el estado del pedido.'
       );
     } finally {
-        setProcessingOrderId(null);
+      setProcessingOrderId(null);
     }
   }
 
@@ -307,8 +307,15 @@ export default function AdminDeliveryPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Configuración de delivery</h1>
         <p className="mt-1 text-sm text-neutral-600">
-          Desde acá podés definir el número de WhatsApp, medios de pago y
-          comportamiento inicial del canal de delivery.
+          Desde acá podés definir el comportamiento operativo del canal de delivery.
+        </p>
+      </div>
+
+      <div className="mb-6 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">
+        <p className="font-medium">WhatsApp Delivery es un add-on separado</p>
+        <p className="mt-1">
+          Este canal no forma parte de las funcionalidades comunes de los planes
+          Esencial, Pro o Intelligence. Se activa de forma opcional por restaurante.
         </p>
       </div>
 
@@ -337,6 +344,12 @@ export default function AdminDeliveryPage() {
 
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
           <h2 className="mb-4 text-lg font-medium">WhatsApp</h2>
+
+          <p className="mb-4 text-sm text-neutral-600">
+            Esta pantalla sigue manejando la configuración operativa del canal.
+            En el próximo cambio vamos a sumar el estado técnico de conexión con Meta
+            por restaurante.
+          </p>
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2">
@@ -530,8 +543,8 @@ export default function AdminDeliveryPage() {
                           Pendiente efectivo
                         </span>
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-  {pedido.codigo_publico || `Pedido #${pedido.id}`}
-</span>
+                          {pedido.codigo_publico || `Pedido #${pedido.id}`}
+                        </span>
                       </div>
 
                       <h3 className="text-base font-semibold">
