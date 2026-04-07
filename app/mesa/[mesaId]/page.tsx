@@ -205,7 +205,7 @@ export default function MesaPage() {
         : 'Abrimos el pago virtual en una nueva ventana 💳';
 
     if (pedido.estado === 'solicitado') {
-      return `Pedido generado. Quedó pendiente de confirmación del mozo. ${pagoTexto}`;
+      return `Pedido generado. Quedó registrado y ahora espera validación del salón. ${pagoTexto}`;
     }
 
     return `Pedido generado y enviado a cocina. ${pagoTexto}`;
@@ -304,7 +304,7 @@ export default function MesaPage() {
             code: (error as any)?.code,
             raw: error,
           });
-          setMensaje('No se pudo marcar el pago en efectivo. Avisá al personal.');
+          setMensaje('No se pudo registrar el pago en efectivo. Avisá al personal.');
           return;
         }
 
@@ -350,7 +350,7 @@ export default function MesaPage() {
             code: (error as any)?.code,
             raw: error,
           });
-          setMensaje('No se pudo marcar el pago virtual. Avisá al personal.');
+          setMensaje('No se pudo registrar el pago virtual. Avisá al personal.');
           return;
         }
 
@@ -393,6 +393,8 @@ export default function MesaPage() {
     categoriaSeleccionada == null
       ? []
       : productos.filter((p) => p.categoria === categoriaSeleccionada);
+
+  const hayItemsEnCarrito = carrito.length > 0;
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center px-4 py-6">
@@ -566,20 +568,22 @@ export default function MesaPage() {
             </div>
           ))}
 
-          {carrito.length > 0 && (
+          {hayItemsEnCarrito && (
             <div className="space-y-1">
               <p className="text-right text-lg font-bold">Total: ${total}</p>
               <p className="text-xs text-slate-500 text-right">
-                Para enviar el pedido elegí una forma de pago abajo.
+                Para confirmar tu pedido elegí cómo querés pagarlo.
               </p>
             </div>
           )}
         </section>
 
         <section className="mt-4 border-t border-slate-200 pt-4 space-y-3">
-          <h2 className="text-lg font-semibold">Formas de pago</h2>
+          <h2 className="text-lg font-semibold">Confirmación y pago</h2>
           <p className="text-sm text-slate-600">
-            Cuando quieras pagar la cuenta, elegí una opción:
+            {hayItemsEnCarrito
+              ? 'Elegí una opción para confirmar el pedido.'
+              : 'Si ya tenés un pedido abierto, podés actualizar cómo lo vas a pagar.'}
           </p>
 
           <div className="flex flex-col gap-2">
@@ -588,7 +592,11 @@ export default function MesaPage() {
               className="w-full px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-60"
               disabled={enviando}
             >
-              {enviando ? 'Generando pedido...' : 'Pago virtual (tarjeta / billetera)'}
+              {enviando
+                ? 'Generando pedido...'
+                : hayItemsEnCarrito
+                ? 'Confirmar pedido con pago virtual'
+                : 'Pago virtual (tarjeta / billetera)'}
             </button>
 
             <button
@@ -596,12 +604,18 @@ export default function MesaPage() {
               disabled={procesandoPago || enviando}
               className="w-full px-4 py-2 rounded-lg bg-emerald-700 text-emerald-50 font-semibold text-sm hover:bg-emerald-800 disabled:opacity-60"
             >
-              {procesandoPago ? 'Marcando...' : 'Pagar en efectivo'}
+              {procesandoPago
+                ? 'Marcando...'
+                : hayItemsEnCarrito
+                ? 'Confirmar pedido para pagar en efectivo'
+                : 'Pagar en efectivo'}
             </button>
           </div>
 
           <p className="text-xs text-slate-500">
-            El local verá tu elección en el sistema. Si algo no funciona, avisale al personal 😊
+            {hayItemsEnCarrito
+              ? 'Según cómo opere el local, tu pedido puede ir directo a cocina o pasar primero por validación del salón.'
+              : 'El local verá tu elección en el sistema. Si algo no funciona, avisá al personal 😊'}
           </p>
         </section>
       </div>
