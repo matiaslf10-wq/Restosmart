@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
@@ -41,7 +42,9 @@ export default function MesaPage() {
   const [mesa, setMesa] = useState<Mesa | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
-  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string | null>(null);
+  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string | null>(
+    null
+  );
 
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -63,19 +66,20 @@ export default function MesaPage() {
       setCargando(true);
 
       try {
-        const [{ data: mesaData, error: mesaError }, { data, error }] = await Promise.all([
-          supabase
-            .from('mesas')
-            .select('id, numero, nombre')
-            .eq('numero', mesaNumero)
-            .maybeSingle(),
-          supabase
-            .from('productos')
-            .select('*')
-            .eq('disponible', true)
-            .order('categoria', { ascending: true })
-            .order('nombre', { ascending: true }),
-        ]);
+        const [{ data: mesaData, error: mesaError }, { data, error }] =
+          await Promise.all([
+            supabase
+              .from('mesas')
+              .select('id, numero, nombre')
+              .eq('numero', mesaNumero)
+              .maybeSingle(),
+            supabase
+              .from('productos')
+              .select('*')
+              .eq('disponible', true)
+              .order('categoria', { ascending: true })
+              .order('nombre', { ascending: true }),
+          ]);
 
         if (mesaError) {
           console.error('Error cargando mesa:', {
@@ -112,7 +116,7 @@ export default function MesaPage() {
           ).sort((a, b) => a.localeCompare(b));
 
           setCategorias(cats);
-          setCategoriaSeleccionada(null);
+          setCategoriaSeleccionada(cats[0] ?? null);
         }
       } finally {
         setCargando(false);
@@ -139,7 +143,10 @@ export default function MesaPage() {
           const nuevo: any = payload.new;
           const viejo: any = payload.old;
 
-          if (viejo?.estado !== 'en_preparacion' && nuevo?.estado === 'en_preparacion') {
+          if (
+            viejo?.estado !== 'en_preparacion' &&
+            nuevo?.estado === 'en_preparacion'
+          ) {
             setMensaje('Tu pedido está en preparación 🍳');
           }
 
@@ -363,10 +370,29 @@ export default function MesaPage() {
 
   if (!mesaValida) {
     return (
-      <main className="min-h-screen flex items-center justify-center px-4">
-        <p className="text-center">
-          Esta URL no corresponde a una mesa del salón.
-        </p>
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-8">
+        <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-sm text-center">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Acceso de mesa
+          </p>
+          <h1 className="mt-2 text-2xl font-bold text-slate-900">
+            Esta URL no corresponde a una mesa válida
+          </h1>
+          <p className="mt-3 text-sm leading-relaxed text-slate-600">
+            El acceso <code>/mesa/[id]</code> está pensado solo para el salón.
+            Si el local trabaja en take away, conviene usar una entrada pública
+            separada para retiro.
+          </p>
+
+          <div className="mt-5 flex flex-wrap justify-center gap-3">
+            <Link
+              href="/inicio"
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Ir al inicio
+            </Link>
+          </div>
+        </div>
       </main>
     );
   }
@@ -381,10 +407,28 @@ export default function MesaPage() {
 
   if (!mesa) {
     return (
-      <main className="min-h-screen flex items-center justify-center px-4">
-        <p className="text-center">
-          La mesa no existe o no está habilitada en este momento.
-        </p>
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-8">
+        <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-sm text-center">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Acceso de mesa
+          </p>
+          <h1 className="mt-2 text-2xl font-bold text-slate-900">
+            La mesa no existe o no está habilitada
+          </h1>
+          <p className="mt-3 text-sm leading-relaxed text-slate-600">
+            Este acceso digital está reservado para mesas del salón. Revisá el QR o
+            pedile ayuda al personal del local.
+          </p>
+
+          <div className="mt-5 flex flex-wrap justify-center gap-3">
+            <Link
+              href="/inicio"
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Ir al inicio
+            </Link>
+          </div>
+        </div>
       </main>
     );
   }
@@ -401,10 +445,20 @@ export default function MesaPage() {
       <audio ref={audioRef} src="/sounds/sonido.wav" preload="auto" className="hidden" />
 
       <div className="w-full max-w-lg space-y-4">
-        <header className="text-center space-y-1">
+        <header className="text-center space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Pedido desde mesa
+          </p>
+
           <h1 className="text-2xl font-bold">
             Menú – {mesa.numero != null ? `Mesa ${mesa.numero}` : mesa.nombre}
           </h1>
+
+          <p className="text-sm text-slate-600">
+            Escaneaste el acceso del salón. Desde acá podés pedir y pagar desde tu
+            celular.
+          </p>
+
           {mensaje && (
             <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg">
               {mensaje}
@@ -442,7 +496,9 @@ export default function MesaPage() {
             })}
           </div>
           <p className="text-xs text-slate-500 text-center">
-            Elegí una categoría para ver los platos.
+            {categoriaSeleccionada == null
+              ? 'Elegí una categoría para ver los platos.'
+              : `Mostrando categoría: ${categoriaSeleccionada}`}
           </p>
         </section>
 
@@ -470,7 +526,11 @@ export default function MesaPage() {
                 >
                   <div className="w-24 h-24 bg-slate-100 flex-shrink-0">
                     {p.imagen_url ? (
-                      <img src={p.imagen_url} alt={p.nombre} className="w-full h-full object-cover" />
+                      <img
+                        src={p.imagen_url}
+                        alt={p.nombre}
+                        className="w-full h-full object-cover"
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-xs text-slate-400 px-1 text-center">
                         Sin imagen
@@ -481,7 +541,9 @@ export default function MesaPage() {
                   <div className="flex-1 px-3 py-2 flex flex-col justify-between">
                     <div>
                       <h3 className="font-semibold">{p.nombre}</h3>
-                      {p.descripcion && <p className="text-sm text-slate-600">{p.descripcion}</p>}
+                      {p.descripcion && (
+                        <p className="text-sm text-slate-600">{p.descripcion}</p>
+                      )}
                     </div>
                     <div className="mt-1 flex items-center justify-between">
                       <p className="font-bold">${p.precio}</p>
@@ -501,7 +563,9 @@ export default function MesaPage() {
 
         <section className="border-t border-slate-200 pt-4 space-y-3">
           <h2 className="text-xl font-semibold">Tu pedido</h2>
-          {carrito.length === 0 && <p className="text-sm text-slate-600">El carrito está vacío.</p>}
+          {carrito.length === 0 && (
+            <p className="text-sm text-slate-600">El carrito está vacío.</p>
+          )}
 
           {carrito.map((item) => (
             <div
@@ -515,7 +579,9 @@ export default function MesaPage() {
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => cambiarCantidad(item.producto.id, item.cantidad - 1)}
+                      onClick={() =>
+                        cambiarCantidad(item.producto.id, item.cantidad - 1)
+                      }
                       className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 border border-slate-300 text-base font-bold hover:bg-slate-200"
                       title="Restar una unidad"
                       aria-label={`Restar una unidad de ${item.producto.nombre}`}
@@ -535,7 +601,9 @@ export default function MesaPage() {
 
                     <button
                       type="button"
-                      onClick={() => cambiarCantidad(item.producto.id, item.cantidad + 1)}
+                      onClick={() =>
+                        cambiarCantidad(item.producto.id, item.cantidad + 1)
+                      }
                       className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300 text-base font-bold hover:bg-emerald-200"
                       title="Sumar una unidad"
                       aria-label={`Sumar una unidad a ${item.producto.nombre}`}
@@ -560,7 +628,9 @@ export default function MesaPage() {
                 className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
                 placeholder="Notas (ej: sin sal, bien jugoso...)"
                 value={item.comentarios}
-                onChange={(e) => cambiarComentario(item.producto.id, e.target.value)}
+                onChange={(e) =>
+                  cambiarComentario(item.producto.id, e.target.value)
+                }
               />
               <p className="text-right text-sm">
                 Subtotal: ${item.producto.precio * item.cantidad}
