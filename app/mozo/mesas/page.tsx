@@ -213,6 +213,11 @@ export default function MesasMozoPage() {
 
         if (!active) return;
 
+        if (!session?.adminId) {
+          router.replace('/admin/login');
+          return;
+        }
+
         const plan = (session?.plan ?? 'esencial') as PlanCode;
         const enabled = !!session?.capabilities?.waiter_mode;
 
@@ -221,7 +226,7 @@ export default function MesasMozoPage() {
       } catch (error) {
         console.error('No se pudo verificar acceso a mozo', error);
         if (!active) return;
-        setCanUseWaiterMode(false);
+        router.replace('/admin/login');
       } finally {
         if (active) {
           setCheckingAccess(false);
