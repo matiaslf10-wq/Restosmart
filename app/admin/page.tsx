@@ -2,7 +2,13 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { formatPlanLabel, type PlanCode } from '@/lib/plans';
+import {
+  formatBusinessModeLabel,
+  formatPlanLabel,
+  normalizeBusinessMode,
+  type BusinessMode,
+  type PlanCode,
+} from '@/lib/plans';
 
 type Producto = {
   id: number;
@@ -23,6 +29,7 @@ type AdminSessionPayload = {
   exp: number;
   tenantId?: string;
   plan?: PlanCode;
+  business_mode?: BusinessMode;
   addons?: {
     whatsapp_delivery?: boolean;
   };
@@ -35,7 +42,20 @@ type AdminSessionPayload = {
     id: string;
     slug: string;
     plan: PlanCode;
+    business_mode?: BusinessMode;
   } | null;
+};
+
+type ModuleStatus = 'enabled' | 'blocked' | 'not_applicable';
+
+type DashboardModule = {
+  key: string;
+  title: string;
+  description: string;
+  status: ModuleStatus;
+  href?: string;
+  action?: string;
+  externalHref?: string;
 };
 
 export default function AdminHome() {
@@ -130,36 +150,76 @@ export default function AdminHome() {
   const planLabel = formatPlanLabel(plan);
   const capabilities = sessionData?.capabilities ?? {};
   const addons = sessionData?.addons ?? {};
-  const tenantLabel = sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
+  const tenantLabel =
+    sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
 
-  const modulos = useMemo(
-    () => [
+  const businessMode = normalizeBusinessMode(
+    sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
+  );
+  const businessModeLabel = formatBusinessModeLabel(businessMode);
+
+  const waiterModeStatus =
+    businessMode === 'takeaway'
+      ? 'No aplica'
+      : capabilities.waiter_mode
+      ? 'Activo'
+      : 'Bloqueado';
+
+  const modulos = useMemo<DashboardModule[]>(() => {
+    const modules: DashboardModule[] = [
       {
         key: 'menu',
         title: 'Menú / Productos',
         description:
           'Gestión de productos, categorías y disponibilidad del menú.',
-        enabled: true,
+        status: 'enabled',
         href: '/admin/productos',
         action: 'Abrir módulo',
+      },
+      {
+        key: 'mesas',
+        title: 'Mesas y QR',
+        description:
+          businessMode === 'restaurant'
+            ? 'Alta de mesas del salón, generación de QR y material imprimible para cada mesa.'
+            : 'No se usa en modo take away porque la operación no se organiza por mesas.',
+        status: businessMode === 'restaurant' ? 'enabled' : 'not_applicable',
+        href: businessMode === 'restaurant' ? '/admin/mesas' : '/admin/configuracion',
+        action:
+          businessMode === 'restaurant' ? 'Abrir módulo' : 'Ver configuración',
       },
       {
         key: 'mozo',
         title: 'Modo mozo',
         description:
-          'Vista de salón, control de mesas y gestión operativa asistida.',
-        enabled: !!capabilities.waiter_mode,
-        href: '/mozo/mesas',
-        action: !!capabilities.waiter_mode ? 'Abrir módulo' : 'Disponible desde Pro',
+          businessMode === 'restaurant'
+            ? 'Vista de salón, control de mesas y gestión operativa asistida.'
+            : 'No aplica en take away porque no hay operación de salón ni mozos por mesa.',
+        status:
+          businessMode === 'takeaway'
+            ? 'not_applicable'
+            : capabilities.waiter_mode
+            ? 'enabled'
+            : 'blocked',
+        href:
+          businessMode === 'takeaway'
+            ? '/admin/configuracion'
+            : '/mozo/mesas',
+        action:
+          businessMode === 'takeaway'
+            ? 'Ver configuración'
+            : capabilities.waiter_mode
+            ? 'Abrir módulo'
+            : 'Disponible desde Pro',
       },
       {
         key: 'analytics',
         title: 'Analytics',
         description:
           'KPIs, rendimiento del negocio y lectura ejecutiva de la operación.',
-        enabled: !!capabilities.analytics,
+        status: capabilities.analytics ? 'enabled' : 'blocked',
         href: '/admin/analytics',
-        action: !!capabilities.analytics
+        action: capabilities.analytics
           ? 'Abrir módulo'
           : 'Disponible en Intelligence',
       },
@@ -168,13 +228,63 @@ export default function AdminHome() {
         title: 'WhatsApp Delivery',
         description:
           'Canal de delivery por WhatsApp con configuración y operación dedicada.',
-        enabled: !!addons.whatsapp_delivery,
+        status: addons.whatsapp_delivery ? 'enabled' : 'blocked',
         href: '/admin/delivery',
-        action: !!addons.whatsapp_delivery ? 'Abrir módulo' : 'Activar add-on',
+        action: addons.whatsapp_delivery ? 'Abrir módulo' : 'Activar add-on',
+        externalHref: addons.whatsapp_delivery
+          ? undefined
+          : 'mailto:contacto@restosmart.com?subject=Activar%20WhatsApp%20Delivery',
       },
-    ],
-    [addons.whatsapp_delivery, capabilities.analytics, capabilities.waiter_mode]
-  );
+    ];
+
+    return modules;
+  }, [
+    addons.whatsapp_delivery,
+    businessMode,
+    capabilities.analytics,
+    capabilities.waiter_mode,
+  ]);
+
+  const nextStepText =
+    businessMode === 'restaurant'
+      ? 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Todo lo que esté marcado como disponible se muestra en el menú de las mesas.'
+      : 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Todo lo que esté marcado como disponible queda listo para el flujo del negocio en modo take away.';
+
+  const getModuleCardClassName = (status: ModuleStatus) => {
+    switch (status) {
+      case 'enabled':
+        return 'border-slate-200 bg-white';
+      case 'not_applicable':
+        return 'border-amber-200 bg-amber-50';
+      case 'blocked':
+      default:
+        return 'border-blue-200 bg-blue-50';
+    }
+  };
+
+  const getModuleBadgeClassName = (status: ModuleStatus) => {
+    switch (status) {
+      case 'enabled':
+        return 'bg-emerald-100 text-emerald-800';
+      case 'not_applicable':
+        return 'bg-amber-100 text-amber-800';
+      case 'blocked':
+      default:
+        return 'bg-blue-100 text-blue-800';
+    }
+  };
+
+  const getModuleStatusLabel = (status: ModuleStatus) => {
+    switch (status) {
+      case 'enabled':
+        return 'Disponible';
+      case 'not_applicable':
+        return 'No aplica';
+      case 'blocked':
+      default:
+        return 'Bloqueado';
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -182,11 +292,13 @@ export default function AdminHome() {
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Resumen operativo y comercial del restaurante.
+            Resumen operativo y comercial del negocio.
           </p>
         </div>
 
-        {cargando && <p className="text-sm text-slate-500">Cargando estadísticas...</p>}
+        {cargando && (
+          <p className="text-sm text-slate-500">Cargando estadísticas...</p>
+        )}
       </section>
 
       {error ? (
@@ -195,7 +307,7 @@ export default function AdminHome() {
         </div>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-5">
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <p className="text-sm text-slate-500">Plan actual</p>
           <p className="mt-1 text-2xl font-bold">{planLabel}</p>
@@ -207,10 +319,13 @@ export default function AdminHome() {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <p className="text-sm text-slate-500">Modo de negocio</p>
+          <p className="mt-1 text-2xl font-bold">{businessModeLabel}</p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <p className="text-sm text-slate-500">Modo mozo</p>
-          <p className="mt-1 text-2xl font-bold">
-            {capabilities.waiter_mode ? 'Activo' : 'Bloqueado'}
-          </p>
+          <p className="mt-1 text-2xl font-bold">{waiterModeStatus}</p>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
@@ -254,7 +369,7 @@ export default function AdminHome() {
           <div>
             <h2 className="text-lg font-semibold">Módulos del sistema</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Disponibilidad según plan y add-ons contratados.
+              Disponibilidad según plan, modo de negocio y add-ons contratados.
             </p>
           </div>
 
@@ -266,26 +381,22 @@ export default function AdminHome() {
           </Link>
         </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {modulos.map((modulo) => (
             <div
               key={modulo.key}
-              className={`rounded-2xl border p-4 ${
-                modulo.enabled
-                  ? 'border-slate-200 bg-white'
-                  : 'border-blue-200 bg-blue-50'
-              }`}
+              className={`rounded-2xl border p-4 ${getModuleCardClassName(
+                modulo.status
+              )}`}
             >
               <div className="flex items-center justify-between gap-2">
                 <h3 className="font-semibold text-slate-900">{modulo.title}</h3>
                 <span
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                    modulo.enabled
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-blue-100 text-blue-800'
-                  }`}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${getModuleBadgeClassName(
+                    modulo.status
+                  )}`}
                 >
-                  {modulo.enabled ? 'Disponible' : 'Bloqueado'}
+                  {getModuleStatusLabel(modulo.status)}
                 </span>
               </div>
 
@@ -294,20 +405,27 @@ export default function AdminHome() {
               </p>
 
               <div className="mt-4">
-                {modulo.enabled ? (
+                {modulo.status === 'enabled' && modulo.href ? (
                   <Link
                     href={modulo.href}
                     className="inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
                   >
                     {modulo.action}
                   </Link>
-                ) : modulo.key === 'delivery' ? (
+                ) : modulo.externalHref ? (
                   <a
-                    href="mailto:contacto@restosmart.com?subject=Activar%20WhatsApp%20Delivery"
+                    href={modulo.externalHref}
                     className="inline-flex rounded-lg bg-white px-4 py-2 text-sm font-semibold text-blue-700 border border-blue-300 hover:bg-blue-100"
                   >
                     {modulo.action}
                   </a>
+                ) : modulo.status === 'not_applicable' && modulo.href ? (
+                  <Link
+                    href={modulo.href}
+                    className="inline-flex rounded-lg bg-white px-4 py-2 text-sm font-semibold text-amber-700 border border-amber-300 hover:bg-amber-100"
+                  >
+                    {modulo.action}
+                  </Link>
                 ) : (
                   <Link
                     href="/#precios"
@@ -324,11 +442,7 @@ export default function AdminHome() {
 
       <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
         <h2 className="text-lg font-semibold mb-2">Siguiente paso</h2>
-        <p className="text-sm text-slate-600">
-          Andá a <span className="font-semibold">“Menú / Productos”</span> para cargar comidas,
-          bebidas, cafetería y postres. Todo lo que esté marcado como{' '}
-          <span className="font-semibold">disponible</span> se muestra en el menú de las mesas.
-        </p>
+        <p className="text-sm text-slate-600">{nextStepText}</p>
 
         <div className="mt-4 flex flex-wrap gap-3">
           <Link
@@ -337,6 +451,22 @@ export default function AdminHome() {
           >
             Ir a productos
           </Link>
+
+          {businessMode === 'restaurant' ? (
+            <Link
+              href="/admin/mesas"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Ver mesas y QR
+            </Link>
+          ) : (
+            <Link
+              href="/admin/configuracion"
+              className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50"
+            >
+              Revisar modo de negocio
+            </Link>
+          )}
 
           {!capabilities.analytics ? (
             <Link

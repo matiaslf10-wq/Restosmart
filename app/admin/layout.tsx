@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { formatPlanLabel, type PlanCode } from '@/lib/plans';
+import {
+  formatBusinessModeLabel,
+  formatPlanLabel,
+  normalizeBusinessMode,
+  type BusinessMode,
+  type PlanCode,
+} from '@/lib/plans';
 
 type AdminSessionPayload = {
   adminId: string;
@@ -11,6 +17,7 @@ type AdminSessionPayload = {
   exp: number;
   tenantId?: string;
   plan?: PlanCode;
+  business_mode?: BusinessMode;
   addons?: {
     whatsapp_delivery?: boolean;
   };
@@ -23,6 +30,7 @@ type AdminSessionPayload = {
     id: string;
     slug: string;
     plan: PlanCode;
+    business_mode?: BusinessMode;
   } | null;
 };
 
@@ -117,6 +125,11 @@ export default function AdminLayout({
     }
   }
 
+  const businessMode = normalizeBusinessMode(
+    sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
+  );
+  const businessModeLabel = formatBusinessModeLabel(businessMode);
+
   const navItems = useMemo(() => {
     const capabilities = sessionData?.capabilities ?? {};
 
@@ -126,9 +139,14 @@ export default function AdminLayout({
       { href: '/admin/operaciones', label: 'Operaciones', visible: true },
       { href: '/admin/productos', label: 'Menú / Productos', visible: true },
       {
+        href: '/admin/mesas',
+        label: 'Mesas / QR',
+        visible: businessMode === 'restaurant',
+      },
+      {
         href: '/mozo/mesas',
         label: 'Mozo',
-        visible: !!capabilities.waiter_mode,
+        visible: businessMode === 'restaurant' && !!capabilities.waiter_mode,
       },
       {
         href: '/admin/delivery',
@@ -141,7 +159,7 @@ export default function AdminLayout({
         visible: !!capabilities.analytics,
       },
     ].filter((item) => item.visible);
-  }, [sessionData]);
+  }, [businessMode, sessionData]);
 
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin';
@@ -186,6 +204,16 @@ export default function AdminLayout({
 
               <span className="rounded-full bg-blue-600/20 border border-blue-400/30 px-2.5 py-1 text-xs text-blue-100">
                 Plan {planLabel}
+              </span>
+
+              <span
+                className={`rounded-full border px-2.5 py-1 text-xs ${
+                  businessMode === 'restaurant'
+                    ? 'bg-emerald-600/20 border-emerald-400/30 text-emerald-100'
+                    : 'bg-amber-600/20 border-amber-400/30 text-amber-100'
+                }`}
+              >
+                Modo {businessModeLabel}
               </span>
 
               {sessionData?.addons?.whatsapp_delivery ? (
