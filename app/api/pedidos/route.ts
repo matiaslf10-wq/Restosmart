@@ -5,6 +5,8 @@ import { createClient } from '@supabase/supabase-js';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const DELIVERY_MESA_ID = 0;
+
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -24,7 +26,7 @@ type PedidoItemInput = {
 };
 
 type CreatePedidoBody = {
-  mesa_id: number;
+  mesa_id?: number | null;
   total: number;
   forma_pago: 'virtual' | 'efectivo';
   origen?: string | null;
@@ -44,13 +46,46 @@ function normalizePlan(plan: unknown): 'esencial' | 'pro' | 'intelligence' {
   return 'esencial';
 }
 
+function normalizeTipoServicio(
+  value: unknown
+): 'mesa' | 'delivery' | 'takeaway' {
+  const raw = String(value ?? '').trim().toLowerCase();
+
+  if (raw === 'delivery' || raw === 'envio') return 'delivery';
+
+  if (
+    raw === 'takeaway' ||
+    raw === 'take_away' ||
+    raw === 'pickup' ||
+    raw === 'pick_up' ||
+    raw === 'retiro'
+  ) {
+    return 'takeaway';
+  }
+
+  return 'mesa';
+}
+
+function normalizeOrigen(
+  value: unknown,
+  tipoServicio: 'mesa' | 'delivery' | 'takeaway'
+) {
+  const raw = String(value ?? '').trim().toLowerCase();
+
+  if (raw) return raw;
+
+  if (tipoServicio === 'delivery') return 'delivery';
+  if (tipoServicio === 'takeaway') return 'takeaway';
+  return 'salon';
+}
+
 function getInitialPedidoEstado(params: {
   plan: 'esencial' | 'pro' | 'intelligence';
   origen?: string | null;
   tipo_servicio?: string | null;
 }) {
-  const origen = params.origen ?? 'salon';
-  const tipoServicio = params.tipo_servicio ?? 'mesa';
+  const origen = String(params.origen ?? 'salon').trim().toLowerCase();
+  const tipoServicio = normalizeTipoServicio(params.tipo_servicio);
 
   const esSalonMesa = origen === 'salon' && tipoServicio === 'mesa';
 
@@ -140,25 +175,15 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as Partial<CreatePedidoBody>;
     const sb = supabaseAdmin();
 
-    const mesaId = Number(body?.mesa_id);
+    const rawMesaId = Number(body?.mesa_id);
     const total = Number(body?.total ?? 0);
     const formaPago = body?.forma_pago === 'efectivo' ? 'efectivo' : 'virtual';
-    const origen = String(body?.origen ?? 'salon').trim() || 'salon';
-    const tipoServicio = String(body?.tipo_servicio ?? 'mesa').trim() || 'mesa';
+    const tipoServicio = normalizeTipoServicio(body?.tipo_servicio);
+    const origen = normalizeOrigen(body?.origen, tipoServicio);
     const items = Array.isArray(body?.items) ? body.items : [];
 
-    if (!Number.isFinite(mesaId) || mesaId <= 0) {
-      return NextResponse.json(
-        { error: 'mesa_id inválido.' },
-        { status: 400 }
-      );
-    }
-
     if (!Number.isFinite(total) || total < 0) {
-      return NextResponse.json(
-        { error: 'total inválido.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'total inválido.' }, { status: 400 });
     }
 
     if (items.length === 0) {
@@ -187,6 +212,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let mesaIdResolved = DELIVERY_MESA_ID;
+
+    if (tipoServicio === 'mesa') {
+      if (!Number.isFinite(rawMesaId) || rawMesaId <= DELIVERY_MESA_ID) {
+        return NextResponse.json(
+          { error: 'mesa_id inválido para un pedido de mesa.' },
+          { status: 400 }
+        );
+      }
+
+      const { data: mesa, error: mesaError } = await sb
+        .from('mesas')
+        .select('id')
+        .eq('id', rawMesaId)
+        .maybeSingle();
+
+      if (mesaError) {
+        return NextResponse.json(
+          {
+            error: `No se pudo validar la mesa seleccionada: ${mesaError.message}`,
+          },
+          { status: 500 }
+        );
+      }
+
+      if (!mesa?.id) {
+        return NextResponse.json(
+          { error: 'La mesa indicada no existe.' },
+          { status: 400 }
+        );
+      }
+
+      mesaIdResolved = rawMesaId;
+    }
+
     const restaurant = await resolveRestaurantContext(sb);
     const plan = normalizePlan(restaurant?.plan);
 
@@ -197,7 +257,7 @@ export async function POST(request: NextRequest) {
     });
 
     const payloadPedido = {
-      mesa_id: mesaId,
+      mesa_id: mesaIdResolved,
       estado: estadoInicial,
       total,
       paga_efectivo:
@@ -207,8 +267,7 @@ export async function POST(request: NextRequest) {
       forma_pago: formaPago,
       origen,
       tipo_servicio: tipoServicio,
-      medio_pago:
-        String(body?.medio_pago ?? '').trim() || formaPago,
+      medio_pago: String(body?.medio_pago ?? '').trim() || formaPago,
       estado_pago:
         String(body?.estado_pago ?? '').trim() ||
         (formaPago === 'efectivo' ? 'aprobado' : 'pendiente'),
@@ -229,8 +288,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json(
         {
-          error:
-            pedidoError?.message || 'No se pudo crear el pedido.',
+          error: pedidoError?.message || 'No se pudo crear el pedido.',
         },
         { status: 500 }
       );
@@ -271,6 +329,9 @@ export async function POST(request: NextRequest) {
         meta: {
           plan,
           estado_inicial: estadoInicial,
+          mesa_id_resuelto: mesaIdResolved,
+          tipo_servicio: tipoServicio,
+          origen,
         },
       },
       { status: 201 }

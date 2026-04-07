@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
+const DELIVERY_MESA_ID = 0;
+
 type ItemPedido = {
   id: number;
   cantidad: number;
@@ -22,20 +24,80 @@ type Pedido = {
 };
 
 type FiltroEstado = 'todos' | 'pendiente' | 'en_preparacion' | 'listo';
+type PedidoKind = 'salon' | 'takeaway' | 'delivery';
 
-function esPedidoDelivery(pedido: Pedido) {
+function isDeliveryPedido(pedido: Pedido) {
+  const tipo = String(pedido.tipo_servicio ?? '').trim().toLowerCase();
+  const origen = String(pedido.origen ?? '').trim().toLowerCase();
+
   return (
-    pedido.mesa_id === 0 ||
-    pedido.tipo_servicio === 'delivery' ||
-    pedido.origen === 'delivery' ||
-    pedido.origen === 'delivery_whatsapp' ||
-    pedido.origen === 'delivery_manual'
+    tipo === 'delivery' ||
+    tipo === 'envio' ||
+    origen === 'delivery' ||
+    origen === 'delivery_whatsapp' ||
+    origen === 'delivery_manual'
   );
 }
 
+function isTakeawayPedido(pedido: Pedido) {
+  const tipo = String(pedido.tipo_servicio ?? '').trim().toLowerCase();
+  const origen = String(pedido.origen ?? '').trim().toLowerCase();
+
+  return (
+    tipo === 'takeaway' ||
+    tipo === 'take_away' ||
+    tipo === 'pickup' ||
+    tipo === 'pick_up' ||
+    tipo === 'retiro' ||
+    origen === 'takeaway' ||
+    origen === 'takeaway_web' ||
+    origen === 'takeaway_manual' ||
+    origen === 'pickup' ||
+    origen === 'retiro'
+  );
+}
+
+function getPedidoKind(pedido: Pedido): PedidoKind {
+  if (isDeliveryPedido(pedido)) return 'delivery';
+  if (isTakeawayPedido(pedido)) return 'takeaway';
+
+  if (pedido.mesa_id === DELIVERY_MESA_ID) {
+    return 'delivery';
+  }
+
+  return 'salon';
+}
+
 function getPedidoLabel(pedido: Pedido) {
-  if (esPedidoDelivery(pedido)) return 'Delivery';
+  const kind = getPedidoKind(pedido);
+
+  if (kind === 'delivery') return 'Delivery';
+  if (kind === 'takeaway') return 'Take Away';
+
   return `Mesa ${pedido.mesa_id}`;
+}
+
+function getPedidoKindBadge(pedido: Pedido) {
+  const kind = getPedidoKind(pedido);
+
+  if (kind === 'delivery') {
+    return {
+      text: 'DELIVERY',
+      className: 'bg-indigo-500/20 border border-indigo-400/40 text-indigo-100',
+    };
+  }
+
+  if (kind === 'takeaway') {
+    return {
+      text: 'TAKE AWAY',
+      className: 'bg-amber-500/20 border border-amber-400/40 text-amber-100',
+    };
+  }
+
+  return {
+    text: 'SALÓN',
+    className: 'bg-emerald-500/20 border border-emerald-400/40 text-emerald-100',
+  };
 }
 
 export default function CocinaPage() {
@@ -151,10 +213,7 @@ export default function CocinaPage() {
   }, []);
 
   const cambiarEstado = async (pedidoId: number, nuevoEstado: string) => {
-    await supabase
-      .from('pedidos')
-      .update({ estado: nuevoEstado })
-      .eq('id', pedidoId);
+    await supabase.from('pedidos').update({ estado: nuevoEstado }).eq('id', pedidoId);
 
     setDestacados((prev) => prev.filter((id) => id !== pedidoId));
   };
@@ -175,7 +234,12 @@ export default function CocinaPage() {
     <main className="min-h-screen bg-slate-900 text-slate-50 px-4 py-6">
       <div className="max-w-4xl mx-auto space-y-4">
         <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <h1 className="text-2xl font-bold">Cocina (tiempo real)</h1>
+          <div>
+            <h1 className="text-2xl font-bold">Cocina (tiempo real)</h1>
+            <p className="text-sm text-slate-300">
+              Pedidos de salón, take away y delivery en una sola vista.
+            </p>
+          </div>
 
           <div className="flex flex-wrap gap-2">
             {[
@@ -206,6 +270,7 @@ export default function CocinaPage() {
         <section className="space-y-3">
           {pedidosFiltrados.map((p) => {
             const esNuevo = destacados.includes(p.id);
+            const badge = getPedidoKindBadge(p);
 
             return (
               <article
@@ -217,9 +282,18 @@ export default function CocinaPage() {
                 }`}
               >
                 <header className="flex flex-wrap items-baseline justify-between gap-2">
-                  <h3 className="font-semibold">
-                    {p.codigo_publico || `Pedido #${p.id}`} – {getPedidoLabel(p)}
-                  </h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${badge.className}`}
+                    >
+                      {badge.text}
+                    </span>
+
+                    <h3 className="font-semibold">
+                      {p.codigo_publico || `Pedido #${p.id}`} – {getPedidoLabel(p)}
+                    </h3>
+                  </div>
+
                   <div className="text-xs text-slate-300">
                     Hora: {new Date(p.creado_en).toLocaleTimeString()}
                     {' · '}
