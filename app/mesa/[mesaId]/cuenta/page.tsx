@@ -23,6 +23,26 @@ type Pedido = {
   items: ItemPedido[];
 };
 
+function getEstadoLabel(estado: string) {
+  if (estado === 'solicitado') {
+    return 'Registrado / esperando validación';
+  }
+
+  if (estado === 'pendiente') {
+    return 'Pendiente';
+  }
+
+  if (estado === 'en_preparacion') {
+    return 'En preparación';
+  }
+
+  if (estado === 'listo') {
+    return 'Listo';
+  }
+
+  return estado;
+}
+
 export default function CuentaMesaPage() {
   const params = useParams();
   const mesaId = Number((params as { mesaId?: string }).mesaId);
@@ -138,28 +158,27 @@ export default function CuentaMesaPage() {
       .from('pedidos')
       .update({ paga_efectivo: true })
       .eq('mesa_id', mesaId)
-      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
+      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
     if (error) {
       console.error('Error al marcar pago en efectivo desde cliente:', error);
-      setMensaje('No se pudo marcar el pago en efectivo. Avisá al mozo.');
+      setMensaje('No se pudo registrar el pago en efectivo. Avisá al personal.');
       setProcesandoPago(false);
       return;
     }
 
-    setMensaje('Listo, avisamos que vas a pagar en efectivo 💵');
+    setMensaje('Listo, registramos que vas a pagar en efectivo 💵');
     await cargarPedidos();
     setProcesandoPago(false);
   };
 
   const pagarVirtual = () => {
-    // 💡 Cambiá esta URL por tu link real de pago (Mercado Pago / QR / etc.)
     const urlPago =
       process.env.NEXT_PUBLIC_PAGO_VIRTUAL_URL ||
-      'https://www.mercadopago.com.ar'; // placeholder
+      'https://www.mercadopago.com.ar';
 
     if (!urlPago) {
-      setMensaje('Por ahora, pedile al mozo el QR de pago virtual 🙌');
+      setMensaje('Por ahora no está disponible el pago virtual desde esta pantalla.');
       return;
     }
 
@@ -187,9 +206,7 @@ export default function CuentaMesaPage() {
     <main className="min-h-screen bg-slate-100 px-4 py-6">
       <div className="max-w-3xl mx-auto space-y-4">
         <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <h1 className="text-2xl font-bold">
-            Cuenta – Mesa {mesaId}
-          </h1>
+          <h1 className="text-2xl font-bold">Cuenta – Mesa {mesaId}</h1>
           <button
             onClick={cargarPedidos}
             className="px-3 py-1 rounded-lg text-sm bg-slate-800 text-white hover:bg-slate-700"
@@ -224,11 +241,7 @@ export default function CuentaMesaPage() {
                     </h2>
                     <div className="text-xs text-slate-500">
                       {new Date(p.creado_en).toLocaleTimeString()} ·{' '}
-                      {p.estado === 'pendiente'
-                        ? 'Pendiente'
-                        : p.estado === 'en_preparacion'
-                        ? 'En preparación'
-                        : 'Listo'}
+                      {getEstadoLabel(p.estado)}
                     </div>
                   </header>
 
@@ -237,13 +250,10 @@ export default function CuentaMesaPage() {
                       <li key={item.id}>
                         <div className="flex justify-between">
                           <span>
-                            {item.cantidad} ×{' '}
-                            {item.producto?.nombre ?? '—'}
+                            {item.cantidad} × {item.producto?.nombre ?? '—'}
                           </span>
                           <span>
-                            $
-                            {(item.producto?.precio ?? 0) *
-                              item.cantidad}
+                            ${(item.producto?.precio ?? 0) * item.cantidad}
                           </span>
                         </div>
                         {item.comentarios && (
@@ -264,9 +274,7 @@ export default function CuentaMesaPage() {
 
             <footer className="border-t border-slate-300 pt-3 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <p className="text-lg font-bold">
-                  Total mesa: ${totalMesa}
-                </p>
+                <p className="text-lg font-bold">Total mesa: ${totalMesa}</p>
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={pagarVirtual}
@@ -279,9 +287,7 @@ export default function CuentaMesaPage() {
                     disabled={procesandoPago}
                     className="px-4 py-2 rounded-lg bg-emerald-700 text-emerald-50 font-semibold text-sm hover:bg-emerald-800 disabled:opacity-60"
                   >
-                    {procesandoPago
-                      ? 'Marcando...'
-                      : 'Pagar en efectivo'}
+                    {procesandoPago ? 'Marcando...' : 'Pagar en efectivo'}
                   </button>
                   <button
                     onClick={cerrarCuenta}
@@ -293,7 +299,7 @@ export default function CuentaMesaPage() {
                 </div>
               </div>
               <p className="text-xs text-slate-500">
-                El mozo verá cómo elegiste pagar. Si algo no funciona, avisale directamente 😊
+                El local verá cómo elegiste pagar. Si algo no funciona, avisá al personal 😊
               </p>
             </footer>
           </>
