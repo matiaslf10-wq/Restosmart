@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireAdminAuth } from '@/lib/adminAuth';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type LocalConfigRow = {
@@ -13,17 +15,6 @@ type LocalConfigRow = {
   horario_atencion?: string | null;
   google_analytics_id?: string | null;
   google_analytics_property_id?: string | null;
-};
-
-const DEFAULT_CONFIG = {
-  nombre_local: '',
-  direccion: '',
-  telefono: '',
-  celular: '',
-  email: '',
-  horario_atencion: '',
-  google_analytics_id: '',
-  google_analytics_property_id: '',
 };
 
 function normalizeRow(row?: LocalConfigRow | null) {
@@ -39,9 +30,14 @@ function normalizeRow(row?: LocalConfigRow | null) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = requireAdminAuth(request);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('configuracion_local')
       .select('*')
       .order('id', { ascending: true })
@@ -73,6 +69,11 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const auth = requireAdminAuth(request);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
     const body = await request.json();
 
@@ -83,13 +84,14 @@ export async function PUT(request: NextRequest) {
       celular: String(body?.celular ?? '').trim() || null,
       email: String(body?.email ?? '').trim() || null,
       horario_atencion: String(body?.horario_atencion ?? '').trim() || null,
-      google_analytics_id: String(body?.google_analytics_id ?? '').trim() || null,
+      google_analytics_id:
+        String(body?.google_analytics_id ?? '').trim() || null,
       google_analytics_property_id:
         String(body?.google_analytics_property_id ?? '').trim() || null,
       updated_at: new Date().toISOString(),
     };
 
-    const current = await supabase
+    const current = await supabaseAdmin
       .from('configuracion_local')
       .select('id')
       .order('id', { ascending: true })
@@ -106,7 +108,7 @@ export async function PUT(request: NextRequest) {
     }
 
     if (current.data?.id) {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('configuracion_local')
         .update(payload)
         .eq('id', current.data.id)
@@ -131,7 +133,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('configuracion_local')
       .insert({
         ...payload,
@@ -161,7 +163,8 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json(
       {
-        error: 'Ocurrió un error inesperado al guardar la configuración del local.',
+        error:
+          'Ocurrió un error inesperado al guardar la configuración del local.',
       },
       { status: 500 }
     );

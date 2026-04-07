@@ -10,40 +10,81 @@ export default function AdminLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+
   const [ready, setReady] = useState(false);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    if (pathname === '/admin/login') {
-      setReady(true);
-      return;
-    }
+    let active = true;
 
-    const sessionRaw =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('admin_session')
-        : null;
-
-    if (!sessionRaw) {
-      router.replace('/admin/login');
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(sessionRaw);
-      if (!parsed.logged) {
-        router.replace('/admin/login');
+    async function verifySession() {
+      if (pathname === '/admin/login') {
+        if (active) {
+          setReady(true);
+          setChecking(false);
+        }
         return;
       }
-      setReady(true);
-    } catch {
-      router.replace('/admin/login');
+
+      try {
+        const res = await fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        if (!active) return;
+
+        if (!res.ok) {
+          router.replace('/admin/login');
+          return;
+        }
+
+        setReady(true);
+      } catch (error) {
+        console.error('No se pudo verificar la sesión admin', error);
+        if (!active) return;
+        router.replace('/admin/login');
+      } finally {
+        if (active) {
+          setChecking(false);
+        }
+      }
     }
+
+    setReady(false);
+    setChecking(true);
+    verifySession();
+
+    return () => {
+      active = false;
+    };
   }, [pathname, router]);
+
+  async function logout() {
+    try {
+      await fetch('/api/admin/logout', {
+        method: 'POST',
+      });
+    } catch (error) {
+      console.error('No se pudo cerrar la sesión', error);
+    } finally {
+      router.replace('/admin/login');
+      router.refresh();
+    }
+  }
+
+  if (checking) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-slate-100">
+        <p>Verificando acceso...</p>
+      </main>
+    );
+  }
 
   if (!ready) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-slate-100">
-        <p>Verificando acceso...</p>
+        <p>Redirigiendo...</p>
       </main>
     );
   }
@@ -64,11 +105,6 @@ export default function AdminLayout({
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin';
     return pathname === href || pathname.startsWith(`${href}/`);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('admin_session');
-    router.replace('/admin/login');
   };
 
   return (

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireAdminAuth } from '@/lib/adminAuth';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type DeliveryConfigRow = {
@@ -61,9 +63,14 @@ function normalizeRow(row?: DeliveryConfigRow | null) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = requireAdminAuth(request);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('configuracion_delivery')
       .select('*')
       .order('id', { ascending: true })
@@ -95,6 +102,11 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const auth = requireAdminAuth(request);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
     const body = await request.json();
 
@@ -117,7 +129,7 @@ export async function PUT(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    const current = await supabase
+    const current = await supabaseAdmin
       .from('configuracion_delivery')
       .select('id')
       .order('id', { ascending: true })
@@ -134,7 +146,7 @@ export async function PUT(request: NextRequest) {
     }
 
     if (current.data?.id) {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('configuracion_delivery')
         .update(payload)
         .eq('id', current.data.id)
@@ -159,7 +171,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('configuracion_delivery')
       .insert({
         ...payload,
