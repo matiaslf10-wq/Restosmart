@@ -1,8 +1,15 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import QRCode from 'react-qr-code';
+import {
+  normalizeBusinessMode,
+  type BusinessMode,
+  type PlanCode,
+} from '@/lib/plans';
 
 const DELIVERY_MESA_ID = 0;
 
@@ -11,7 +18,21 @@ type Mesa = {
   nombre: string;
 };
 
+type AdminSessionPayload = {
+  adminId?: string;
+  plan?: PlanCode;
+  business_mode?: BusinessMode;
+  restaurant?: {
+    business_mode?: BusinessMode;
+  } | null;
+};
+
 export default function AdminMesasPage() {
+  const router = useRouter();
+
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [businessMode, setBusinessMode] = useState<BusinessMode>('restaurant');
+
   const [mesas, setMesas] = useState<Mesa[]>([]);
   const [cargando, setCargando] = useState(true);
   const [baseUrl, setBaseUrl] = useState<string>('');
@@ -22,9 +43,66 @@ export default function AdminMesasPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
+
+    async function verifySession() {
+      try {
+        const res = await fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        if (!res.ok) {
+          router.replace('/admin/login');
+          return;
+        }
+
+        const data = await res.json().catch(() => null);
+        const session = (data?.session as AdminSessionPayload | null) ?? null;
+
+        if (!active) return;
+
+        if (!session?.adminId) {
+          router.replace('/admin/login');
+          return;
+        }
+
+        const resolvedMode = normalizeBusinessMode(
+          session?.business_mode ?? session?.restaurant?.business_mode
+        );
+
+        setBusinessMode(resolvedMode);
+      } catch (err) {
+        console.error('No se pudo verificar la sesión de mesas admin', err);
+        if (!active) return;
+        router.replace('/admin/login');
+      } finally {
+        if (active) {
+          setCheckingAccess(false);
+        }
+      }
+    }
+
+    verifySession();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  useEffect(() => {
     if (typeof window !== 'undefined') {
       setBaseUrl(window.location.origin);
     }
+  }, []);
+
+  useEffect(() => {
+    if (checkingAccess || businessMode !== 'restaurant') {
+      setCargando(false);
+      return;
+    }
+
+    let active = true;
 
     const cargarMesas = async () => {
       setCargando(true);
@@ -35,6 +113,8 @@ export default function AdminMesasPage() {
         .select('*')
         .gt('id', DELIVERY_MESA_ID)
         .order('id', { ascending: true });
+
+      if (!active) return;
 
       if (!error && data) {
         setMesas(data as Mesa[]);
@@ -47,7 +127,11 @@ export default function AdminMesasPage() {
     };
 
     cargarMesas();
-  }, []);
+
+    return () => {
+      active = false;
+    };
+  }, [checkingAccess, businessMode]);
 
   const handlePrint = () => {
     if (typeof window !== 'undefined') {
@@ -101,6 +185,58 @@ export default function AdminMesasPage() {
       setCreando(false);
     }
   };
+
+  if (checkingAccess) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-slate-100 px-4 py-6">
+        <p className="text-slate-600">Verificando configuración del negocio...</p>
+      </main>
+    );
+  }
+
+  if (businessMode === 'takeaway') {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="rounded-3xl border border-amber-200 bg-white p-8 shadow-sm">
+            <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
+              No aplica en modo Take Away
+            </span>
+
+            <h1 className="mt-4 text-3xl font-bold text-slate-900">
+              Administración de mesas
+            </h1>
+
+            <p className="mt-3 text-slate-600 leading-relaxed">
+              Este negocio está configurado en <strong>modo take away</strong>.
+              Por eso la administración de mesas y los QR de salón no se usan en
+              esta operación.
+            </p>
+
+            <p className="mt-3 text-slate-600 leading-relaxed">
+              Si más adelante querés trabajar con salón y mesas, podés cambiar el
+              modo del negocio desde Configuración sin cambiar de plan.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link
+                href="/admin/configuracion"
+                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Ir a Configuración
+              </Link>
+              <button
+                onClick={() => router.push('/admin')}
+                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Volver al admin
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (cargando) {
     return (

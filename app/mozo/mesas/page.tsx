@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { formatPlanLabel, type PlanCode } from '@/lib/plans';
+import {
+  formatPlanLabel,
+  normalizeBusinessMode,
+  type BusinessMode,
+  type PlanCode,
+} from '@/lib/plans';
 
 const DELIVERY_MESA_ID = 0;
 
@@ -176,6 +181,7 @@ export default function MesasMozoPage() {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
+  const [businessMode, setBusinessMode] = useState<BusinessMode>('restaurant');
 
   const [mesas, setMesas] = useState<MesaConCuenta[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -220,9 +226,13 @@ export default function MesasMozoPage() {
 
         const plan = (session?.plan ?? 'esencial') as PlanCode;
         const enabled = !!session?.capabilities?.waiter_mode;
+        const resolvedMode = normalizeBusinessMode(
+          session?.business_mode ?? session?.restaurant?.business_mode
+        );
 
         setCurrentPlan(plan);
         setCanUseWaiterMode(enabled);
+        setBusinessMode(resolvedMode);
       } catch (error) {
         console.error('No se pudo verificar acceso a mozo', error);
         if (!active) return;
@@ -677,7 +687,7 @@ export default function MesasMozoPage() {
   };
 
   useEffect(() => {
-    if (!canUseWaiterMode) return;
+    if (!canUseWaiterMode || businessMode !== 'restaurant') return;
 
     cargarDatos();
 
@@ -760,7 +770,7 @@ export default function MesasMozoPage() {
       supabase.removeChannel(canalPedidos);
       supabase.removeChannel(canalItems);
     };
-  }, [canUseWaiterMode]);
+  }, [canUseWaiterMode, businessMode]);
 
   const calcularEstadoMesa = (mesa: MesaConCuenta): EstadoMesa => {
     if (mesa.pedidos.length === 0) return 'libre';
@@ -1068,6 +1078,50 @@ export default function MesasMozoPage() {
       <main className="min-h-screen bg-slate-100 px-4 py-6">
         <div className="max-w-6xl mx-auto">
           <p className="text-slate-600">Verificando acceso al modo mozo…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (businessMode === 'takeaway') {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="rounded-3xl border border-amber-200 bg-white p-8 shadow-sm">
+            <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
+              No aplica en modo Take Away
+            </span>
+
+            <h1 className="mt-4 text-3xl font-bold text-slate-900">
+              Modo mozo
+            </h1>
+
+            <p className="mt-3 text-slate-600 leading-relaxed">
+              Este negocio está configurado en <strong>modo take away</strong>.
+              Por eso la vista de mozo y la gestión de salón por mesas no se usan
+              en esta operación.
+            </p>
+
+            <p className="mt-3 text-slate-600 leading-relaxed">
+              Si querés trabajar con salón, mesas y QR en mesa, podés cambiar el
+              modo desde Configuración sin migraciones raras.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                onClick={() => router.push('/admin/configuracion')}
+                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Ir a Configuración
+              </button>
+              <button
+                onClick={() => router.push('/admin')}
+                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Volver al admin
+              </button>
+            </div>
+          </div>
         </div>
       </main>
     );
