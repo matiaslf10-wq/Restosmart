@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { formatPlanLabel, type PlanCode } from '@/lib/plans';
 
 const DELIVERY_MESA_ID = 0;
 
@@ -169,6 +171,12 @@ function buildMesaPosterSvg(params: {
 }
 
 export default function MesasMozoPage() {
+  const router = useRouter();
+
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
+  const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
+
   const [mesas, setMesas] = useState<MesaConCuenta[]>([]);
   const [cargando, setCargando] = useState(true);
   const [procesandoMesaId, setProcesandoMesaId] = useState<number | null>(null);
@@ -184,6 +192,49 @@ export default function MesasMozoPage() {
   const [ahora, setAhora] = useState<number>(Date.now());
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function verifyAccess() {
+      try {
+        const res = await fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        if (!res.ok) {
+          router.replace('/admin/login');
+          return;
+        }
+
+        const data = await res.json().catch(() => null);
+        const session = data?.session;
+
+        if (!active) return;
+
+        const plan = (session?.plan ?? 'esencial') as PlanCode;
+        const enabled = !!session?.capabilities?.waiter_mode;
+
+        setCurrentPlan(plan);
+        setCanUseWaiterMode(enabled);
+      } catch (error) {
+        console.error('No se pudo verificar acceso a mozo', error);
+        if (!active) return;
+        setCanUseWaiterMode(false);
+      } finally {
+        if (active) {
+          setCheckingAccess(false);
+        }
+      }
+    }
+
+    verifyAccess();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -621,6 +672,8 @@ export default function MesasMozoPage() {
   };
 
   useEffect(() => {
+    if (!canUseWaiterMode) return;
+
     cargarDatos();
 
     const canalPedidos = supabase
@@ -702,7 +755,7 @@ export default function MesasMozoPage() {
       supabase.removeChannel(canalPedidos);
       supabase.removeChannel(canalItems);
     };
-  }, []);
+  }, [canUseWaiterMode]);
 
   const calcularEstadoMesa = (mesa: MesaConCuenta): EstadoMesa => {
     if (mesa.pedidos.length === 0) return 'libre';
@@ -1004,6 +1057,55 @@ export default function MesasMozoPage() {
     },
     { libre: 0, en_curso: 0, lista_para_cobrar: 0 }
   );
+
+  if (checkingAccess) {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-6">
+        <div className="max-w-6xl mx-auto">
+          <p className="text-slate-600">Verificando acceso al modo mozo…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!canUseWaiterMode) {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="rounded-3xl border border-blue-200 bg-white p-8 shadow-sm">
+            <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 border border-blue-200">
+              Disponible desde Pro
+            </span>
+
+            <h1 className="mt-4 text-3xl font-bold text-slate-900">
+              Modo mozo
+            </h1>
+
+            <p className="mt-3 text-slate-600 leading-relaxed">
+              Tu plan actual es <strong>{formatPlanLabel(currentPlan)}</strong>.
+              La vista de mozo y la gestión de salón asistida están disponibles
+              desde <strong>Pro</strong>.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <a
+                href="/#precios"
+                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Ver planes
+              </a>
+              <button
+                onClick={() => router.push('/admin')}
+                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Volver al admin
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6">

@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { formatPlanLabel, type PlanCode } from '@/lib/plans';
 
 type ItemPedido = {
   id: number;
@@ -25,7 +26,12 @@ type Pedido = {
 
 export default function CuentaMesaPage() {
   const params = useParams();
+  const router = useRouter();
   const mesaId = Number((params as { mesaId?: string }).mesaId);
+
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
+  const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -83,8 +89,53 @@ export default function CuentaMesaPage() {
   };
 
   useEffect(() => {
+    let active = true;
+
+    async function verifyAccess() {
+      try {
+        const res = await fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        if (!res.ok) {
+          router.replace('/admin/login');
+          return;
+        }
+
+        const data = await res.json().catch(() => null);
+        const session = data?.session;
+
+        if (!active) return;
+
+        const plan = (session?.plan ?? 'esencial') as PlanCode;
+        const enabled = !!session?.capabilities?.waiter_mode;
+
+        setCurrentPlan(plan);
+        setCanUseWaiterMode(enabled);
+      } catch (error) {
+        console.error('No se pudo verificar acceso a mozo/mesa', error);
+        if (!active) return;
+        setCanUseWaiterMode(false);
+      } finally {
+        if (active) {
+          setCheckingAccess(false);
+        }
+      }
+    }
+
+    verifyAccess();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (!canUseWaiterMode) return;
     cargarPedidos();
-  }, [mesaId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canUseWaiterMode, mesaId]);
 
   const subtotalPedido = (p: Pedido) =>
     p.items.reduce((acc, item) => {
@@ -166,6 +217,53 @@ export default function CuentaMesaPage() {
     setMensaje('Abrimos el pago virtual en una nueva ventana 💳');
   };
 
+  if (checkingAccess) {
+    return (
+      <main className="min-h-screen flex items-center justify-center">
+        <p>Verificando acceso al modo mozo…</p>
+      </main>
+    );
+  }
+
+  if (!canUseWaiterMode) {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="rounded-3xl border border-blue-200 bg-white p-8 shadow-sm">
+            <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 border border-blue-200">
+              Disponible desde Pro
+            </span>
+
+            <h1 className="mt-4 text-3xl font-bold text-slate-900">
+              Vista de mozo por mesa
+            </h1>
+
+            <p className="mt-3 text-slate-600 leading-relaxed">
+              Tu plan actual es <strong>{formatPlanLabel(currentPlan)}</strong>.
+              Esta funcionalidad forma parte del modo mozo, disponible desde
+              <strong> Pro</strong>.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <a
+                href="/#precios"
+                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Ver planes
+              </a>
+              <button
+                onClick={() => router.push('/admin')}
+                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Volver al admin
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   if (!mesaId) {
     return (
       <main className="min-h-screen flex items-center justify-center">
@@ -186,9 +284,7 @@ export default function CuentaMesaPage() {
     <main className="min-h-screen bg-slate-100 px-4 py-6">
       <div className="max-w-3xl mx-auto space-y-4">
         <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <h1 className="text-2xl font-bold">
-            Cuenta – Mesa {mesaId}
-          </h1>
+          <h1 className="text-2xl font-bold">Cuenta – Mesa {mesaId}</h1>
           <button
             onClick={cargarPedidos}
             className="px-3 py-1 rounded-lg text-sm bg-slate-800 text-white hover:bg-slate-700"
@@ -238,13 +334,10 @@ export default function CuentaMesaPage() {
                       <li key={item.id}>
                         <div className="flex justify-between">
                           <span>
-                            {item.cantidad} ×{' '}
-                            {item.producto?.nombre ?? '—'}
+                            {item.cantidad} × {item.producto?.nombre ?? '—'}
                           </span>
                           <span>
-                            $
-                            {(item.producto?.precio ?? 0) *
-                              item.cantidad}
+                            ${(item.producto?.precio ?? 0) * item.cantidad}
                           </span>
                         </div>
                         {item.comentarios && (
@@ -265,9 +358,7 @@ export default function CuentaMesaPage() {
 
             <footer className="border-t border-slate-300 pt-3 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <p className="text-lg font-bold">
-                  Total mesa: ${totalMesa}
-                </p>
+                <p className="text-lg font-bold">Total mesa: ${totalMesa}</p>
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={pagarVirtual}
@@ -280,9 +371,7 @@ export default function CuentaMesaPage() {
                     disabled={procesandoPago}
                     className="px-4 py-2 rounded-lg bg-emerald-700 text-emerald-50 font-semibold text-sm hover:bg-emerald-800 disabled:opacity-60"
                   >
-                    {procesandoPago
-                      ? 'Marcando...'
-                      : 'Pagar en efectivo'}
+                    {procesandoPago ? 'Marcando...' : 'Pagar en efectivo'}
                   </button>
                   <button
                     onClick={cerrarCuenta}
