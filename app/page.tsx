@@ -5,7 +5,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 
 function PhoneMockup() {
-  // Mockup sin imágenes externas: teléfono + QR + mini menú
   return (
     <div className="relative mx-auto w-full max-w-[420px]">
       <div className="rounded-[28px] border border-black/10 bg-white shadow-sm p-4">
@@ -22,7 +21,6 @@ function PhoneMockup() {
 
               <div className="mt-3 grid grid-cols-[86px_1fr] gap-3 items-center">
                 <div className="rounded-xl border border-black/10 bg-white p-2">
-                  {/* “QR” estilizado */}
                   <svg viewBox="0 0 64 64" className="h-full w-full">
                     <rect x="6" y="6" width="18" height="18" rx="2" className="fill-zinc-900" />
                     <rect x="10" y="10" width="10" height="10" rx="1" className="fill-white" />
@@ -33,7 +31,6 @@ function PhoneMockup() {
                     <rect x="6" y="40" width="18" height="18" rx="2" className="fill-zinc-900" />
                     <rect x="10" y="44" width="10" height="10" rx="1" className="fill-white" />
 
-                    {/* “ruido” QR */}
                     <rect x="28" y="28" width="6" height="6" className="fill-zinc-900" />
                     <rect x="36" y="28" width="4" height="4" className="fill-zinc-900" />
                     <rect x="28" y="38" width="4" height="4" className="fill-zinc-900" />
@@ -130,7 +127,7 @@ export default function RestoSmartLanding() {
   const [sent, setSent] = useState(false);
 
   const mailToHref = useMemo(() => {
-    const to = 'contacto@restosmart.com'; // cambiá por tu mail real
+    const to = 'contacto@restosmart.com';
     const subject = encodeURIComponent('Contacto — RestoSmart (Demo)');
     const body = encodeURIComponent(
       `Nombre: ${form.nombre}\nEmail: ${form.email}\nTeléfono: ${form.telefono}\nNegocio: ${form.negocio}\n\nMensaje:\n${form.mensaje}`
@@ -146,73 +143,66 @@ export default function RestoSmartLanding() {
 
   return (
     <main className="min-h-screen bg-white text-zinc-900">
-      {/* Header */}
- <header className="sticky top-0 z-40 border-b border-black/5 bg-white/80 backdrop-blur">
-  <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
-    
-    <div className="flex items-center gap-3">
-      <div className="relative h-16 w-16">
-  <Image
-    src="/logo-smart.png"
-    alt="RestoSmart"
-    fill
-    className="object-contain"
-    priority
-  />
-</div>
-      <span className="font-semibold text-lg leading-none">
-        RestoSmart
-      </span>
-    </div>
+      <header className="sticky top-0 z-40 border-b border-black/5 bg-white/80 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
+          <div className="flex items-center gap-3">
+            <div className="relative h-16 w-16">
+              <Image
+                src="/logo-smart.png"
+                alt="RestoSmart"
+                fill
+                className="object-contain"
+                priority
+              />
+            </div>
+            <span className="font-semibold text-lg leading-none">RestoSmart</span>
+          </div>
 
-    <nav className="hidden md:flex items-center gap-6 text-sm text-zinc-700">
-      <a href="#funciones" className="hover:text-zinc-900">
-        Funciones
-      </a>
-      <a href="#precios" className="hover:text-zinc-900">
-        Precios
-      </a>
-      <a href="#pasos" className="hover:text-zinc-900">
-        Cómo funciona
-      </a>
-      <a href="#faq" className="hover:text-zinc-900">
-        FAQ
-      </a>
+          <nav className="hidden md:flex items-center gap-6 text-sm text-zinc-700">
+            <a href="#funciones" className="hover:text-zinc-900">
+              Funciones
+            </a>
+            <a href="#precios" className="hover:text-zinc-900">
+              Precios
+            </a>
+            <a href="#pasos" className="hover:text-zinc-900">
+              Cómo funciona
+            </a>
+            <a href="#faq" className="hover:text-zinc-900">
+              FAQ
+            </a>
 
-      <Link
-        href="/demo"
-        className="rounded-full bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-      >
-        Probar demo
-      </Link>
-    </nav>
+            <Link
+              href="/demo"
+              className="rounded-full bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+            >
+              Probar demo
+            </Link>
+          </nav>
 
-    <a
-      href="#contacto"
-      className="md:hidden rounded-full bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-    >
-      Probar demo
-    </a>
+          <Link
+            href="/demo"
+            className="md:hidden rounded-full bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+          >
+            Probar demo
+          </Link>
+        </div>
+      </header>
 
-  </div>
-</header>
-
-      {/* Hero */}
       <section className="mx-auto max-w-6xl px-5 py-14 md:py-20">
         <div className="grid items-center gap-10 md:grid-cols-2">
           <div className="grid gap-5">
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">RestoSmart</h1>
 
             <p className="text-lg text-zinc-700 leading-relaxed">
-              <span className="font-semibold">Software inteligente</span> para restaurantes, bares,
-              cafés y take away.
+              <span className="font-semibold">Software inteligente</span> para restaurantes,
+              bares, cafés y take away.
               <br />
-              Transformá tu negocio gastronómico <span className="font-semibold"> en un
-              negocio inteligente.</span>
+              Transformá tu negocio gastronómico{' '}
+              <span className="font-semibold">en un negocio inteligente.</span>
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3">
-
               <a
                 href="#precios"
                 className="rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
@@ -239,13 +229,12 @@ export default function RestoSmartLanding() {
         </div>
       </section>
 
-      {/* Funciones / Niveles */}
       <section id="funciones" className="border-t border-black/5 bg-zinc-50">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="max-w-2xl">
             <h2 className="text-2xl md:text-3xl font-bold">Funciones de RestoSmart</h2>
             <p className="mt-2 text-zinc-700">
-              Tres niveles para que empieces simple y escales cuando lo necesites.
+              Tres planes para ordenar la operación y escalar cuando lo necesites.
             </p>
           </div>
 
@@ -253,18 +242,36 @@ export default function RestoSmartLanding() {
             {[
               {
                 title: 'Esencial',
-                desc: 'Digitalizá tu negocio.',
-                bullets: ['Menú digital', 'QR por mesa', 'Gestion esencial', 'Metricas esenciales'],
+                desc: 'Digitalizá y ordená la operación base del local.',
+                bullets: [
+                  'Gestión de productos y categorías',
+                  'Menú digital',
+                  'QR por mesa',
+                  'Pedido desde mesa y cuenta',
+                  'Cocina y operación básica',
+                ],
               },
               {
                 title: 'Pro',
-                desc: 'Controlá tu negocio.',
-                bullets: ['Control de stock', 'Reportes avanzados', 'Dashboard completo', 'Comparativa de datos'],
+                desc: 'Sumá herramientas para una operación de salón más completa.',
+                bullets: [
+                  'Todo lo de Esencial',
+                  'Modo mozo',
+                  'Gestión operativa ampliada',
+                  'Mejor flujo de salón',
+                  'Más control del local',
+                ],
               },
               {
                 title: 'Intelligence',
-                desc: 'Optimizá tu negocio',
-                bullets: ['KPIs', 'Mapas de calor', 'Analisis inteligente', 'Insights automáticos'],
+                desc: 'Tomá decisiones con datos y visión ejecutiva.',
+                bullets: [
+                  'Todo lo de Pro',
+                  'Analytics avanzados',
+                  'KPIs operativos y comerciales',
+                  'Vista ejecutiva',
+                  'Base para crecimiento multi-local',
+                ],
               },
             ].map((c) => (
               <div
@@ -274,7 +281,7 @@ export default function RestoSmartLanding() {
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-bold">{c.title}</h3>
                   <span className="rounded-full border border-black/10 bg-zinc-50 px-3 py-1 text-xs text-zinc-600">
-                    Nivel
+                    Plan
                   </span>
                 </div>
 
@@ -291,34 +298,67 @@ export default function RestoSmartLanding() {
               </div>
             ))}
           </div>
+
+          <div className="mt-6 rounded-3xl border border-violet-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="max-w-2xl">
+                <div className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+                  Add-on opcional
+                </div>
+                <h3 className="mt-3 text-xl font-bold">WhatsApp Delivery</h3>
+                <p className="mt-2 text-sm text-zinc-700 leading-relaxed">
+                  Se contrata aparte por restaurante. No forma parte de las funcionalidades
+                  comunes de Esencial, Pro ni Intelligence.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-violet-100 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+                Chatbot de pedidos + configuración operativa + conexión técnica
+              </div>
+            </div>
+
+            <ul className="mt-5 grid gap-2 text-sm text-zinc-800 md:grid-cols-2">
+              {[
+                'Toma de pedidos por WhatsApp',
+                'Configuración de cobro y entrega',
+                'Envío del pedido a la operación',
+                'Conexión técnica con Meta',
+              ].map((b) => (
+                <li key={b} className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-violet-600" />
+                  {b}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </section>
 
-      {/* Precios */}
       <section id="precios" className="border-t border-black/5 bg-white">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="max-w-2xl">
             <h2 className="text-2xl md:text-3xl font-bold">Planes y precios</h2>
-            <p className="mt-2 text-zinc-700">Elegí el nivel que mejor se adapta a tu negocio.</p>
+            <p className="mt-2 text-zinc-700">
+              Elegí el plan que mejor se adapta a tu operación. WhatsApp Delivery se
+              activa aparte como add-on opcional.
+            </p>
           </div>
 
           <div className="mt-8 grid gap-6 md:grid-cols-3">
-            {/* Esencial */}
             <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
               <h3 className="text-lg font-bold">Esencial</h3>
               <div className="mt-4 text-3xl font-bold text-blue-600">
                 $12.000 <span className="text-sm text-zinc-500 font-medium">/ mes</span>
               </div>
               <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
-                <li>✔ Menú digital QR</li>
-                <li>✔ Edición de productos</li>
+                <li>✔ Gestión de productos y categorías</li>
+                <li>✔ Menú digital</li>
                 <li>✔ QR por mesa</li>
-                <li>✔ Metricas esenciales</li>
+                <li>✔ Pedido desde mesa y cuenta</li>
+                <li>✔ Cocina y operación básica</li>
               </ul>
-
             </div>
 
-            {/* Pro */}
             <div className="rounded-3xl border-2 border-blue-600 bg-white p-6 shadow-md relative">
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-xs text-white">
                 Más elegido
@@ -330,14 +370,13 @@ export default function RestoSmartLanding() {
               </div>
               <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
                 <li>✔ Todo lo del plan Esencial</li>
-                <li>✔ Gestión de stock</li>
-                <li>✔ Reportes de ventas</li>
-                <li>✔ Rendimiento por producto</li>
+                <li>✔ Modo mozo</li>
+                <li>✔ Gestión operativa ampliada</li>
+                <li>✔ Mejor flujo de salón</li>
+                <li>✔ Más control del local</li>
               </ul>
-
             </div>
 
-            {/* Intelligence */}
             <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
               <h3 className="text-lg font-bold">Intelligence</h3>
               <div className="mt-4 text-3xl font-bold text-blue-600">
@@ -345,22 +384,37 @@ export default function RestoSmartLanding() {
               </div>
               <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
                 <li>✔ Todo lo del plan Pro</li>
-                <li>✔ Dashboard completo</li>
-                <li>✔ Productos más vendidos</li>
-                <li>✔ Análisis y optimización</li>
+                <li>✔ Analytics avanzados</li>
+                <li>✔ KPIs y rendimiento</li>
+                <li>✔ Vista ejecutiva</li>
+                <li>✔ Lectura comercial del negocio</li>
               </ul>
+            </div>
+          </div>
 
+          <div className="mt-8 rounded-3xl border border-violet-200 bg-violet-50 p-6">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-violet-800">WhatsApp Delivery</p>
+                <p className="mt-1 text-sm text-violet-900">
+                  Add-on opcional, con activación separada por restaurante.
+                </p>
+              </div>
+
+              <div className="text-left md:text-right">
+                <p className="text-lg font-bold text-violet-900">Cotización aparte</p>
+                <p className="text-xs text-violet-700">No incluido en ningún plan base</p>
+              </div>
             </div>
           </div>
 
           <div className="mt-6 text-xs text-zinc-500">
-            Precios mensuales. Podemos ayudarte a elegir el plan según tu operación (salón / take
-            away / múltiples mesas).
+            Los planes se contratan por local. WhatsApp Delivery se ofrece siempre como
+            add-on separado.
           </div>
         </div>
       </section>
 
-      {/* 3 pasos */}
       <section id="pasos" className="border-t border-black/5 bg-white">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="max-w-2xl">
@@ -384,8 +438,8 @@ export default function RestoSmartLanding() {
               },
               {
                 n: '3',
-                title: 'Analizás y optimizás',
-                desc: 'Medí rendimiento y tomá decisiones con datos.',
+                title: 'Operás y optimizás',
+                desc: 'Ordená la operación y, según tu plan, medí rendimiento y tomá decisiones con datos.',
               },
             ].map((s) => (
               <div
@@ -405,7 +459,6 @@ export default function RestoSmartLanding() {
         </div>
       </section>
 
-      {/* Quiénes somos */}
       <section id="quienes" className="border-t border-black/5 bg-zinc-50">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="grid gap-8 md:grid-cols-2 md:items-center">
@@ -413,8 +466,8 @@ export default function RestoSmartLanding() {
               <h2 className="text-2xl md:text-3xl font-bold">Quiénes somos</h2>
               <p className="mt-3 text-zinc-700 leading-relaxed">
                 En <span className="font-semibold">RestoSmart</span> desarrollamos soluciones
-                tecnológicas para el sector gastronómico, combinando software, análisis de datos y
-                experiencia en negocio.
+                tecnológicas para el sector gastronómico, combinando software, análisis de
+                datos y experiencia en negocio.
               </p>
 
               <div className="mt-5 grid gap-3">
@@ -454,7 +507,6 @@ export default function RestoSmartLanding() {
         </div>
       </section>
 
-      {/* FAQ */}
       <section id="faq" className="border-t border-black/5 bg-white">
         <div className="mx-auto max-w-4xl px-5 py-14">
           <h2 className="text-2xl md:text-3xl font-bold">Preguntas frecuentes</h2>
@@ -489,6 +541,10 @@ export default function RestoSmartLanding() {
                 q: '¿Puedo empezar con Esencial y luego pasar a Pro o Intelligence?',
                 a: 'Sí. Los planes están pensados para escalar según tu operación.',
               },
+              {
+                q: '¿WhatsApp Delivery está incluido en algún plan?',
+                a: 'No. WhatsApp Delivery se contrata aparte como add-on opcional por restaurante y no forma parte de las funcionalidades comunes de Esencial, Pro o Intelligence.',
+              },
             ].map((item) => (
               <details
                 key={item.q}
@@ -507,110 +563,102 @@ export default function RestoSmartLanding() {
         </div>
       </section>
 
-      {/* Contacto */}
       <section id="contacto" className="border-t border-black/5 bg-zinc-50">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="max-w-2xl">
             <h2 className="text-2xl md:text-3xl font-bold">Contactenos</h2>
             <p className="mt-2 text-zinc-700">
-              Contanos tu negocio y te brindamos el mejor plan para tu negocio.
+              Contanos tu negocio y te brindamos el mejor plan para tu operación.
             </p>
           </div>
 
-<div className="mt-10">
-  <form
-    onSubmit={onSubmit}
-    className="w-full rounded-3xl border border-black/10 bg-white p-8 shadow-sm"
-  >
-    <div className="grid gap-6 md:grid-cols-2">
+          <div className="mt-10">
+            <form
+              onSubmit={onSubmit}
+              className="w-full rounded-3xl border border-black/10 bg-white p-8 shadow-sm"
+            >
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="grid gap-2">
+                  <label className="text-sm font-semibold">Nombre</label>
+                  <input
+                    className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
+                    value={form.nombre}
+                    onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
+                    required
+                  />
+                </div>
 
-      {/* Nombre */}
-      <div className="grid gap-2">
-        <label className="text-sm font-semibold">Nombre</label>
-        <input
-          className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
-          value={form.nombre}
-          onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
-          required
-        />
-      </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-semibold">Email</label>
+                  <input
+                    type="email"
+                    className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
+                    value={form.email}
+                    onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                    required
+                  />
+                </div>
 
-      {/* Email */}
-      <div className="grid gap-2">
-        <label className="text-sm font-semibold">Email</label>
-        <input
-          type="email"
-          className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
-          value={form.email}
-          onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-          required
-        />
-      </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-semibold">Teléfono (opcional)</label>
+                  <input
+                    className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
+                    value={form.telefono}
+                    onChange={(e) => setForm((p) => ({ ...p, telefono: e.target.value }))}
+                    placeholder="Ej: 11 1234-5678"
+                  />
+                </div>
 
-      {/* Teléfono */}
-      <div className="grid gap-2">
-        <label className="text-sm font-semibold">Teléfono (opcional)</label>
-        <input
-          className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
-          value={form.telefono}
-          onChange={(e) => setForm((p) => ({ ...p, telefono: e.target.value }))}
-          placeholder="Ej: 11 1234-5678"
-        />
-      </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-semibold">Tipo de negocio</label>
+                  <input
+                    className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
+                    value={form.negocio}
+                    onChange={(e) => setForm((p) => ({ ...p, negocio: e.target.value }))}
+                    placeholder="Restaurante / bar / café / take away"
+                  />
+                </div>
 
-      {/* Negocio */}
-      <div className="grid gap-2">
-        <label className="text-sm font-semibold">Tipo de negocio</label>
-        <input
-          className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
-          value={form.negocio}
-          onChange={(e) => setForm((p) => ({ ...p, negocio: e.target.value }))}
-          placeholder="Restaurante / bar / café / take away"
-        />
-      </div>
+                <div className="grid gap-2 md:col-span-2">
+                  <label className="text-sm font-semibold">Mensaje</label>
+                  <textarea
+                    className="min-h-[140px] rounded-2xl border border-black/10 bg-white p-4 text-sm outline-none focus:border-blue-600"
+                    value={form.mensaje}
+                    onChange={(e) => setForm((p) => ({ ...p, mensaje: e.target.value }))}
+                    placeholder="Contanos qué necesitás, cuántos locales tenés o qué plan te interesa."
+                    required
+                  />
+                </div>
 
-      {/* Mensaje ocupa las dos columnas */}
-      <div className="grid gap-2 md:col-span-2">
-        <label className="text-sm font-semibold">Mensaje</label>
-        <textarea
-          className="min-h-[140px] rounded-2xl border border-black/10 bg-white p-4 text-sm outline-none focus:border-blue-600"
-          value={form.mensaje}
-          onChange={(e) => setForm((p) => ({ ...p, mensaje: e.target.value }))}
-          placeholder="Contanos qué necesitás o qué plan te interesa."
-          required
-        />
-      </div>
+                <div className="md:col-span-2 flex justify-center">
+                  <button
+                    type="submit"
+                    className="rounded-2xl bg-blue-600 px-8 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    Enviar consulta
+                  </button>
+                </div>
 
-      {/* Botón ocupa las dos columnas */}
-      <div className="md:col-span-2 flex justify-center">
-        <button
-          type="submit"
-          className="rounded-2xl bg-blue-600 px-8 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-        >
-          Enviar consulta
-        </button>
-      </div>
-
-      {sent && (
-        <div className="md:col-span-2 text-center text-sm text-zinc-600">
-          Si no se abrió tu correo, escribinos a{' '}
-          <a className="underline" href="mailto:contacto@restosmart.com">
-            contacto@restosmart.com
-          </a>
-        </div>
-      )}
-    </div>
-  </form>
-</div>
+                {sent && (
+                  <div className="md:col-span-2 text-center text-sm text-zinc-600">
+                    Si no se abrió tu correo, escribinos a{' '}
+                    <a className="underline" href="mailto:contacto@restosmart.com">
+                      contacto@restosmart.com
+                    </a>
+                  </div>
+                )}
+              </div>
+            </form>
+          </div>
         </div>
       </section>
 
-      {/* CTA Final */}
       <section className="border-t border-black/5 bg-blue-600">
         <div className="mx-auto max-w-6xl px-5 py-14 text-center text-white">
           <h2 className="text-3xl font-bold">¿Listo para transformar tu negocio gastronomico?</h2>
           <p className="mt-4 text-blue-100 max-w-2xl mx-auto">
-            Implementá RestoSmart en pocos días y empezá a operar con datos, eficiencia y control.
+            Implementá RestoSmart en pocos días y empezá a operar con más control,
+            mejor experiencia y decisiones más claras.
           </p>
           <a
             href="/demo"
@@ -621,7 +669,6 @@ export default function RestoSmartLanding() {
         </div>
       </section>
 
-      {/* Footer */}
       <footer className="border-t border-black/5 bg-white">
         <div className="mx-auto max-w-6xl px-5 py-10">
           <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -631,7 +678,6 @@ export default function RestoSmartLanding() {
             </div>
 
             <div className="flex flex-wrap gap-4 text-sm">
-              {/* Sin redes por ahora: dejamos placeholders */}
               <span className="text-zinc-400">Instagram (próximamente)</span>
               <a
                 className="text-zinc-700 hover:text-zinc-900 underline"
@@ -654,7 +700,6 @@ export default function RestoSmartLanding() {
         </div>
       </footer>
 
-      {/* Como no tenés WhatsApp aún, dejamos botón flotante a Contacto */}
       <ContactFloat />
     </main>
   );
