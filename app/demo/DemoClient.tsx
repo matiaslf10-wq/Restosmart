@@ -27,11 +27,16 @@ type ItemCarrito = {
 };
 
 type EstadoPedido = 'pendiente' | 'en_preparacion' | 'listo';
+type Vista = 'cliente' | 'cocina' | 'mozo';
+type ModoDemo = 'restaurant' | 'takeaway';
 
 type Pedido = {
   id: string;
-  mesa: string;
-  creado_en: string; // ISO
+  codigo_publico: string;
+  canal: ModoDemo;
+  mesa: string | null;
+  cliente: string | null;
+  creado_en: string;
   estado: EstadoPedido;
   entregado: boolean;
   items: Array<{
@@ -40,8 +45,6 @@ type Pedido = {
     nota?: string;
   }>;
 };
-
-type Vista = 'cliente' | 'cocina' | 'mozo';
 
 function moneyARS(n: number) {
   return `$ ${n.toLocaleString('es-AR')}`;
@@ -60,17 +63,33 @@ function classNames(...xs: Array<string | false | undefined | null>) {
 }
 
 function badgeEstado(estado: EstadoPedido) {
-  if (estado === 'pendiente')
+  if (estado === 'pendiente') {
     return { label: 'Pendiente', cls: 'bg-zinc-100 text-zinc-700 border-black/10' };
-  if (estado === 'en_preparacion')
+  }
+  if (estado === 'en_preparacion') {
     return { label: 'En preparación', cls: 'bg-blue-50 text-blue-700 border-blue-200' };
+  }
   return { label: 'Listo', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+}
+
+function badgeCanal(canal: ModoDemo) {
+  if (canal === 'takeaway') {
+    return {
+      label: 'Take Away',
+      cls: 'bg-amber-50 text-amber-700 border-amber-200',
+    };
+  }
+
+  return {
+    label: 'Restaurante',
+    cls: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  };
 }
 
 const DEMO = {
   local: {
     nombre: 'Cafetería RestoSmart (Demo)',
-    direccion: 'CABA — Mesa QR',
+    direccion: 'CABA',
   },
   categorias: [
     { id: 'cat_cafe', nombre: 'Café', orden: 1 },
@@ -167,12 +186,27 @@ function normalizeVista(x: string | null | undefined): Vista {
   return 'cliente';
 }
 
+function normalizeModo(x: string | null | undefined): ModoDemo {
+  if (x === 'restaurant' || x === 'takeaway') return x;
+  return 'restaurant';
+}
+
+function getPedidoDisplayLabel(pedido: Pedido) {
+  if (pedido.canal === 'takeaway') {
+    return pedido.cliente?.trim() || pedido.codigo_publico;
+  }
+
+  return `Mesa ${pedido.mesa ?? '—'}`;
+}
+
 export default function DemoClient() {
   const router = useRouter();
   const sp = useSearchParams();
 
   const [vista, setVista] = useState<Vista>('cliente');
   const [mesa, setMesa] = useState('12');
+  const [modoDemo, setModoDemo] = useState<ModoDemo>('restaurant');
+  const [clienteTakeaway, setClienteTakeaway] = useState('Retiro mostrador');
 
   const [catActiva, setCatActiva] = useState<string>(DEMO.categorias[0]?.id ?? '');
   const [q, setQ] = useState('');
@@ -186,7 +220,10 @@ export default function DemoClient() {
     return [
       {
         id: uid('ped'),
+        codigo_publico: 'SAL-007',
+        canal: 'restaurant',
         mesa: '7',
+        cliente: null,
         creado_en: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
         estado: 'en_preparacion',
         entregado: false,
@@ -197,7 +234,10 @@ export default function DemoClient() {
       },
       {
         id: uid('ped'),
+        codigo_publico: 'SAL-003',
+        canal: 'restaurant',
         mesa: '3',
+        cliente: null,
         creado_en: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
         estado: 'pendiente',
         entregado: false,
@@ -205,7 +245,10 @@ export default function DemoClient() {
       },
       {
         id: uid('ped'),
-        mesa: '12',
+        codigo_publico: 'TA-101',
+        canal: 'takeaway',
+        mesa: null,
+        cliente: 'Lucía',
         creado_en: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
         estado: 'listo',
         entregado: false,
@@ -214,19 +257,32 @@ export default function DemoClient() {
     ];
   });
 
-  // ✅ leer query al montar (ahora en client)
   useEffect(() => {
     const mesaQ = normalizeMesa(sp.get('mesa'));
     const vistaQ = normalizeVista(sp.get('vista'));
+    const modoQ = normalizeModo(sp.get('modo'));
+
     setMesa(mesaQ);
     setVista(vistaQ);
+    setModoDemo(modoQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function setQuery(next: { mesa?: string; vista?: Vista }) {
+  useEffect(() => {
+    if (modoDemo === 'takeaway' && vista === 'mozo') {
+      setVista('cliente');
+      setQuery({ mesa, vista: 'cliente', modo: 'takeaway' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modoDemo, vista]);
+
+  function setQuery(next: { mesa?: string; vista?: Vista; modo?: ModoDemo }) {
     const params = new URLSearchParams(sp?.toString() || '');
+
     if (next.mesa != null) params.set('mesa', String(next.mesa));
     if (next.vista != null) params.set('vista', String(next.vista));
+    if (next.modo != null) params.set('modo', String(next.modo));
+
     router.replace(`/demo?${params.toString()}`);
   }
 
@@ -245,7 +301,9 @@ export default function DemoClient() {
     const byCat = base.filter((p) => p.categoria_id === catActiva);
     const bySearch = q.trim()
       ? byCat.filter((p) =>
-          (p.nombre + ' ' + p.descripcion).toLowerCase().includes(q.trim().toLowerCase())
+          (p.nombre + ' ' + p.descripcion)
+            .toLowerCase()
+            .includes(q.trim().toLowerCase())
         )
       : byCat;
     return bySearch.sort((a, b) => Number(!!b.destacado) - Number(!!a.destacado));
@@ -284,7 +342,9 @@ export default function DemoClient() {
   }
 
   function setNota(productoId: string, nota: string) {
-    setCarrito((prev) => prev.map((x) => (x.productoId === productoId ? { ...x, nota } : x)));
+    setCarrito((prev) =>
+      prev.map((x) => (x.productoId === productoId ? { ...x, nota } : x))
+    );
   }
 
   function crearPedidoDesdeCarrito() {
@@ -294,28 +354,55 @@ export default function DemoClient() {
       return;
     }
 
+    const takeAwayCount = pedidos.filter((p) => p.canal === 'takeaway').length;
+    const nextTakeAwayCode = `TA-${String(101 + takeAwayCount).padStart(3, '0')}`;
     const mesaNorm = normalizeMesa(mesa);
+    const clienteNorm = clienteTakeaway.trim() || 'Retiro mostrador';
 
-    const nuevo: Pedido = {
-      id: uid('ped'),
-      mesa: mesaNorm,
-      creado_en: nowIso(),
-      estado: 'pendiente',
-      entregado: false,
-      items: carrito.map((x) => ({
-        productoId: x.productoId,
-        cantidad: x.cantidad,
-        nota: x.nota,
-      })),
-    };
+    const nuevo: Pedido =
+      modoDemo === 'restaurant'
+        ? {
+            id: uid('ped'),
+            codigo_publico: `SAL-${mesaNorm.padStart(3, '0')}`,
+            canal: 'restaurant',
+            mesa: mesaNorm,
+            cliente: null,
+            creado_en: nowIso(),
+            estado: 'pendiente',
+            entregado: false,
+            items: carrito.map((x) => ({
+              productoId: x.productoId,
+              cantidad: x.cantidad,
+              nota: x.nota,
+            })),
+          }
+        : {
+            id: uid('ped'),
+            codigo_publico: nextTakeAwayCode,
+            canal: 'takeaway',
+            mesa: null,
+            cliente: clienteNorm,
+            creado_en: nowIso(),
+            estado: 'pendiente',
+            entregado: false,
+            items: carrito.map((x) => ({
+              productoId: x.productoId,
+              cantidad: x.cantidad,
+              nota: x.nota,
+            })),
+          };
 
     setPedidos((prev) => [nuevo, ...prev]);
     setCarrito([]);
-    setToast('Pedido enviado (demo)');
+    setToast(
+      modoDemo === 'restaurant'
+        ? 'Pedido de salón enviado (demo)'
+        : 'Pedido take away enviado (demo)'
+    );
     setTimeout(() => setToast(null), 1400);
 
     setVista('cocina');
-    setQuery({ mesa: mesaNorm, vista: 'cocina' });
+    setQuery({ mesa: mesaNorm, vista: 'cocina', modo: modoDemo });
   }
 
   function cambiarEstadoPedido(pedidoId: string, estado: EstadoPedido) {
@@ -323,7 +410,9 @@ export default function DemoClient() {
   }
 
   function marcarEntregado(pedidoId: string) {
-    setPedidos((prev) => prev.map((p) => (p.id === pedidoId ? { ...p, entregado: true } : p)));
+    setPedidos((prev) =>
+      prev.map((p) => (p.id === pedidoId ? { ...p, entregado: true } : p))
+    );
     setToast('Marcado como entregado');
     setTimeout(() => setToast(null), 1200);
   }
@@ -332,16 +421,20 @@ export default function DemoClient() {
     const pendientes = pedidos.filter((p) => p.estado === 'pendiente').length;
     const enPrep = pedidos.filter((p) => p.estado === 'en_preparacion').length;
     const listos = pedidos.filter((p) => p.estado === 'listo').length;
-    return { pendientes, enPrep, listos };
+    const takeawayActivos = pedidos.filter(
+      (p) => p.canal === 'takeaway' && !p.entregado
+    ).length;
+
+    return { pendientes, enPrep, listos, takeawayActivos };
   }, [pedidos]);
 
   return (
     <main className="min-h-screen bg-white text-zinc-900">
       <header className="sticky top-0 z-40 border-b border-black/5 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <Link href="/" className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-2xl bg-blue-600 text-white grid place-items-center font-bold">
+              <div className="grid h-9 w-9 place-items-center rounded-2xl bg-blue-600 font-bold text-white">
                 R
               </div>
               <div className="leading-tight">
@@ -351,71 +444,125 @@ export default function DemoClient() {
             </Link>
 
             <span className="hidden md:inline-flex items-center rounded-full border border-black/10 bg-zinc-50 px-3 py-1 text-xs text-zinc-600">
-              {DEMO.local.nombre} · Mesa {mesa}
+              {DEMO.local.nombre} ·{' '}
+              {modoDemo === 'restaurant' ? `Mesa ${mesa}` : 'Take Away'}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="hidden sm:flex items-center gap-2 rounded-full border border-black/10 bg-white p-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setVista('cliente');
-                  setQuery({ mesa, vista: 'cliente' });
-                }}
-                className={classNames(
-                  'px-3 py-2 text-xs font-semibold rounded-full',
-                  vista === 'cliente' ? 'bg-blue-600 text-white' : 'text-zinc-700 hover:bg-zinc-50'
-                )}
+          <div className="flex flex-col gap-2 lg:items-end">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 rounded-full border border-black/10 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModoDemo('restaurant');
+                    setQuery({ mesa, modo: 'restaurant' });
+                  }}
+                  className={classNames(
+                    'rounded-full px-3 py-2 text-xs font-semibold',
+                    modoDemo === 'restaurant'
+                      ? 'bg-emerald-600 text-white'
+                      : 'text-zinc-700 hover:bg-zinc-50'
+                  )}
+                >
+                  Restaurante
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModoDemo('takeaway');
+                    setQuery({ mesa, modo: 'takeaway', vista: vista === 'mozo' ? 'cliente' : vista });
+                  }}
+                  className={classNames(
+                    'rounded-full px-3 py-2 text-xs font-semibold',
+                    modoDemo === 'takeaway'
+                      ? 'bg-amber-500 text-white'
+                      : 'text-zinc-700 hover:bg-zinc-50'
+                  )}
+                >
+                  Take Away
+                </button>
+              </div>
+
+              <div className="hidden sm:flex items-center gap-2 rounded-full border border-black/10 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVista('cliente');
+                    setQuery({ mesa, vista: 'cliente', modo: modoDemo });
+                  }}
+                  className={classNames(
+                    'rounded-full px-3 py-2 text-xs font-semibold',
+                    vista === 'cliente'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-zinc-700 hover:bg-zinc-50'
+                  )}
+                >
+                  Cliente
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVista('cocina');
+                    setQuery({ mesa, vista: 'cocina', modo: modoDemo });
+                  }}
+                  className={classNames(
+                    'rounded-full px-3 py-2 text-xs font-semibold',
+                    vista === 'cocina'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-zinc-700 hover:bg-zinc-50'
+                  )}
+                >
+                  Cocina
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (modoDemo === 'takeaway') return;
+                    setVista('mozo');
+                    setQuery({ mesa, vista: 'mozo', modo: modoDemo });
+                  }}
+                  disabled={modoDemo === 'takeaway'}
+                  className={classNames(
+                    'rounded-full px-3 py-2 text-xs font-semibold',
+                    vista === 'mozo'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-zinc-700 hover:bg-zinc-50',
+                    modoDemo === 'takeaway' && 'cursor-not-allowed opacity-50'
+                  )}
+                >
+                  Mozo
+                </button>
+              </div>
+
+              <Link
+                href="/#contacto"
+                className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
               >
-                Cliente
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setVista('cocina');
-                  setQuery({ mesa, vista: 'cocina' });
-                }}
-                className={classNames(
-                  'px-3 py-2 text-xs font-semibold rounded-full',
-                  vista === 'cocina' ? 'bg-blue-600 text-white' : 'text-zinc-700 hover:bg-zinc-50'
-                )}
-              >
-                Cocina
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setVista('mozo');
-                  setQuery({ mesa, vista: 'mozo' });
-                }}
-                className={classNames(
-                  'px-3 py-2 text-xs font-semibold rounded-full',
-                  vista === 'mozo' ? 'bg-blue-600 text-white' : 'text-zinc-700 hover:bg-zinc-50'
-                )}
-              >
-                Mozo
-              </button>
+                Pedir demo real
+              </Link>
             </div>
 
-            <Link
-              href="/#contacto"
-              className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Pedir demo real
-            </Link>
+            <p className="text-xs text-zinc-500">
+              {modoDemo === 'restaurant'
+                ? 'Demo de cliente desde mesa QR.'
+                : 'Demo de cliente sin mesa, con retiro en mostrador.'}
+            </p>
           </div>
         </div>
       </header>
 
       {vista === 'cliente' ? (
         <ClienteView
+          modoDemo={modoDemo}
           mesa={mesa}
           setMesa={(v) => {
             const nv = normalizeMesa(v);
             setMesa(nv);
-            setQuery({ mesa: nv });
+            setQuery({ mesa: nv, modo: modoDemo });
           }}
+          clienteTakeaway={clienteTakeaway}
+          setClienteTakeaway={setClienteTakeaway}
           categorias={categoriasOrdenadas}
           catActiva={catActiva}
           setCatActiva={setCatActiva}
@@ -437,28 +584,39 @@ export default function DemoClient() {
           stats={statsCocina}
           cambiarEstado={cambiarEstadoPedido}
           onIrMozo={() => {
+            if (modoDemo === 'takeaway') return;
             setVista('mozo');
-            setQuery({ vista: 'mozo' });
+            setQuery({ vista: 'mozo', modo: modoDemo, mesa });
           }}
         />
       ) : (
         <MozoView
+          modoDemo={modoDemo}
           pedidos={pedidos}
           productosById={productosById}
           mesaEfectivo={mesaEfectivo}
           mesaPagada={mesaPagada}
-          setMesaEfectivo={(mesaId, v) => setMesaEfectivo((p) => ({ ...p, [mesaId]: v }))}
-          setMesaPagada={(mesaId, v) => setMesaPagada((p) => ({ ...p, [mesaId]: v }))}
+          setMesaEfectivo={(mesaId, v) =>
+            setMesaEfectivo((p) => ({ ...p, [mesaId]: v }))
+          }
+          setMesaPagada={(mesaId, v) =>
+            setMesaPagada((p) => ({ ...p, [mesaId]: v }))
+          }
           marcarEntregado={marcarEntregado}
           onIrCocina={() => {
             setVista('cocina');
-            setQuery({ vista: 'cocina' });
+            setQuery({ vista: 'cocina', modo: modoDemo, mesa });
+          }}
+          onIrClienteRestaurant={() => {
+            setModoDemo('restaurant');
+            setVista('cliente');
+            setQuery({ vista: 'cliente', modo: 'restaurant', mesa });
           }}
         />
       )}
 
       {toast ? (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 rounded-full bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg">
+        <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-full bg-zinc-900 px-4 py-2 text-sm text-white shadow-lg">
           {toast}
         </div>
       ) : null}
@@ -475,8 +633,11 @@ export default function DemoClient() {
 /* -------------------- SUBCOMPONENTES -------------------- */
 
 function ClienteView(props: {
+  modoDemo: ModoDemo;
   mesa: string;
   setMesa: (v: string) => void;
+  clienteTakeaway: string;
+  setClienteTakeaway: (v: string) => void;
   categorias: Categoria[];
   catActiva: string;
   setCatActiva: (v: string) => void;
@@ -492,8 +653,11 @@ function ClienteView(props: {
   crearPedido: () => void;
 }) {
   const {
+    modoDemo,
     mesa,
     setMesa,
+    clienteTakeaway,
+    setClienteTakeaway,
     categorias,
     catActiva,
     setCatActiva,
@@ -509,6 +673,8 @@ function ClienteView(props: {
     crearPedido,
   } = props;
 
+  const isRestaurant = modoDemo === 'restaurant';
+
   return (
     <section className="mx-auto max-w-6xl px-5 py-10">
       <div className="grid gap-8 md:grid-cols-[1.2fr_0.8fr]">
@@ -516,21 +682,63 @@ function ClienteView(props: {
           <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-xs text-zinc-500">Menú (Demo)</div>
-                <h1 className="text-2xl font-bold tracking-tight">Escaneá, elegí y pedí</h1>
+                <div className="text-xs text-zinc-500">
+                  {isRestaurant ? 'Cliente restaurante (Demo)' : 'Cliente take away (Demo)'}
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight">
+                  {isRestaurant ? 'Escaneá, elegí y pedí' : 'Elegí, confirmá y retirás'}
+                </h1>
                 <p className="mt-1 text-sm text-zinc-700">
-                  Mesa: <span className="font-semibold text-zinc-900">{mesa}</span>
+                  {isRestaurant ? (
+                    <>
+                      Mesa: <span className="font-semibold text-zinc-900">{mesa}</span>
+                    </>
+                  ) : (
+                    <>
+                      Retiro a nombre de{' '}
+                      <span className="font-semibold text-zinc-900">
+                        {clienteTakeaway || 'Retiro mostrador'}
+                      </span>
+                    </>
+                  )}
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-zinc-600">Mesa</label>
-                <input
-                  value={mesa}
-                  onChange={(e) => setMesa(e.target.value)}
-                  className="h-10 w-20 rounded-2xl border border-black/10 bg-white px-3 text-sm outline-none focus:border-blue-600"
-                />
-              </div>
+              {isRestaurant ? (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-zinc-600">Mesa</label>
+                  <input
+                    value={mesa}
+                    onChange={(e) => setMesa(e.target.value)}
+                    className="h-10 w-20 rounded-2xl border border-black/10 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                  />
+                </div>
+              ) : (
+                <div className="w-full max-w-xs">
+                  <label className="mb-1 block text-xs text-zinc-600">
+                    Nombre para retirar
+                  </label>
+                  <input
+                    value={clienteTakeaway}
+                    onChange={(e) => setClienteTakeaway(e.target.value)}
+                    className="h-10 w-full rounded-2xl border border-black/10 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                    placeholder="Ej: Lucía"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div
+              className={classNames(
+                'mt-4 rounded-2xl border p-4 text-sm',
+                isRestaurant
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                  : 'border-amber-200 bg-amber-50 text-amber-800'
+              )}
+            >
+              {isRestaurant
+                ? 'Esta demo representa el flujo de cliente desde una mesa del salón.'
+                : 'Esta demo representa una futura entrada pública de take away, sin depender de una mesa.'}
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
@@ -554,14 +762,17 @@ function ClienteView(props: {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Buscar…"
-                className="h-10 w-full sm:w-56 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
+                className="h-10 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600 sm:w-56"
               />
             </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             {productos.map((p) => (
-              <div key={p.id} className="rounded-3xl border border-black/10 bg-white p-5 shadow-sm">
+              <div
+                key={p.id}
+                className="rounded-3xl border border-black/10 bg-white p-5 shadow-sm"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
@@ -574,7 +785,9 @@ function ClienteView(props: {
                     </div>
                     <p className="mt-1 text-sm text-zinc-700">{p.descripcion}</p>
                   </div>
-                  <div className="text-sm font-bold text-zinc-900">{moneyARS(p.precio)}</div>
+                  <div className="text-sm font-bold text-zinc-900">
+                    {moneyARS(p.precio)}
+                  </div>
                 </div>
 
                 <button
@@ -589,7 +802,7 @@ function ClienteView(props: {
           </div>
         </div>
 
-        <aside className="md:sticky md:top-20 h-fit">
+        <aside className="h-fit md:sticky md:top-20">
           <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold">Carrito</h2>
@@ -609,13 +822,20 @@ function ClienteView(props: {
                   if (!p) return null;
 
                   return (
-                    <div key={it.productoId} className="rounded-2xl border border-black/10 bg-white p-4">
+                    <div
+                      key={it.productoId}
+                      className="rounded-2xl border border-black/10 bg-white p-4"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="font-semibold">{p.nombre}</div>
-                          <div className="text-xs text-zinc-500">{moneyARS(p.precio)} c/u</div>
+                          <div className="text-xs text-zinc-500">
+                            {moneyARS(p.precio)} c/u
+                          </div>
                         </div>
-                        <div className="text-sm font-bold">{moneyARS(p.precio * it.cantidad)}</div>
+                        <div className="text-sm font-bold">
+                          {moneyARS(p.precio * it.cantidad)}
+                        </div>
                       </div>
 
                       <div className="mt-3 flex items-center gap-2">
@@ -626,7 +846,7 @@ function ClienteView(props: {
                         >
                           −
                         </button>
-                        <div className="h-9 min-w-10 rounded-2xl border border-black/10 bg-zinc-50 grid place-items-center text-sm font-semibold">
+                        <div className="grid h-9 min-w-10 place-items-center rounded-2xl border border-black/10 bg-zinc-50 text-sm font-semibold">
                           {it.cantidad}
                         </div>
                         <button
@@ -671,14 +891,18 @@ function ClienteView(props: {
                 disabled={carrito.length === 0}
                 className={classNames(
                   'mt-4 w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white',
-                  carrito.length === 0 ? 'bg-zinc-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                  carrito.length === 0
+                    ? 'cursor-not-allowed bg-zinc-300'
+                    : 'bg-blue-600 hover:bg-blue-700'
                 )}
               >
-                Enviar pedido (demo)
+                {isRestaurant ? 'Enviar pedido de salón (demo)' : 'Enviar pedido take away (demo)'}
               </button>
 
               <div className="mt-3 text-xs text-zinc-500">
-                Esto crea un pedido ficticio y aparece en Cocina / Mozo.
+                {isRestaurant
+                  ? 'Esto crea un pedido ficticio de mesa y aparece en Cocina / Mozo.'
+                  : 'Esto crea un pedido ficticio de take away y aparece en Cocina.'}
               </div>
             </div>
           </div>
@@ -691,14 +915,18 @@ function ClienteView(props: {
 function CocinaView(props: {
   pedidos: Pedido[];
   productosById: Record<string, Producto>;
-  stats: { pendientes: number; enPrep: number; listos: number };
+  stats: { pendientes: number; enPrep: number; listos: number; takeawayActivos: number };
   cambiarEstado: (id: string, estado: EstadoPedido) => void;
   onIrMozo: () => void;
 }) {
   const { pedidos, productosById, stats, cambiarEstado, onIrMozo } = props;
 
   const pedidosOrdenados = useMemo(() => {
-    const rank: Record<EstadoPedido, number> = { pendiente: 0, en_preparacion: 1, listo: 2 };
+    const rank: Record<EstadoPedido, number> = {
+      pendiente: 0,
+      en_preparacion: 1,
+      listo: 2,
+    };
     return [...pedidos].sort((a, b) => {
       const ra = rank[a.estado];
       const rb = rank[b.estado];
@@ -722,7 +950,9 @@ function CocinaView(props: {
         <div>
           <div className="text-xs text-zinc-500">Cocina (Demo)</div>
           <h1 className="text-2xl font-bold tracking-tight">Panel de cocina</h1>
-          <p className="mt-1 text-sm text-zinc-700">Cambiá estados y marcá pedidos como listos.</p>
+          <p className="mt-1 text-sm text-zinc-700">
+            Cocina ve pedidos de restaurante y take away en una misma operación.
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -743,31 +973,58 @@ function CocinaView(props: {
         </div>
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-3">
+      <div className="mt-6 grid gap-4 md:grid-cols-4">
         <Kpi title="Pendientes" value={stats.pendientes} />
         <Kpi title="En preparación" value={stats.enPrep} />
         <Kpi title="Listos" value={stats.listos} />
+        <Kpi title="Take away activos" value={stats.takeawayActivos} />
       </div>
 
       <div className="mt-8 grid gap-4">
         {pedidosOrdenados.map((p) => {
           const b = badgeEstado(p.estado);
+          const c = badgeCanal(p.canal);
+
           return (
-            <div key={p.id} className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
+            <div
+              key={p.id}
+              className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm"
+            >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="grid gap-1">
-                  <div className="flex items-center gap-2">
-                    <div className="text-sm font-bold">Mesa {p.mesa}</div>
-                    <span className={classNames('rounded-full border px-3 py-1 text-xs font-semibold', b.cls)}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={classNames(
+                        'rounded-full border px-3 py-1 text-xs font-semibold',
+                        c.cls
+                      )}
+                    >
+                      {c.label}
+                    </span>
+
+                    <div className="text-sm font-bold">
+                      {p.codigo_publico} · {getPedidoDisplayLabel(p)}
+                    </div>
+
+                    <span
+                      className={classNames(
+                        'rounded-full border px-3 py-1 text-xs font-semibold',
+                        b.cls
+                      )}
+                    >
                       {b.label}
                     </span>
+
                     {p.entregado ? (
                       <span className="rounded-full border border-black/10 bg-zinc-50 px-3 py-1 text-xs text-zinc-600">
                         Entregado
                       </span>
                     ) : null}
                   </div>
-                  <div className="text-xs text-zinc-500">{new Date(p.creado_en).toLocaleString('es-AR')}</div>
+
+                  <div className="text-xs text-zinc-500">
+                    {new Date(p.creado_en).toLocaleString('es-AR')}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -815,15 +1072,24 @@ function CocinaView(props: {
                   const prod = productosById[it.productoId];
                   if (!prod) return null;
                   return (
-                    <div key={`${p.id}_${idx}`} className="rounded-2xl border border-black/10 bg-zinc-50 p-4">
+                    <div
+                      key={`${p.id}_${idx}`}
+                      className="rounded-2xl border border-black/10 bg-zinc-50 p-4"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="text-sm font-semibold">
                             {it.cantidad} × {prod.nombre}
                           </div>
-                          {it.nota ? <div className="mt-1 text-xs text-zinc-600">Nota: {it.nota}</div> : null}
+                          {it.nota ? (
+                            <div className="mt-1 text-xs text-zinc-600">
+                              Nota: {it.nota}
+                            </div>
+                          ) : null}
                         </div>
-                        <div className="text-sm font-bold">{moneyARS(prod.precio * it.cantidad)}</div>
+                        <div className="text-sm font-bold">
+                          {moneyARS(prod.precio * it.cantidad)}
+                        </div>
                       </div>
                     </div>
                   );
@@ -843,6 +1109,7 @@ function CocinaView(props: {
 }
 
 function MozoView(props: {
+  modoDemo: ModoDemo;
   pedidos: Pedido[];
   productosById: Record<string, Producto>;
   mesaEfectivo: Record<string, boolean>;
@@ -851,8 +1118,10 @@ function MozoView(props: {
   setMesaPagada: (mesa: string, v: boolean) => void;
   marcarEntregado: (pedidoId: string) => void;
   onIrCocina: () => void;
+  onIrClienteRestaurant: () => void;
 }) {
   const {
+    modoDemo,
     pedidos,
     productosById,
     mesaEfectivo,
@@ -861,19 +1130,66 @@ function MozoView(props: {
     setMesaPagada,
     marcarEntregado,
     onIrCocina,
+    onIrClienteRestaurant,
   } = props;
 
+  if (modoDemo === 'takeaway') {
+    return (
+      <section className="mx-auto max-w-4xl px-5 py-10">
+        <div className="rounded-3xl border border-amber-200 bg-white p-8 shadow-sm">
+          <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+            No aplica en Take Away
+          </span>
+
+          <h1 className="mt-4 text-3xl font-bold text-zinc-900">Pantalla mozo</h1>
+
+          <p className="mt-3 text-sm leading-relaxed text-zinc-700">
+            En esta demo, el flujo de mozo representa operación de salón por mesa.
+            Para take away, el pedido va más naturalmente a cocina y retiro, sin
+            pasar por gestión de mesas.
+          </p>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={onIrCocina}
+              className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Ir a Cocina
+            </button>
+
+            <button
+              type="button"
+              onClick={onIrClienteRestaurant}
+              className="rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+            >
+              Cambiar a demo restaurante
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  const pedidosSalon = pedidos.filter((p) => p.canal === 'restaurant');
+
   const listosParaEntregar = useMemo(() => {
-    return pedidos
+    return pedidosSalon
       .filter((p) => p.estado === 'listo' && !p.entregado)
       .sort((a, b) => b.creado_en.localeCompare(a.creado_en));
-  }, [pedidos]);
+  }, [pedidosSalon]);
 
   const mesas = useMemo(() => {
     const set = new Set<string>();
-    for (const p of pedidos) set.add(String(p.mesa));
+    for (const p of pedidosSalon) {
+      if (p.mesa) set.add(String(p.mesa));
+    }
     return Array.from(set).sort((a, b) => Number(a) - Number(b));
-  }, [pedidos]);
+  }, [pedidosSalon]);
+
+  const takeawayActivos = pedidos.filter(
+    (p) => p.canal === 'takeaway' && !p.entregado
+  ).length;
 
   function totalPedido(p: Pedido) {
     let total = 0;
@@ -885,13 +1201,13 @@ function MozoView(props: {
   }
 
   function totalMesa(m: string) {
-    return pedidos
+    return pedidosSalon
       .filter((p) => String(p.mesa) === String(m))
       .reduce((acc, p) => acc + totalPedido(p), 0);
   }
 
   function resumenMesa(m: string) {
-    const ps = pedidos.filter((p) => String(p.mesa) === String(m));
+    const ps = pedidosSalon.filter((p) => String(p.mesa) === String(m));
     return {
       pendientes: ps.filter((p) => p.estado === 'pendiente').length,
       enPrep: ps.filter((p) => p.estado === 'en_preparacion').length,
@@ -905,7 +1221,9 @@ function MozoView(props: {
         <div>
           <div className="text-xs text-zinc-500">Mozo (Demo)</div>
           <h1 className="text-2xl font-bold tracking-tight">Pantalla mozo</h1>
-          <p className="mt-1 text-sm text-zinc-700">Entregas + cuenta por mesa + pago efectivo.</p>
+          <p className="mt-1 text-sm text-zinc-700">
+            Entregas + cuenta por mesa + pago efectivo.
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -926,6 +1244,18 @@ function MozoView(props: {
         </div>
       </div>
 
+      {takeawayActivos > 0 ? (
+        <div className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-5">
+          <p className="text-sm font-semibold text-amber-800">
+            Take away en paralelo
+          </p>
+          <p className="mt-1 text-sm text-amber-900">
+            Hay {takeawayActivos} pedido(s) activos de take away en la demo. No se
+            muestran en la vista de mozo porque este flujo representa operación de salón.
+          </p>
+        </div>
+      ) : null}
+
       <div className="mt-8 rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">Listos para entregar</h2>
@@ -941,11 +1271,16 @@ function MozoView(props: {
             </div>
           ) : (
             listosParaEntregar.map((p) => (
-              <div key={p.id} className="rounded-2xl border border-black/10 bg-zinc-50 p-4">
+              <div
+                key={p.id}
+                className="rounded-2xl border border-black/10 bg-zinc-50 p-4"
+              >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div className="text-sm font-bold">Mesa {p.mesa}</div>
-                    <div className="text-xs text-zinc-500">{new Date(p.creado_en).toLocaleString('es-AR')}</div>
+                    <div className="text-xs text-zinc-500">
+                      {new Date(p.creado_en).toLocaleString('es-AR')}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-bold">{moneyARS(totalPedido(p))}</div>
@@ -966,13 +1301,17 @@ function MozoView(props: {
                     return (
                       <div
                         key={`${p.id}_${idx}`}
-                        className="flex items-start justify-between gap-3 rounded-xl bg-white p-3 border border-black/10"
+                        className="flex items-start justify-between gap-3 rounded-xl border border-black/10 bg-white p-3"
                       >
                         <div className="text-sm">
                           <span className="font-semibold">{it.cantidad}×</span> {prod.nombre}
-                          {it.nota ? <div className="text-xs text-zinc-500">Nota: {it.nota}</div> : null}
+                          {it.nota ? (
+                            <div className="text-xs text-zinc-500">Nota: {it.nota}</div>
+                          ) : null}
                         </div>
-                        <div className="text-sm font-bold">{moneyARS(prod.precio * it.cantidad)}</div>
+                        <div className="text-sm font-bold">
+                          {moneyARS(prod.precio * it.cantidad)}
+                        </div>
                       </div>
                     );
                   })}
@@ -986,7 +1325,9 @@ function MozoView(props: {
       <div className="mt-8">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">Cuentas por mesa</h2>
-          <span className="text-xs text-zinc-500">Demo: total acumulado por mesa</span>
+          <span className="text-xs text-zinc-500">
+            Demo: total acumulado por mesa
+          </span>
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -997,7 +1338,10 @@ function MozoView(props: {
             const pagada = !!mesaPagada[m];
 
             return (
-              <div key={m} className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
+              <div
+                key={m}
+                className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm"
+              >
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-bold">Mesa {m}</div>
                   {pagada ? (
@@ -1045,7 +1389,9 @@ function MozoView(props: {
                     onClick={() => setMesaPagada(m, true)}
                     className={classNames(
                       'rounded-2xl px-4 py-2 text-sm font-semibold text-white',
-                      pagada ? 'bg-zinc-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                      pagada
+                        ? 'cursor-not-allowed bg-zinc-300'
+                        : 'bg-blue-600 hover:bg-blue-700'
                     )}
                     disabled={pagada}
                   >
@@ -1053,12 +1399,20 @@ function MozoView(props: {
                   </button>
 
                   {pagada ? (
-                    <div className="text-xs text-zinc-500">Demo: en el sistema real esto cerraría la cuenta.</div>
+                    <div className="text-xs text-zinc-500">
+                      Demo: en el sistema real esto cerraría la cuenta.
+                    </div>
                   ) : null}
                 </div>
               </div>
             );
           })}
+
+          {mesas.length === 0 ? (
+            <div className="rounded-3xl border border-black/10 bg-white p-6 text-sm text-zinc-600 shadow-sm md:col-span-3">
+              No hay mesas activas en la demo de salón.
+            </div>
+          ) : null}
         </div>
       </div>
     </section>
