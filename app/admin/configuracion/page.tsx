@@ -1,6 +1,30 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import { formatPlanLabel, type PlanCode } from '@/lib/plans';
+
+type AdminSessionPayload = {
+  adminId: string;
+  email: string;
+  iat: number;
+  exp: number;
+  tenantId?: string;
+  plan?: PlanCode;
+  addons?: {
+    whatsapp_delivery?: boolean;
+  };
+  capabilities?: {
+    analytics?: boolean;
+    delivery?: boolean;
+    waiter_mode?: boolean;
+  };
+  restaurant?: {
+    id: string;
+    slug: string;
+    plan: PlanCode;
+  } | null;
+};
 
 type LocalConfig = {
   nombre_local: string;
@@ -50,12 +74,29 @@ const DEFAULT_DELIVERY: DeliveryConfig = {
 };
 
 export default function AdminConfiguracionPage() {
+  const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
   const [localForm, setLocalForm] = useState<LocalConfig>(DEFAULT_LOCAL);
   const [deliveryForm, setDeliveryForm] = useState<DeliveryConfig>(DEFAULT_DELIVERY);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState('');
   const [error, setError] = useState('');
+
+  const plan = sessionData?.plan ?? 'esencial';
+  const planLabel = formatPlanLabel(plan);
+  const addons = sessionData?.addons ?? {};
+  const capabilities = sessionData?.capabilities ?? {};
+  const deliveryAddonEnabled = !!addons.whatsapp_delivery;
+  const analyticsEnabled = !!capabilities.analytics;
+  const tenantLabel = sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
+
+  const analyticsHint = useMemo(() => {
+    if (analyticsEnabled) {
+      return 'Tu plan actual ya incluye analytics avanzados.';
+    }
+
+    return 'Podés dejar cargados estos datos ahora, pero los analytics avanzados se aprovechan en Intelligence.';
+  }, [analyticsEnabled]);
 
   useEffect(() => {
     let activo = true;
@@ -66,31 +107,36 @@ export default function AdminConfiguracionPage() {
         setError('');
         setMensaje('');
 
-        const [localRes, deliveryRes] = await Promise.all([
-          fetch('/api/admin/local-config', {
-            method: 'GET',
-            cache: 'no-store',
-          }),
-          fetch('/api/admin/delivery-config', {
-            method: 'GET',
-            cache: 'no-store',
-          }),
-        ]);
+        const sessionRes = await fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        const sessionJson = await sessionRes.json().catch(() => null);
+
+        if (!activo) return;
+
+        if (!sessionRes.ok) {
+          throw new Error(
+            sessionJson?.error || 'No se pudo cargar la sesión del admin.'
+          );
+        }
+
+        const session = (sessionJson?.session as AdminSessionPayload | null) ?? null;
+        setSessionData(session);
+
+        const localRes = await fetch('/api/admin/local-config', {
+          method: 'GET',
+          cache: 'no-store',
+        });
 
         const localData = await localRes.json().catch(() => null);
-        const deliveryData = await deliveryRes.json().catch(() => null);
 
         if (!activo) return;
 
         if (!localRes.ok) {
           throw new Error(
             localData?.error || 'No se pudo cargar la configuración del local.'
-          );
-        }
-
-        if (!deliveryRes.ok) {
-          throw new Error(
-            deliveryData?.error || 'No se pudo cargar la configuración de delivery.'
           );
         }
 
@@ -106,29 +152,48 @@ export default function AdminConfiguracionPage() {
             localData?.google_analytics_property_id ?? '',
         });
 
-        setDeliveryForm({
-          activo: !!deliveryData?.activo,
-          whatsapp_numero: deliveryData?.whatsapp_numero ?? '',
-          whatsapp_nombre_mostrado:
-            deliveryData?.whatsapp_nombre_mostrado ?? '',
-          acepta_efectivo:
-            deliveryData?.acepta_efectivo === undefined
-              ? true
-              : !!deliveryData.acepta_efectivo,
-          efectivo_requiere_aprobacion:
-            deliveryData?.efectivo_requiere_aprobacion === undefined
-              ? true
-              : !!deliveryData.efectivo_requiere_aprobacion,
-          acepta_mercadopago: !!deliveryData?.acepta_mercadopago,
-          mensaje_bienvenida:
-            deliveryData?.mensaje_bienvenida ??
-            DEFAULT_DELIVERY.mensaje_bienvenida,
-          tiempo_estimado_min: Number(
-            deliveryData?.tiempo_estimado_min ??
-              DEFAULT_DELIVERY.tiempo_estimado_min
-          ),
-          costo_envio: Number(deliveryData?.costo_envio ?? 0),
-        });
+        if (session?.addons?.whatsapp_delivery) {
+          const deliveryRes = await fetch('/api/admin/delivery-config', {
+            method: 'GET',
+            cache: 'no-store',
+          });
+
+          const deliveryData = await deliveryRes.json().catch(() => null);
+
+          if (!activo) return;
+
+          if (!deliveryRes.ok) {
+            throw new Error(
+              deliveryData?.error || 'No se pudo cargar la configuración de delivery.'
+            );
+          }
+
+          setDeliveryForm({
+            activo: !!deliveryData?.activo,
+            whatsapp_numero: deliveryData?.whatsapp_numero ?? '',
+            whatsapp_nombre_mostrado:
+              deliveryData?.whatsapp_nombre_mostrado ?? '',
+            acepta_efectivo:
+              deliveryData?.acepta_efectivo === undefined
+                ? true
+                : !!deliveryData.acepta_efectivo,
+            efectivo_requiere_aprobacion:
+              deliveryData?.efectivo_requiere_aprobacion === undefined
+                ? true
+                : !!deliveryData.efectivo_requiere_aprobacion,
+            acepta_mercadopago: !!deliveryData?.acepta_mercadopago,
+            mensaje_bienvenida:
+              deliveryData?.mensaje_bienvenida ??
+              DEFAULT_DELIVERY.mensaje_bienvenida,
+            tiempo_estimado_min: Number(
+              deliveryData?.tiempo_estimado_min ??
+                DEFAULT_DELIVERY.tiempo_estimado_min
+            ),
+            costo_envio: Number(deliveryData?.costo_envio ?? 0),
+          });
+        } else {
+          setDeliveryForm(DEFAULT_DELIVERY);
+        }
       } catch (err) {
         console.error(err);
         if (!activo) return;
@@ -179,21 +244,13 @@ export default function AdminConfiguracionPage() {
       setMensaje('');
       setError('');
 
-      const [localRes, deliveryRes] = await Promise.all([
-        fetch('/api/admin/local-config', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(localForm),
-        }),
-        fetch('/api/admin/delivery-config', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(deliveryForm),
-        }),
-      ]);
+      const localRes = await fetch('/api/admin/local-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(localForm),
+      });
 
       const localData = await localRes.json().catch(() => null);
-      const deliveryData = await deliveryRes.json().catch(() => null);
 
       if (!localRes.ok) {
         throw new Error(
@@ -201,13 +258,27 @@ export default function AdminConfiguracionPage() {
         );
       }
 
-      if (!deliveryRes.ok) {
-        throw new Error(
-          deliveryData?.error || 'No se pudo guardar la configuración de delivery.'
-        );
+      if (deliveryAddonEnabled) {
+        const deliveryRes = await fetch('/api/admin/delivery-config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(deliveryForm),
+        });
+
+        const deliveryData = await deliveryRes.json().catch(() => null);
+
+        if (!deliveryRes.ok) {
+          throw new Error(
+            deliveryData?.error || 'No se pudo guardar la configuración de delivery.'
+          );
+        }
       }
 
-      setMensaje('Configuración general guardada correctamente.');
+      setMensaje(
+        deliveryAddonEnabled
+          ? 'Configuración general guardada correctamente.'
+          : 'Configuración del local e integraciones guardadas correctamente.'
+      );
     } catch (err) {
       console.error(err);
       setError(
@@ -222,22 +293,62 @@ export default function AdminConfiguracionPage() {
 
   if (cargando) {
     return (
-      <main className="p-6">
+      <div className="p-6">
         <h1 className="mb-4 text-2xl font-semibold">Configuración</h1>
         <p>Cargando configuración...</p>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="p-6">
-      <div className="mb-6">
+    <div className="p-6 space-y-6">
+      <div>
         <h1 className="text-2xl font-semibold">Configuración del local</h1>
         <p className="mt-1 text-sm text-neutral-600">
-          Acá definís la ficha del negocio, el canal de delivery y las
-          integraciones.
+          Acá definís la ficha del negocio, las integraciones y, si está activo,
+          el add-on de WhatsApp Delivery.
         </p>
       </div>
+
+      <section className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-neutral-500">Plan</p>
+          <p className="mt-1 text-xl font-bold">{planLabel}</p>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-neutral-500">Tenant</p>
+          <p className="mt-1 text-xl font-bold">{tenantLabel}</p>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-neutral-500">Modo mozo</p>
+          <p className="mt-1 text-xl font-bold">
+            {capabilities.waiter_mode ? 'Activo' : 'Bloqueado'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-neutral-500">
+            WhatsApp Delivery
+          </p>
+          <p className="mt-1 text-xl font-bold">
+            {deliveryAddonEnabled ? 'Activo' : 'No activo'}
+          </p>
+        </div>
+      </section>
+
+      {mensaje ? (
+        <div className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+          {mensaje}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {error}
+        </div>
+      ) : null}
 
       <form onSubmit={guardarTodo} className="grid gap-6">
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -315,132 +426,202 @@ export default function AdminConfiguracionPage() {
         </section>
 
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-medium">Delivery y WhatsApp</h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-medium">Delivery y WhatsApp</h2>
+              <p className="mt-1 text-sm text-neutral-600">
+                Configuración operativa del canal de delivery.
+              </p>
+            </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={deliveryForm.activo}
-                onChange={(e) => updateDelivery('activo', e.target.checked)}
-              />
-              <span>Activar canal de delivery</span>
-            </label>
-
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={deliveryForm.acepta_mercadopago}
-                onChange={(e) =>
-                  updateDelivery('acepta_mercadopago', e.target.checked)
-                }
-              />
-              <span>Aceptar Mercado Pago</span>
-            </label>
-
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={deliveryForm.acepta_efectivo}
-                onChange={(e) =>
-                  updateDelivery('acepta_efectivo', e.target.checked)
-                }
-              />
-              <span>Aceptar efectivo</span>
-            </label>
-
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={deliveryForm.efectivo_requiere_aprobacion}
-                onChange={(e) =>
-                  updateDelivery(
-                    'efectivo_requiere_aprobacion',
-                    e.target.checked
-                  )
-                }
-              />
-              <span>El efectivo requiere aprobación manual</span>
-            </label>
+            {deliveryAddonEnabled ? (
+              <Link
+                href="/admin/delivery"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Ir a módulo delivery
+              </Link>
+            ) : null}
           </div>
 
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <label className="grid gap-2">
-              <span className="text-sm font-medium">Número de WhatsApp</span>
-              <input
-                type="text"
-                value={deliveryForm.whatsapp_numero}
-                onChange={(e) =>
-                  updateDelivery('whatsapp_numero', e.target.value)
-                }
-                className="rounded-xl border px-3 py-2"
-                placeholder="54911xxxxxxxx"
-              />
-            </label>
+          {deliveryAddonEnabled ? (
+            <>
+              <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+                WhatsApp Delivery está activo para este restaurante y se administra
+                como add-on separado.
+              </div>
 
-            <label className="grid gap-2">
-              <span className="text-sm font-medium">Nombre visible</span>
-              <input
-                type="text"
-                value={deliveryForm.whatsapp_nombre_mostrado}
-                onChange={(e) =>
-                  updateDelivery('whatsapp_nombre_mostrado', e.target.value)
-                }
-                className="rounded-xl border px-3 py-2"
-                placeholder="RestoSmart Delivery"
-              />
-            </label>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={deliveryForm.activo}
+                    onChange={(e) => updateDelivery('activo', e.target.checked)}
+                  />
+                  <span>Activar canal de delivery</span>
+                </label>
 
-            <label className="grid gap-2">
-              <span className="text-sm font-medium">
-                Tiempo estimado (min)
-              </span>
-              <input
-                type="number"
-                min={0}
-                value={deliveryForm.tiempo_estimado_min}
-                onChange={(e) =>
-                  updateDelivery(
-                    'tiempo_estimado_min',
-                    Number(e.target.value)
-                  )
-                }
-                className="rounded-xl border px-3 py-2"
-              />
-            </label>
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={deliveryForm.acepta_mercadopago}
+                    onChange={(e) =>
+                      updateDelivery('acepta_mercadopago', e.target.checked)
+                    }
+                  />
+                  <span>Aceptar Mercado Pago</span>
+                </label>
 
-            <label className="grid gap-2">
-              <span className="text-sm font-medium">Costo de envío</span>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={deliveryForm.costo_envio}
-                onChange={(e) =>
-                  updateDelivery('costo_envio', Number(e.target.value))
-                }
-                className="rounded-xl border px-3 py-2"
-              />
-            </label>
-          </div>
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={deliveryForm.acepta_efectivo}
+                    onChange={(e) =>
+                      updateDelivery('acepta_efectivo', e.target.checked)
+                    }
+                  />
+                  <span>Aceptar efectivo</span>
+                </label>
 
-          <label className="mt-4 grid gap-2">
-            <span className="text-sm font-medium">Mensaje de bienvenida</span>
-            <textarea
-              value={deliveryForm.mensaje_bienvenida}
-              onChange={(e) =>
-                updateDelivery('mensaje_bienvenida', e.target.value)
-              }
-              rows={4}
-              className="rounded-xl border px-3 py-2"
-            />
-          </label>
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={deliveryForm.efectivo_requiere_aprobacion}
+                    onChange={(e) =>
+                      updateDelivery(
+                        'efectivo_requiere_aprobacion',
+                        e.target.checked
+                      )
+                    }
+                  />
+                  <span>El efectivo requiere aprobación manual</span>
+                </label>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Número de WhatsApp</span>
+                  <input
+                    type="text"
+                    value={deliveryForm.whatsapp_numero}
+                    onChange={(e) =>
+                      updateDelivery('whatsapp_numero', e.target.value)
+                    }
+                    className="rounded-xl border px-3 py-2"
+                    placeholder="54911xxxxxxxx"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Nombre visible</span>
+                  <input
+                    type="text"
+                    value={deliveryForm.whatsapp_nombre_mostrado}
+                    onChange={(e) =>
+                      updateDelivery('whatsapp_nombre_mostrado', e.target.value)
+                    }
+                    className="rounded-xl border px-3 py-2"
+                    placeholder="RestoSmart Delivery"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Tiempo estimado (min)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={deliveryForm.tiempo_estimado_min}
+                    onChange={(e) =>
+                      updateDelivery(
+                        'tiempo_estimado_min',
+                        Number(e.target.value)
+                      )
+                    }
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium">Costo de envío</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={deliveryForm.costo_envio}
+                    onChange={(e) =>
+                      updateDelivery('costo_envio', Number(e.target.value))
+                    }
+                    className="rounded-xl border px-3 py-2"
+                  />
+                </label>
+              </div>
+
+              <label className="mt-4 grid gap-2">
+                <span className="text-sm font-medium">Mensaje de bienvenida</span>
+                <textarea
+                  value={deliveryForm.mensaje_bienvenida}
+                  onChange={(e) =>
+                    updateDelivery('mensaje_bienvenida', e.target.value)
+                  }
+                  rows={4}
+                  className="rounded-xl border px-3 py-2"
+                />
+              </label>
+            </>
+          ) : (
+            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-5">
+              <p className="font-medium text-blue-900">
+                WhatsApp Delivery no está activo
+              </p>
+              <p className="mt-2 text-sm text-blue-900 leading-relaxed">
+                Este módulo se contrata aparte por restaurante. No forma parte de
+                las funcionalidades comunes de Esencial, Pro ni Intelligence.
+              </p>
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <a
+                  href="mailto:contacto@restosmart.com?subject=Activar%20WhatsApp%20Delivery"
+                  className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-blue-700 border border-blue-300 hover:bg-blue-100"
+                >
+                  Solicitar activación
+                </a>
+
+                <Link
+                  href="/#precios"
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Ver planes
+                </Link>
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-medium">Integraciones</h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-medium">Integraciones</h2>
+              <p className="mt-1 text-sm text-neutral-600">{analyticsHint}</p>
+            </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+            {!analyticsEnabled ? (
+              <Link
+                href="/#precios"
+                className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+              >
+                Desbloquear analytics
+              </Link>
+            ) : null}
+          </div>
+
+          {!analyticsEnabled ? (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Tu plan actual no incluye analytics avanzados. Igual podés dejar
+              preparada la configuración.
+            </div>
+          ) : null}
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
             <label className="grid gap-2">
               <span className="text-sm font-medium">Google Analytics ID</span>
               <input
@@ -471,22 +652,10 @@ export default function AdminConfiguracionPage() {
           </div>
 
           <p className="mt-3 text-sm text-neutral-600">
-            Más adelante acá podemos sumar WhatsApp Business, Mercado Pago,
+            Más adelante acá podemos sumar Mercado Pago, WhatsApp Business,
             PedidosYa y Rappi.
           </p>
         </section>
-
-        {mensaje ? (
-          <div className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
-            {mensaje}
-          </div>
-        ) : null}
-
-        {error ? (
-          <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-            {error}
-          </div>
-        ) : null}
 
         <div className="flex gap-3">
           <button
@@ -498,6 +667,6 @@ export default function AdminConfiguracionPage() {
           </button>
         </div>
       </form>
-    </main>
+    </div>
   );
 }

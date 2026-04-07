@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import { formatPlanLabel, type PlanCode } from '@/lib/plans';
 
 type Producto = {
   id: number;
@@ -14,6 +16,28 @@ type Stats = {
   porCategoria: Record<string, number>;
 };
 
+type AdminSessionPayload = {
+  adminId: string;
+  email: string;
+  iat: number;
+  exp: number;
+  tenantId?: string;
+  plan?: PlanCode;
+  addons?: {
+    whatsapp_delivery?: boolean;
+  };
+  capabilities?: {
+    analytics?: boolean;
+    delivery?: boolean;
+    waiter_mode?: boolean;
+  };
+  restaurant?: {
+    id: string;
+    slug: string;
+    plan: PlanCode;
+  } | null;
+};
+
 export default function AdminHome() {
   const [stats, setStats] = useState<Stats>({
     total: 0,
@@ -21,37 +45,180 @@ export default function AdminHome() {
     porCategoria: {},
   });
 
+  const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    const cargarStats = async () => {
-      setCargando(true);
+    let activo = true;
 
-      const res = await fetch('/api/stats');
-      const productos = (await res.json()) as Producto[];
+    async function cargarDashboard() {
+      try {
+        setCargando(true);
+        setError('');
 
-      const total = productos.length;
-      const disponibles = productos.filter((p) => p.disponible).length;
+        const [sessionRes, statsRes] = await Promise.all([
+          fetch('/api/admin/session', {
+            method: 'GET',
+            cache: 'no-store',
+          }),
+          fetch('/api/stats', {
+            method: 'GET',
+            cache: 'no-store',
+          }),
+        ]);
 
-      const porCategoria: Record<string, number> = {};
+        const sessionJson = await sessionRes.json().catch(() => null);
+        const statsJson = await statsRes.json().catch(() => []);
 
-      for (const p of productos) {
-        const cat = (p.categoria || 'Sin categoría').toString();
-        porCategoria[cat] = (porCategoria[cat] || 0) + 1;
+        if (!activo) return;
+
+        if (!sessionRes.ok) {
+          throw new Error(
+            sessionJson?.error || 'No se pudo cargar la sesión comercial.'
+          );
+        }
+
+        if (!statsRes.ok || !Array.isArray(statsJson)) {
+          throw new Error('No se pudieron cargar las estadísticas.');
+        }
+
+        const productos = statsJson as Producto[];
+        const total = productos.length;
+        const disponibles = productos.filter((p) => p.disponible).length;
+
+        const porCategoria: Record<string, number> = {};
+
+        for (const p of productos) {
+          const cat = (p.categoria || 'Sin categoría').toString();
+          porCategoria[cat] = (porCategoria[cat] || 0) + 1;
+        }
+
+        const categoriasOrdenadas = Object.entries(porCategoria).sort(
+          (a, b) => b[1] - a[1]
+        );
+
+        setSessionData((sessionJson?.session as AdminSessionPayload | null) ?? null);
+        setStats({
+          total,
+          disponibles,
+          porCategoria: Object.fromEntries(categoriasOrdenadas),
+        });
+      } catch (err) {
+        console.error(err);
+        if (!activo) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'No se pudo cargar el dashboard.'
+        );
+      } finally {
+        if (activo) {
+          setCargando(false);
+        }
       }
+    }
 
-      setStats({ total, disponibles, porCategoria });
-      setCargando(false);
+    cargarDashboard();
+
+    return () => {
+      activo = false;
     };
-
-    cargarStats();
   }, []);
+
+  const plan = sessionData?.plan ?? 'esencial';
+  const planLabel = formatPlanLabel(plan);
+  const capabilities = sessionData?.capabilities ?? {};
+  const addons = sessionData?.addons ?? {};
+  const tenantLabel = sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
+
+  const modulos = useMemo(
+    () => [
+      {
+        key: 'menu',
+        title: 'Menú / Productos',
+        description:
+          'Gestión de productos, categorías y disponibilidad del menú.',
+        enabled: true,
+        href: '/admin/productos',
+        action: 'Abrir módulo',
+      },
+      {
+        key: 'mozo',
+        title: 'Modo mozo',
+        description:
+          'Vista de salón, control de mesas y gestión operativa asistida.',
+        enabled: !!capabilities.waiter_mode,
+        href: '/mozo/mesas',
+        action: !!capabilities.waiter_mode ? 'Abrir módulo' : 'Disponible desde Pro',
+      },
+      {
+        key: 'analytics',
+        title: 'Analytics',
+        description:
+          'KPIs, rendimiento del negocio y lectura ejecutiva de la operación.',
+        enabled: !!capabilities.analytics,
+        href: '/admin/analytics',
+        action: !!capabilities.analytics
+          ? 'Abrir módulo'
+          : 'Disponible en Intelligence',
+      },
+      {
+        key: 'delivery',
+        title: 'WhatsApp Delivery',
+        description:
+          'Canal de delivery por WhatsApp con configuración y operación dedicada.',
+        enabled: !!addons.whatsapp_delivery,
+        href: '/admin/delivery',
+        action: !!addons.whatsapp_delivery ? 'Abrir módulo' : 'Activar add-on',
+      },
+    ],
+    [addons.whatsapp_delivery, capabilities.analytics, capabilities.waiter_mode]
+  );
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
+      <section className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Resumen operativo y comercial del restaurante.
+          </p>
+        </div>
+
         {cargando && <p className="text-sm text-slate-500">Cargando estadísticas...</p>}
+      </section>
+
+      {error ? (
+        <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {error}
+        </div>
+      ) : null}
+
+      <section className="grid gap-4 md:grid-cols-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <p className="text-sm text-slate-500">Plan actual</p>
+          <p className="mt-1 text-2xl font-bold">{planLabel}</p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <p className="text-sm text-slate-500">Tenant</p>
+          <p className="mt-1 text-2xl font-bold">{tenantLabel}</p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <p className="text-sm text-slate-500">Modo mozo</p>
+          <p className="mt-1 text-2xl font-bold">
+            {capabilities.waiter_mode ? 'Activo' : 'Bloqueado'}
+          </p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <p className="text-sm text-slate-500">WhatsApp Delivery</p>
+          <p className="mt-1 text-2xl font-bold">
+            {addons.whatsapp_delivery ? 'Activo' : 'No activo'}
+          </p>
+        </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-3">
@@ -73,12 +240,85 @@ export default function AdminHome() {
             )}
 
             {Object.entries(stats.porCategoria).map(([cat, cant]) => (
-              <li key={cat} className="flex justify-between">
-                <span>{cat}</span>
+              <li key={cat} className="flex justify-between gap-3">
+                <span className="truncate">{cat}</span>
                 <span className="font-semibold">{cant}</span>
               </li>
             ))}
           </ul>
+        </div>
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Módulos del sistema</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Disponibilidad según plan y add-ons contratados.
+            </p>
+          </div>
+
+          <Link
+            href="/admin/configuracion"
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Ver configuración
+          </Link>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {modulos.map((modulo) => (
+            <div
+              key={modulo.key}
+              className={`rounded-2xl border p-4 ${
+                modulo.enabled
+                  ? 'border-slate-200 bg-white'
+                  : 'border-blue-200 bg-blue-50'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-semibold text-slate-900">{modulo.title}</h3>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                    modulo.enabled
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-blue-100 text-blue-800'
+                  }`}
+                >
+                  {modulo.enabled ? 'Disponible' : 'Bloqueado'}
+                </span>
+              </div>
+
+              <p className="mt-3 text-sm text-slate-600 leading-relaxed">
+                {modulo.description}
+              </p>
+
+              <div className="mt-4">
+                {modulo.enabled ? (
+                  <Link
+                    href={modulo.href}
+                    className="inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                  >
+                    {modulo.action}
+                  </Link>
+                ) : modulo.key === 'delivery' ? (
+                  <a
+                    href="mailto:contacto@restosmart.com?subject=Activar%20WhatsApp%20Delivery"
+                    className="inline-flex rounded-lg bg-white px-4 py-2 text-sm font-semibold text-blue-700 border border-blue-300 hover:bg-blue-100"
+                  >
+                    {modulo.action}
+                  </a>
+                ) : (
+                  <Link
+                    href="/#precios"
+                    className="inline-flex rounded-lg bg-white px-4 py-2 text-sm font-semibold text-blue-700 border border-blue-300 hover:bg-blue-100"
+                  >
+                    {modulo.action}
+                  </Link>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -89,6 +329,24 @@ export default function AdminHome() {
           bebidas, cafetería y postres. Todo lo que esté marcado como{' '}
           <span className="font-semibold">disponible</span> se muestra en el menú de las mesas.
         </p>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Link
+            href="/admin/productos"
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Ir a productos
+          </Link>
+
+          {!capabilities.analytics ? (
+            <Link
+              href="/#precios"
+              className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+            >
+              Desbloquear analytics
+            </Link>
+          ) : null}
+        </div>
       </section>
     </div>
   );
