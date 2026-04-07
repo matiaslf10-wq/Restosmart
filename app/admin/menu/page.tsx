@@ -1,7 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import {
+  formatBusinessModeLabel,
+  normalizeBusinessMode,
+  type BusinessMode,
+  type PlanCode,
+} from '@/lib/plans';
 
 type Categoria = {
   id: number;
@@ -18,6 +24,22 @@ type MenuItem = {
   disponible: boolean;
   imagen_url: string | null;
   categoria?: Categoria;
+};
+
+type AdminSessionPayload = {
+  adminId: string;
+  email: string;
+  iat: number;
+  exp: number;
+  tenantId?: string;
+  plan?: PlanCode;
+  business_mode?: BusinessMode;
+  restaurant?: {
+    id: string;
+    slug: string;
+    plan: PlanCode;
+    business_mode?: BusinessMode;
+  } | null;
 };
 
 const emptyItem: Omit<MenuItem, 'id'> = {
@@ -46,6 +68,7 @@ function normalizarCategoria(categorias: any): Categoria | undefined {
 }
 
 export default function AdminMenuPage() {
+  const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,17 +78,55 @@ export default function AdminMenuPage() {
   const [filterCategoria, setFilterCategoria] = useState<FiltroCategoria>('todas');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Cargar categorías e items
+  const businessMode = normalizeBusinessMode(
+    sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
+  );
+  const businessModeLabel = formatBusinessModeLabel(businessMode);
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       setErrorMsg(null);
 
-      const { data: catData, error: catError } = await supabase
-        .from('categorias')
-        .select('*')
-        .order('orden', { ascending: true });
+      const [sessionRes, catRes, itemRes] = await Promise.all([
+        fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+        }),
+        supabase.from('categorias').select('*').order('orden', { ascending: true }),
+        supabase
+          .from('menu_items')
+          .select(
+            `
+              id,
+              categoria_id,
+              nombre,
+              descripcion,
+              precio,
+              disponible,
+              imagen_url,
+              categorias (
+                id,
+                nombre,
+                orden
+              )
+            `
+          )
+          .order('nombre', { ascending: true }),
+      ]);
 
+      const sessionJson = await sessionRes.json().catch(() => null);
+
+      if (!sessionRes.ok) {
+        console.error(sessionJson);
+        setErrorMsg('Error cargando la configuración del negocio');
+        setLoading(false);
+        return;
+      }
+
+      setSessionData((sessionJson?.session as AdminSessionPayload | null) ?? null);
+
+      const { data: catData, error: catError } = catRes;
       if (catError) {
         console.error(catError);
         setErrorMsg('Error cargando categorías');
@@ -73,26 +134,7 @@ export default function AdminMenuPage() {
         return;
       }
 
-      const { data: itemData, error: itemError } = await supabase
-        .from('menu_items')
-        .select(
-          `
-            id,
-            categoria_id,
-            nombre,
-            descripcion,
-            precio,
-            disponible,
-            imagen_url,
-            categorias (
-              id,
-              nombre,
-              orden
-            )
-          `
-        )
-        .order('nombre', { ascending: true });
-
+      const { data: itemData, error: itemError } = itemRes;
       if (itemError) {
         console.error(itemError);
         setErrorMsg('Error cargando menú');
@@ -148,7 +190,7 @@ export default function AdminMenuPage() {
       return;
     }
 
-    setItems(prev => prev.filter(i => i.id !== item.id));
+    setItems((prev) => prev.filter((i) => i.id !== item.id));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -207,7 +249,9 @@ export default function AdminMenuPage() {
           categoria: normalizarCategoria(data.categorias),
         };
 
-        setItems(prev => prev.map(i => (i.id === editingItem.id ? itemActualizado : i)));
+        setItems((prev) =>
+          prev.map((i) => (i.id === editingItem.id ? itemActualizado : i))
+        );
       } else {
         const { data, error } = await supabase
           .from('menu_items')
@@ -250,7 +294,7 @@ export default function AdminMenuPage() {
           categoria: normalizarCategoria(data.categorias),
         };
 
-        setItems(prev => [...prev, nuevoItem]);
+        setItems((prev) => [...prev, nuevoItem]);
       }
 
       resetForm();
@@ -265,7 +309,23 @@ export default function AdminMenuPage() {
   const itemsFiltrados: MenuItem[] =
     filterCategoria === 'todas'
       ? items
-      : items.filter(i => i.categoria_id === filterCategoria);
+      : items.filter((i) => i.categoria_id === filterCategoria);
+
+  const introText = useMemo(() => {
+    if (businessMode === 'takeaway') {
+      return 'Gestioná el menú que verá el cliente en el flujo de take away o retiro.';
+    }
+
+    return 'Gestioná el menú que verá el cliente al escanear el QR de la mesa o navegar el pedido digital.';
+  }, [businessMode]);
+
+  const availableHint = useMemo(() => {
+    if (businessMode === 'takeaway') {
+      return 'Todo lo que marques como disponible quedará visible para el pedido local o take away.';
+    }
+
+    return 'Todo lo que marques como disponible se podrá mostrar en el menú del salón y en el flujo de pedido de mesa.';
+  }, [businessMode]);
 
   return (
     <main
@@ -274,15 +334,35 @@ export default function AdminMenuPage() {
         padding: '2rem',
         maxWidth: 1100,
         margin: '0 auto',
-        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        fontFamily:
+          'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
-      <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '1rem' }}>
-        Admin – Menú del restaurante
-      </h1>
+      <div style={{ marginBottom: '1rem' }}>
+        <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '0.35rem' }}>
+          Admin – Menú del negocio
+        </h1>
+        <p style={{ color: '#4b5563', margin: 0 }}>{introText}</p>
+        <p style={{ color: '#6b7280', marginTop: 6, fontSize: 14 }}>
+          Modo actual: <strong>{businessModeLabel}</strong>
+        </p>
+      </div>
 
       {loading && <p>Cargando datos...</p>}
       {errorMsg && <p style={{ color: 'red', marginBottom: '1rem' }}>{errorMsg}</p>}
+
+      <section
+        style={{
+          border: '1px solid #ddd',
+          borderRadius: 12,
+          padding: '1rem 1.25rem',
+          marginBottom: '1rem',
+          background: businessMode === 'takeaway' ? '#fff7ed' : '#f8fafc',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+        }}
+      >
+        <p style={{ margin: 0, fontSize: 14, color: '#374151' }}>{availableHint}</p>
+      </section>
 
       <section
         style={{
@@ -304,17 +384,22 @@ export default function AdminMenuPage() {
             </label>
             <select
               value={formData.categoria_id ?? ''}
-              onChange={e =>
-                setFormData(prev => ({
+              onChange={(e) =>
+                setFormData((prev) => ({
                   ...prev,
                   categoria_id: e.target.value ? Number(e.target.value) : null,
                 }))
               }
-              style={{ width: '100%', padding: '0.5rem', borderRadius: 6, border: '1px solid #ccc' }}
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                borderRadius: 6,
+                border: '1px solid #ccc',
+              }}
               required
             >
               <option value="">Seleccionar...</option>
-              {categorias.map(cat => (
+              {categorias.map((cat) => (
                 <option key={cat.id} value={cat.id}>
                   {cat.nombre}
                 </option>
@@ -329,8 +414,15 @@ export default function AdminMenuPage() {
             <input
               type="text"
               value={formData.nombre}
-              onChange={e => setFormData(prev => ({ ...prev, nombre: e.target.value }))}
-              style={{ width: '100%', padding: '0.5rem', borderRadius: 6, border: '1px solid #ccc' }}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, nombre: e.target.value }))
+              }
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                borderRadius: 6,
+                border: '1px solid #ccc',
+              }}
               required
             />
           </div>
@@ -341,7 +433,9 @@ export default function AdminMenuPage() {
             </label>
             <textarea
               value={formData.descripcion ?? ''}
-              onChange={e => setFormData(prev => ({ ...prev, descripcion: e.target.value }))}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, descripcion: e.target.value }))
+              }
               style={{
                 width: '100%',
                 padding: '0.5rem',
@@ -360,13 +454,18 @@ export default function AdminMenuPage() {
               type="text"
               placeholder="https://..."
               value={formData.imagen_url ?? ''}
-              onChange={e =>
-                setFormData(prev => ({
+              onChange={(e) =>
+                setFormData((prev) => ({
                   ...prev,
                   imagen_url: e.target.value.trim() === '' ? null : e.target.value,
                 }))
               }
-              style={{ width: '100%', padding: '0.5rem', borderRadius: 6, border: '1px solid #ccc' }}
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                borderRadius: 6,
+                border: '1px solid #ccc',
+              }}
             />
             {formData.imagen_url && (
               <div style={{ marginTop: 8 }}>
@@ -402,13 +501,18 @@ export default function AdminMenuPage() {
                 step="0.01"
                 min="0"
                 value={formData.precio}
-                onChange={e =>
-                  setFormData(prev => ({
+                onChange={(e) =>
+                  setFormData((prev) => ({
                     ...prev,
                     precio: Number(e.target.value),
                   }))
                 }
-                style={{ width: '100%', padding: '0.5rem', borderRadius: 6, border: '1px solid #ccc' }}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  borderRadius: 6,
+                  border: '1px solid #ccc',
+                }}
                 required
               />
             </div>
@@ -418,8 +522,11 @@ export default function AdminMenuPage() {
                 id="disponible"
                 type="checkbox"
                 checked={formData.disponible}
-                onChange={e =>
-                  setFormData(prev => ({ ...prev, disponible: e.target.checked }))
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    disponible: e.target.checked,
+                  }))
                 }
               />
               <label htmlFor="disponible" style={{ fontSize: 14 }}>
@@ -445,8 +552,8 @@ export default function AdminMenuPage() {
               {saving
                 ? 'Guardando...'
                 : editingItem
-                  ? 'Guardar cambios'
-                  : 'Agregar al menú'}
+                ? 'Guardar cambios'
+                : 'Agregar al menú'}
             </button>
             {editingItem && (
               <button
@@ -469,7 +576,9 @@ export default function AdminMenuPage() {
 
       <section>
         <div style={{ marginBottom: '1rem' }}>
-          <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>Ítems del menú</h2>
+          <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>
+            Ítems del menú
+          </h2>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
             <button
               type="button"
@@ -486,7 +595,7 @@ export default function AdminMenuPage() {
             >
               Todas
             </button>
-            {categorias.map(cat => (
+            {categorias.map((cat) => (
               <button
                 key={cat.id}
                 type="button"
@@ -535,7 +644,7 @@ export default function AdminMenuPage() {
                 </tr>
               </thead>
               <tbody>
-                {itemsFiltrados.map(item => (
+                {itemsFiltrados.map((item) => (
                   <tr
                     key={item.id}
                     style={{
@@ -562,7 +671,9 @@ export default function AdminMenuPage() {
                           />
                         </div>
                       ) : (
-                        <span style={{ fontSize: 12, color: '#9ca3af' }}>Sin imagen</span>
+                        <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                          Sin imagen
+                        </span>
                       )}
                     </td>
                     <td style={{ padding: '0.5rem' }}>

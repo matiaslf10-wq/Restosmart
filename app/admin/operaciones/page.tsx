@@ -1,6 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  formatBusinessModeLabel,
+  normalizeBusinessMode,
+  type BusinessMode,
+  type PlanCode,
+} from '@/lib/plans';
 
 type OperacionPedido = {
   id: number;
@@ -49,6 +55,30 @@ type OperacionesResponse = {
   };
 };
 
+type AdminSessionPayload = {
+  adminId: string;
+  email: string;
+  iat: number;
+  exp: number;
+  tenantId?: string;
+  plan?: PlanCode;
+  business_mode?: BusinessMode;
+  addons?: {
+    whatsapp_delivery?: boolean;
+  };
+  capabilities?: {
+    analytics?: boolean;
+    delivery?: boolean;
+    waiter_mode?: boolean;
+  };
+  restaurant?: {
+    id: string;
+    slug: string;
+    plan: PlanCode;
+    business_mode?: BusinessMode;
+  } | null;
+};
+
 function formatMoney(value: number | string | null | undefined) {
   const num = Number(value ?? 0);
 
@@ -84,27 +114,50 @@ function prioridadClasses(prioridad: string) {
 
 export default function AdminOperacionesPage() {
   const [data, setData] = useState<OperacionesResponse | null>(null);
+  const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
+
+  const businessMode = normalizeBusinessMode(
+    sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
+  );
+  const businessModeLabel = formatBusinessModeLabel(businessMode);
+  const deliveryAddonEnabled = !!sessionData?.addons?.whatsapp_delivery;
 
   async function cargar() {
     try {
       setError('');
 
-      const res = await fetch('/api/admin/operaciones-resumen', {
-        method: 'GET',
-        cache: 'no-store',
-      });
+      const [sessionRes, operacionesRes] = await Promise.all([
+        fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+        }),
+        fetch('/api/admin/operaciones-resumen', {
+          method: 'GET',
+          cache: 'no-store',
+        }),
+      ]);
 
-      const body = await res.json().catch(() => null);
+      const sessionBody = await sessionRes.json().catch(() => null);
+      const operacionesBody = await operacionesRes.json().catch(() => null);
 
-      if (!res.ok) {
+      if (!sessionRes.ok) {
         throw new Error(
-          body?.error || 'No se pudo cargar el panel de operaciones.'
+          sessionBody?.error || 'No se pudo cargar la sesión administrativa.'
         );
       }
 
-      setData(body);
+      if (!operacionesRes.ok) {
+        throw new Error(
+          operacionesBody?.error || 'No se pudo cargar el panel de operaciones.'
+        );
+      }
+
+      setSessionData(
+        (sessionBody?.session as AdminSessionPayload | null) ?? null
+      );
+      setData((operacionesBody as OperacionesResponse | null) ?? null);
     } catch (err) {
       console.error(err);
       setError(
@@ -127,13 +180,45 @@ export default function AdminOperacionesPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const copy = useMemo(() => {
+    if (businessMode === 'takeaway') {
+      return {
+        intro:
+          'Vista operativa del local, delivery y alertas de WhatsApp.',
+        localTitle: 'Movimientos del local',
+        localDescription:
+          'Pedidos abiertos del negocio en estado solicitado, pendiente, en preparación o listo.',
+        localEmpty: 'No hay movimientos activos del local.',
+        localBadge: 'LOCAL',
+        locationFallback: 'Retiro / mostrador',
+        statsRequested: 'Local · solicitados',
+        statsInProgress: 'Local · en curso',
+        statsReady: 'Local · listos',
+      };
+    }
+
+    return {
+      intro: 'Vista operativa del salón, delivery y alertas de WhatsApp.',
+      localTitle: 'Movimientos del salón',
+      localDescription:
+        'Pedidos abiertos del salón en estado solicitado, pendiente, en preparación o listo.',
+      localEmpty: 'No hay movimientos activos del salón.',
+      localBadge: 'SALÓN',
+      locationFallback: 'Mesa',
+      statsRequested: 'Salón · solicitados',
+      statsInProgress: 'Salón · en curso',
+      statsReady: 'Salón · listos',
+    };
+  }, [businessMode]);
+
   return (
     <main className="p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Operaciones en tiempo real</h1>
-          <p className="mt-1 text-sm text-neutral-600">
-            Vista operativa del salón, delivery y alertas de WhatsApp.
+          <p className="mt-1 text-sm text-neutral-600">{copy.intro}</p>
+          <p className="mt-1 text-xs text-neutral-500">
+            Modo actual del negocio: {businessModeLabel}
           </p>
         </div>
 
@@ -158,21 +243,21 @@ export default function AdminOperacionesPage() {
         <>
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
-              <p className="text-sm text-neutral-500">Salón · solicitados</p>
+              <p className="text-sm text-neutral-500">{copy.statsRequested}</p>
               <p className="mt-2 text-3xl font-semibold">
                 {data.resumen.salonSolicitados}
               </p>
             </article>
 
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
-              <p className="text-sm text-neutral-500">Salón · en curso</p>
+              <p className="text-sm text-neutral-500">{copy.statsInProgress}</p>
               <p className="mt-2 text-3xl font-semibold">
                 {data.resumen.salonEnCurso}
               </p>
             </article>
 
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
-              <p className="text-sm text-neutral-500">Salón · listos</p>
+              <p className="text-sm text-neutral-500">{copy.statsReady}</p>
               <p className="mt-2 text-3xl font-semibold">
                 {data.resumen.salonListos}
               </p>
@@ -207,16 +292,15 @@ export default function AdminOperacionesPage() {
           <section className="mt-8 grid gap-6 xl:grid-cols-2">
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="mb-4">
-                <h2 className="text-lg font-medium">Movimientos del salón</h2>
+                <h2 className="text-lg font-medium">{copy.localTitle}</h2>
                 <p className="mt-1 text-sm text-neutral-600">
-                  Pedidos abiertos del salón en estado solicitado, pendiente,
-                  en preparación o listo.
+                  {copy.localDescription}
                 </p>
               </div>
 
               {data.salonPedidos.length === 0 ? (
                 <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-neutral-600">
-                  No hay movimientos activos del salón.
+                  {copy.localEmpty}
                 </div>
               ) : (
                 <div className="grid gap-3">
@@ -229,10 +313,10 @@ export default function AdminOperacionesPage() {
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                              SALÓN
+                              {copy.localBadge}
                             </span>
                             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                              {pedido.mesa_nombre || 'Mesa'}
+                              {pedido.mesa_nombre || copy.locationFallback}
                             </span>
                           </div>
 
@@ -263,6 +347,14 @@ export default function AdminOperacionesPage() {
                   Pedidos activos generados por delivery o WhatsApp.
                 </p>
               </div>
+
+              {!deliveryAddonEnabled ? (
+                <div className="mb-4 rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                  WhatsApp Delivery no está activo para este negocio. Este bloque
+                  puede seguir mostrando pedidos de delivery si existen en la operación,
+                  pero el add-on se administra por separado.
+                </div>
+              ) : null}
 
               {data.deliveryPedidos.length === 0 ? (
                 <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-neutral-600">
@@ -333,6 +425,13 @@ export default function AdminOperacionesPage() {
                 algo y hace falta intervención humana.
               </p>
             </div>
+
+            {!deliveryAddonEnabled ? (
+              <div className="mb-4 rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                Como WhatsApp Delivery es un add-on separado, esta sección cobra
+                sentido especialmente cuando ese módulo está activo.
+              </div>
+            ) : null}
 
             {data.meta?.alertasDisponibles === false ? (
               <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
