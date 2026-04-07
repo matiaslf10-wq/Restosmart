@@ -67,7 +67,21 @@ export default function AdminLayout({
 
         if (!active) return;
 
-        setSessionData((data?.session as AdminSessionPayload | null) ?? null);
+        const session = (data?.session as AdminSessionPayload | null) ?? null;
+        const capabilities = session?.capabilities ?? {};
+
+        const analyticsBlocked =
+          pathname.startsWith('/admin/analytics') && !capabilities.analytics;
+
+        const deliveryBlocked =
+          pathname.startsWith('/admin/delivery') && !capabilities.delivery;
+
+        if (analyticsBlocked || deliveryBlocked) {
+          router.replace('/admin');
+          return;
+        }
+
+        setSessionData(session);
         setReady(true);
       } catch (error) {
         console.error('No se pudo verificar la sesión admin', error);
