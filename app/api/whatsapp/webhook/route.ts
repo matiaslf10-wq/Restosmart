@@ -1,7 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleIncomingWhatsAppMessage } from '@/lib/deliveryBot';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
+
+function extractMessageText(message: any) {
+  return (
+    message?.text?.body ||
+    message?.button?.text ||
+    message?.button?.payload ||
+    message?.interactive?.button_reply?.title ||
+    message?.interactive?.button_reply?.id ||
+    message?.interactive?.list_reply?.title ||
+    message?.interactive?.list_reply?.id ||
+    ''
+  );
+}
 
 export async function GET(request: NextRequest) {
   if (!VERIFY_TOKEN) {
@@ -24,25 +40,26 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const entry = body?.entry?.[0];
-    const change = entry?.changes?.[0];
-    const value = change?.value;
-    const message = value?.messages?.[0];
+    const entries = Array.isArray(body?.entry) ? body.entry : [];
 
-    if (!message) {
-      return NextResponse.json({ ok: true });
-    }
+    for (const entry of entries) {
+      const changes = Array.isArray(entry?.changes) ? entry.changes : [];
 
-    const from = message.from;
-    const text =
-      message?.text?.body ||
-      message?.button?.text ||
-      message?.interactive?.button_reply?.title ||
-      message?.interactive?.list_reply?.title ||
-      '';
+      for (const change of changes) {
+        const value = change?.value;
+        const messages = Array.isArray(value?.messages) ? value.messages : [];
 
-    if (from && text) {
-      await handleIncomingWhatsAppMessage(from, text);
+        for (const message of messages) {
+          const from = message?.from;
+          const text = extractMessageText(message);
+
+          if (!from || !text) {
+            continue;
+          }
+
+          await handleIncomingWhatsAppMessage(from, text);
+        }
+      }
     }
 
     return NextResponse.json({ ok: true });

@@ -1,7 +1,9 @@
-import { supabase } from '@/lib/supabaseClient';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { sendWhatsAppText } from './whatsapp';
 
 const DELIVERY_MESA_ID = 0;
+const MAX_MENU_ITEMS = 20;
+const MAX_ALLOWED_QUANTITY = 50;
 
 type DeliveryCartItem = {
   producto_id: number;
@@ -28,6 +30,31 @@ type PedidoDeliveryCreado = {
   codigo_publico: string;
 };
 
+type DeliveryConfig = {
+  activo: boolean;
+  whatsapp_numero: string;
+  whatsapp_nombre_mostrado: string;
+  acepta_efectivo: boolean;
+  efectivo_requiere_aprobacion: boolean;
+  acepta_mercadopago: boolean;
+  mensaje_bienvenida: string;
+  tiempo_estimado_min: number;
+  costo_envio: number;
+};
+
+const DEFAULT_DELIVERY_CONFIG: DeliveryConfig = {
+  activo: false,
+  whatsapp_numero: '',
+  whatsapp_nombre_mostrado: '',
+  acepta_efectivo: true,
+  efectivo_requiere_aprobacion: true,
+  acepta_mercadopago: false,
+  mensaje_bienvenida:
+    'Hola 👋 Gracias por comunicarte con nosotros. Decime qué querés pedir y te ayudamos con tu compra.',
+  tiempo_estimado_min: 45,
+  costo_envio: 0,
+};
+
 function normalizeText(text: string) {
   return text.trim().toLowerCase();
 }
@@ -36,8 +63,14 @@ function parseQuantityAndProduct(text: string) {
   const match = text.match(/^(\d+)\s*x\s*(.+)$/i);
   if (!match) return null;
 
+  const cantidad = Number(match[1]);
+
+  if (!Number.isFinite(cantidad) || cantidad < 1 || cantidad > MAX_ALLOWED_QUANTITY) {
+    return null;
+  }
+
   return {
-    cantidad: Number(match[1]),
+    cantidad,
     nombre: match[2].trim().toLowerCase(),
   };
 }
@@ -46,7 +79,7 @@ function buildDeliveryPublicCode(pedidoId: number) {
   return `DEL-${String(pedidoId).padStart(6, '0')}`;
 }
 
-function calcularTotal(carrito: DeliveryCartItem[]) {
+function calcularSubtotal(carrito: DeliveryCartItem[]) {
   return carrito.reduce((acc, item) => {
     return acc + Number(item.precio ?? 0) * Number(item.cantidad ?? 0);
   }, 0);
@@ -60,16 +93,100 @@ function getAppUrl() {
   );
 }
 
+function normalizeDeliveryConfig(row: Record<string, unknown> | null | undefined): DeliveryConfig {
+  return {
+    activo: !!row?.activo,
+    whatsapp_numero: String(row?.whatsapp_numero ?? ''),
+    whatsapp_nombre_mostrado: String(row?.whatsapp_nombre_mostrado ?? ''),
+    acepta_efectivo:
+      row?.acepta_efectivo === undefined || row?.acepta_efectivo === null
+        ? true
+        : !!row.acepta_efectivo,
+    efectivo_requiere_aprobacion:
+      row?.efectivo_requiere_aprobacion === undefined ||
+      row?.efectivo_requiere_aprobacion === null
+        ? true
+        : !!row.efectivo_requiere_aprobacion,
+    acepta_mercadopago: !!row?.acepta_mercadopago,
+    mensaje_bienvenida:
+      String(row?.mensaje_bienvenida ?? '').trim() ||
+      DEFAULT_DELIVERY_CONFIG.mensaje_bienvenida,
+    tiempo_estimado_min: Number(row?.tiempo_estimado_min ?? DEFAULT_DELIVERY_CONFIG.tiempo_estimado_min) || DEFAULT_DELIVERY_CONFIG.tiempo_estimado_min,
+    costo_envio: Number(row?.costo_envio ?? 0) || 0,
+  };
+}
+
+function addOrMergeCartItem(
+  carrito: DeliveryCartItem[],
+  nuevoItem: DeliveryCartItem
+) {
+  const existingIndex = carrito.findIndex(
+    (item) => item.producto_id === nuevoItem.producto_id
+  );
+
+  if (existingIndex === -1) {
+    return [...carrito, nuevoItem];
+  }
+
+  return carrito.map((item, index) =>
+    index === existingIndex
+      ? { ...item, cantidad: item.cantidad + nuevoItem.cantidad }
+      : item
+  );
+}
+
+function buildPaymentOptionsMessage(config: DeliveryConfig) {
+  const lines: string[] = [];
+
+  if (config.acepta_mercadopago) {
+    lines.push('1) Mercado Pago');
+  }
+
+  if (config.acepta_efectivo) {
+    lines.push('2) Efectivo');
+  }
+
+  if (lines.length === 0) {
+    return 'En este momento no hay medios de pago habilitados para delivery.';
+  }
+
+  return `¿Cómo querés pagar?\n${lines.join('\n')}`;
+}
+
+async function getDeliveryConfig() {
+  const { data, error } = await supabaseAdmin
+    .from('configuracion_delivery')
+    .select('*')
+    .order('id', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('No se pudo leer configuracion_delivery', error);
+    return DEFAULT_DELIVERY_CONFIG;
+  }
+
+  return normalizeDeliveryConfig((data as Record<string, unknown> | null) ?? null);
+}
+
 async function getConversation(telefono: string) {
-  const { data } = await supabase
+  const existing = await supabaseAdmin
     .from('delivery_conversaciones')
     .select('*')
     .eq('telefono', telefono)
     .maybeSingle();
 
-  if (data) return data as DeliveryConversation;
+  if (existing.error) {
+    throw new Error(
+      existing.error.message || 'No se pudo leer la conversación de delivery.'
+    );
+  }
 
-  const inserted = await supabase
+  if (existing.data) {
+    return existing.data as DeliveryConversation;
+  }
+
+  const inserted = await supabaseAdmin
     .from('delivery_conversaciones')
     .insert({
       telefono,
@@ -79,59 +196,110 @@ async function getConversation(telefono: string) {
     .select('*')
     .single();
 
+  if (inserted.error || !inserted.data) {
+    throw new Error(
+      inserted.error?.message || 'No se pudo crear la conversación de delivery.'
+    );
+  }
+
   return inserted.data as DeliveryConversation;
 }
 
 async function updateConversation(id: number, patch: Record<string, unknown>) {
-  await supabase
+  const result = await supabaseAdmin
     .from('delivery_conversaciones')
     .update({
       ...patch,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id);
+
+  if (result.error) {
+    throw new Error(
+      result.error.message || 'No se pudo actualizar la conversación.'
+    );
+  }
 }
 
 async function findProductByName(name: string) {
-  const { data } = await supabase
+  const result = await supabaseAdmin
     .from('productos')
     .select('id, nombre, precio, disponible')
     .ilike('nombre', `%${name}%`)
     .eq('disponible', true)
+    .order('nombre', { ascending: true })
     .limit(1)
     .maybeSingle();
 
-  return data;
+  if (result.error) {
+    throw new Error(
+      result.error.message || 'No se pudo buscar el producto.'
+    );
+  }
+
+  return result.data;
 }
 
 async function listAvailableProducts() {
-  const { data } = await supabase
+  const result = await supabaseAdmin
     .from('productos')
     .select('id, nombre, precio')
     .eq('disponible', true)
     .order('id', { ascending: true });
 
-  return data ?? [];
+  if (result.error) {
+    throw new Error(
+      result.error.message || 'No se pudo listar el menú disponible.'
+    );
+  }
+
+  return result.data ?? [];
+}
+
+async function getLatestPendingMercadoPagoOrderByPhone(telefono: string) {
+  const result = await supabaseAdmin
+    .from('pedidos')
+    .select('id, mesa_id, estado, estado_pago, codigo_publico')
+    .eq('cliente_telefono', telefono)
+    .eq('medio_pago', 'mercadopago')
+    .eq('origen', 'delivery_whatsapp')
+    .eq('estado_pago', 'pendiente')
+    .order('creado_en', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (result.error) {
+    throw new Error(
+      result.error.message || 'No se pudo recuperar el pedido pendiente.'
+    );
+  }
+
+  return result.data as PedidoDeliveryCreado | null;
 }
 
 async function crearPedidoDeliveryDesdeConversacion(params: {
   telefono: string;
   conv: DeliveryConversation;
   medioPago: 'efectivo' | 'mercadopago';
+  deliveryConfig: DeliveryConfig;
 }): Promise<PedidoDeliveryCreado> {
-  const { telefono, conv, medioPago } = params;
+  const { telefono, conv, medioPago, deliveryConfig } = params;
 
   const carrito = Array.isArray(conv.carrito) ? conv.carrito : [];
   if (carrito.length === 0) {
     throw new Error('El carrito está vacío.');
   }
 
-  const total = calcularTotal(carrito);
+  const subtotal = calcularSubtotal(carrito);
+  const costoEnvio = Math.max(0, Number(deliveryConfig.costo_envio ?? 0));
+  const total = subtotal + costoEnvio;
   const esEfectivo = medioPago === 'efectivo';
+  const requiereAprobacionEfectivo =
+    esEfectivo && !!deliveryConfig.efectivo_requiere_aprobacion;
 
   const payload = {
     mesa_id: DELIVERY_MESA_ID,
-    estado: 'solicitado',
+    estado: requiereAprobacionEfectivo ? 'solicitado' : 'pendiente',
     total,
     paga_efectivo: esEfectivo,
     forma_pago: esEfectivo ? 'efectivo' : 'virtual',
@@ -141,12 +309,16 @@ async function crearPedidoDeliveryDesdeConversacion(params: {
     cliente_telefono: telefono,
     direccion_entrega: conv.direccion?.trim() || null,
     medio_pago: esEfectivo ? 'efectivo' : 'mercadopago',
-    estado_pago: esEfectivo ? 'esperando_aprobacion' : 'pendiente',
-    efectivo_aprobado: false,
+    estado_pago: esEfectivo
+      ? requiereAprobacionEfectivo
+        ? 'esperando_aprobacion'
+        : 'aprobado'
+      : 'pendiente',
+    efectivo_aprobado: esEfectivo ? !requiereAprobacionEfectivo : false,
     codigo_publico: null,
   };
 
-  const { data: pedido, error: errorPedido } = await supabase
+  const { data: pedido, error: errorPedido } = await supabaseAdmin
     .from('pedidos')
     .insert(payload)
     .select('id, mesa_id, estado, estado_pago, codigo_publico')
@@ -160,13 +332,13 @@ async function crearPedidoDeliveryDesdeConversacion(params: {
 
   const codigoPublico = buildDeliveryPublicCode(pedido.id);
 
-  const { error: errorCodigo } = await supabase
+  const { error: errorCodigo } = await supabaseAdmin
     .from('pedidos')
     .update({ codigo_publico: codigoPublico })
     .eq('id', pedido.id);
 
   if (errorCodigo) {
-    await supabase.from('pedidos').delete().eq('id', pedido.id);
+    await supabaseAdmin.from('pedidos').delete().eq('id', pedido.id);
     throw new Error(
       errorCodigo.message || 'No se pudo asignar el código público del pedido.'
     );
@@ -179,10 +351,10 @@ async function crearPedidoDeliveryDesdeConversacion(params: {
     comentarios: null,
   }));
 
-  const { error: errorItems } = await supabase.from('items_pedido').insert(items);
+  const { error: errorItems } = await supabaseAdmin.from('items_pedido').insert(items);
 
   if (errorItems) {
-    await supabase.from('pedidos').delete().eq('id', pedido.id);
+    await supabaseAdmin.from('pedidos').delete().eq('id', pedido.id);
     throw new Error(
       errorItems.message || 'No se pudieron guardar los ítems del pedido.'
     );
@@ -255,20 +427,51 @@ export async function handleIncomingWhatsAppMessage(
   incomingText: string
 ) {
   const text = normalizeText(incomingText);
+  const deliveryConfig = await getDeliveryConfig();
+
+  if (!deliveryConfig.activo) {
+    await sendWhatsAppText(
+      telefono,
+      'En este momento el canal de delivery está pausado. Probá nuevamente más tarde.'
+    );
+    return;
+  }
+
   const conv = await getConversation(telefono);
 
   if (text === 'hola' || text === 'menu' || conv.estado === 'inicio') {
     const products = await listAvailableProducts();
+
+    if (!products.length) {
+      await sendWhatsAppText(
+        telefono,
+        'En este momento no hay productos disponibles para delivery.'
+      );
+      return;
+    }
+
     const menuText = products
-      .slice(0, 20)
+      .slice(0, MAX_MENU_ITEMS)
       .map((p: any) => `- ${p.nombre} $${p.precio}`)
       .join('\n');
 
     await updateConversation(conv.id, { estado: 'armando_carrito' });
 
+    const extras: string[] = [];
+
+    if (deliveryConfig.costo_envio > 0) {
+      extras.push(`Costo de envío: $${deliveryConfig.costo_envio}`);
+    }
+
+    if (deliveryConfig.tiempo_estimado_min > 0) {
+      extras.push(`Tiempo estimado: ${deliveryConfig.tiempo_estimado_min} min`);
+    }
+
+    const extrasText = extras.length ? `\n\n${extras.join('\n')}` : '';
+
     await sendWhatsAppText(
       telefono,
-      `¡Hola! 👋\nTe paso el menú:\n\n${menuText}\n\nPara agregar productos escribí por ejemplo:\n2 x hamburguesa\n1 x coca cola\n\nCuando termines, escribí: confirmar`
+      `${deliveryConfig.mensaje_bienvenida}\n\nTe paso el menú:\n\n${menuText}${extrasText}\n\nPara agregar productos escribí por ejemplo:\n2 x hamburguesa\n1 x coca cola\n\nCuando termines, escribí: confirmar`
     );
     return;
   }
@@ -281,6 +484,14 @@ export async function handleIncomingWhatsAppMessage(
         await sendWhatsAppText(
           telefono,
           'Todavía no agregaste productos. Escribime por ejemplo: 2 x hamburguesa'
+        );
+        return;
+      }
+
+      if (!deliveryConfig.acepta_mercadopago && !deliveryConfig.acepta_efectivo) {
+        await sendWhatsAppText(
+          telefono,
+          'En este momento no hay medios de pago habilitados para delivery.'
         );
         return;
       }
@@ -314,15 +525,12 @@ export async function handleIncomingWhatsAppMessage(
     }
 
     const cart = Array.isArray(conv.carrito) ? conv.carrito : [];
-    const nextCart = [
-      ...cart,
-      {
-        producto_id: product.id,
-        nombre: product.nombre,
-        precio: Number(product.precio),
-        cantidad: parsed.cantidad,
-      },
-    ];
+    const nextCart = addOrMergeCartItem(cart, {
+      producto_id: product.id,
+      nombre: product.nombre,
+      precio: Number(product.precio),
+      cantidad: parsed.cantidad,
+    });
 
     await updateConversation(conv.id, { carrito: nextCart });
 
@@ -352,20 +560,26 @@ export async function handleIncomingWhatsAppMessage(
       direccion: incomingText.trim(),
     });
 
-    await sendWhatsAppText(
-      telefono,
-      '¿Cómo querés pagar?\n1) Mercado Pago\n2) Efectivo'
-    );
+    await sendWhatsAppText(telefono, buildPaymentOptionsMessage(deliveryConfig));
     return;
   }
 
   if (conv.estado === 'pidiendo_pago') {
     if (text === '1' || text.includes('mercado')) {
+      if (!deliveryConfig.acepta_mercadopago) {
+        await sendWhatsAppText(
+          telefono,
+          'Mercado Pago no está habilitado en este momento. Elegí otra forma de pago.'
+        );
+        return;
+      }
+
       try {
         const pedido = await crearPedidoDeliveryDesdeConversacion({
           telefono,
           conv,
           medioPago: 'mercadopago',
+          deliveryConfig,
         });
 
         const preferencia = await crearPreferenciaMercadoPago({
@@ -379,9 +593,14 @@ export async function handleIncomingWhatsAppMessage(
           carrito: [],
         });
 
+        const envioText =
+          deliveryConfig.costo_envio > 0
+            ? `\nEnvío: $${deliveryConfig.costo_envio}`
+            : '';
+
         await sendWhatsAppText(
           telefono,
-          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}\n\nPagalo acá:\n${preferencia.paymentUrl}\n\nCuando Mercado Pago confirme el cobro, entra a cocina.`
+          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}${envioText}\n\nPagalo acá:\n${preferencia.paymentUrl}\n\nCuando Mercado Pago confirme el cobro, entra a cocina.`
         );
       } catch (error) {
         console.error(error);
@@ -394,22 +613,42 @@ export async function handleIncomingWhatsAppMessage(
     }
 
     if (text === '2' || text.includes('efectivo')) {
+      if (!deliveryConfig.acepta_efectivo) {
+        await sendWhatsAppText(
+          telefono,
+          'El pago en efectivo no está habilitado en este momento. Elegí otra forma de pago.'
+        );
+        return;
+      }
+
       try {
         const pedido = await crearPedidoDeliveryDesdeConversacion({
           telefono,
           conv,
           medioPago: 'efectivo',
+          deliveryConfig,
         });
 
         await updateConversation(conv.id, {
-          estado: 'esperando_aprobacion_efectivo',
+          estado: deliveryConfig.efectivo_requiere_aprobacion
+            ? 'esperando_aprobacion_efectivo'
+            : 'pedido_registrado',
           medio_pago: 'efectivo',
           carrito: [],
         });
 
+        const envioText =
+          deliveryConfig.costo_envio > 0
+            ? `\nEnvío: $${deliveryConfig.costo_envio}`
+            : '';
+
+        const cierre = deliveryConfig.efectivo_requiere_aprobacion
+          ? 'Quedó pendiente de validación en efectivo. En cuanto lo aprueben, entra a cocina.'
+          : 'Tu pedido ya quedó confirmado y pasó a preparación.';
+
         await sendWhatsAppText(
           telefono,
-          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}\n\nQuedó pendiente de validación en efectivo. En cuanto lo aprueben, entra a cocina.`
+          `Tu pedido ${pedido.codigo_publico} quedó registrado.\nCliente: ${conv.nombre_cliente ?? 'Sin nombre'}\nDirección: ${conv.direccion ?? 'Sin dirección'}${envioText}\n\n${cierre}`
         );
       } catch (error) {
         console.error(error);
@@ -423,7 +662,7 @@ export async function handleIncomingWhatsAppMessage(
 
     await sendWhatsAppText(
       telefono,
-      'Respondé 1 para Mercado Pago o 2 para Efectivo.'
+      buildPaymentOptionsMessage(deliveryConfig)
     );
     return;
   }
@@ -437,9 +676,55 @@ export async function handleIncomingWhatsAppMessage(
   }
 
   if (conv.estado === 'esperando_pago') {
+    if (text.includes('link') || text.includes('pago')) {
+      try {
+        const pedido = await getLatestPendingMercadoPagoOrderByPhone(telefono);
+
+        if (!pedido) {
+          await sendWhatsAppText(
+            telefono,
+            'No encontré un pedido pendiente de pago para reenviar el link.'
+          );
+          return;
+        }
+
+        const preferencia = await crearPreferenciaMercadoPago({
+          pedido,
+          conv,
+        });
+
+        await sendWhatsAppText(
+          telefono,
+          `Acá tenés nuevamente el link de pago de tu pedido ${pedido.codigo_publico}:\n${preferencia.paymentUrl}`
+        );
+      } catch (error) {
+        console.error(error);
+        await sendWhatsAppText(
+          telefono,
+          'No pude reenviar el link de pago en este momento. Probá nuevamente en unos minutos.'
+        );
+      }
+      return;
+    }
+
     await sendWhatsAppText(
       telefono,
-      'Tu pedido ya quedó registrado. Si ya pagaste, aguardá la confirmación. Si todavía no pagaste, pedime nuevamente el link.'
+      'Tu pedido ya quedó registrado. Si ya pagaste, aguardá la confirmación. Si todavía no pagaste, escribime "link" y te lo reenvío.'
     );
+    return;
   }
+
+  if (conv.estado === 'pedido_registrado') {
+    await sendWhatsAppText(
+      telefono,
+      'Tu pedido ya quedó registrado. En unos minutos te avisamos si hay alguna novedad.'
+    );
+    return;
+  }
+
+  await updateConversation(conv.id, { estado: 'inicio' });
+  await sendWhatsAppText(
+    telefono,
+    'Escribime "hola" o "menu" y arrancamos el pedido de delivery.'
+  );
 }

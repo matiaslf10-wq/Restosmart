@@ -1,11 +1,18 @@
-import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireAdminAuth } from '@/lib/adminAuth';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = requireAdminAuth(request);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('pedidos')
       .select(
         `
@@ -24,13 +31,7 @@ export async function GET() {
         `
       )
       .eq('medio_pago', 'efectivo')
-      .or(
-        [
-          'origen.eq.delivery',
-          'origen.eq.delivery_whatsapp',
-          'origen.eq.delivery_manual',
-        ].join(',')
-      )
+      .in('origen', ['delivery', 'delivery_whatsapp', 'delivery_manual'])
       .order('creado_en', { ascending: false });
 
     if (error) {
