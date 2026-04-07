@@ -5,6 +5,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
+const EXPECTED_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
 function extractMessageText(message: any) {
   return (
@@ -48,6 +49,19 @@ export async function POST(request: NextRequest) {
       for (const change of changes) {
         const value = change?.value;
         const messages = Array.isArray(value?.messages) ? value.messages : [];
+        const incomingPhoneNumberId = value?.metadata?.phone_number_id;
+
+        const isSamplePayload =
+          !!incomingPhoneNumberId &&
+          !!EXPECTED_PHONE_NUMBER_ID &&
+          incomingPhoneNumberId !== EXPECTED_PHONE_NUMBER_ID;
+
+        if (isSamplePayload) {
+          console.log(
+            'WhatsApp webhook: payload de prueba detectado, no se responde automáticamente.'
+          );
+          continue;
+        }
 
         for (const message of messages) {
           const from = message?.from;
@@ -57,7 +71,11 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
-          await handleIncomingWhatsAppMessage(from, text);
+          try {
+            await handleIncomingWhatsAppMessage(from, text);
+          } catch (error) {
+            console.error('Error procesando mensaje de WhatsApp:', error);
+          }
         }
       }
     }
@@ -65,6 +83,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error('WhatsApp webhook error:', error);
-    return NextResponse.json({ error: 'Webhook error' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Webhook error' }, { status: 200 });
   }
 }
