@@ -8,6 +8,8 @@ import {
   type PlanCode,
 } from '@/lib/plans';
 
+type OperacionCanal = 'restaurant' | 'takeaway' | 'delivery';
+
 type OperacionPedido = {
   id: number;
   mesa_id: number | null;
@@ -24,6 +26,7 @@ type OperacionPedido = {
   estado_pago?: string | null;
   efectivo_aprobado?: boolean | null;
   codigo_publico?: string | null;
+  operacion_canal?: OperacionCanal;
 };
 
 type WhatsappAlert = {
@@ -112,6 +115,83 @@ function prioridadClasses(prioridad: string) {
   return 'bg-slate-100 text-slate-700 border-slate-200';
 }
 
+function normalizeTipoServicio(value: unknown) {
+  const raw = String(value ?? '').trim().toLowerCase();
+
+  if (raw === 'delivery' || raw === 'envio') return 'delivery';
+
+  if (
+    raw === 'takeaway' ||
+    raw === 'take_away' ||
+    raw === 'pickup' ||
+    raw === 'pick_up' ||
+    raw === 'retiro'
+  ) {
+    return 'takeaway';
+  }
+
+  return 'mesa';
+}
+
+function resolveOperacionCanal(pedido: OperacionPedido): OperacionCanal {
+  if (
+    pedido.operacion_canal === 'restaurant' ||
+    pedido.operacion_canal === 'takeaway' ||
+    pedido.operacion_canal === 'delivery'
+  ) {
+    return pedido.operacion_canal;
+  }
+
+  const tipoServicio = normalizeTipoServicio(pedido.tipo_servicio);
+  const origen = String(pedido.origen ?? '').trim().toLowerCase();
+
+  if (
+    tipoServicio === 'delivery' ||
+    origen === 'delivery' ||
+    origen === 'delivery_whatsapp' ||
+    origen === 'delivery_manual'
+  ) {
+    return 'delivery';
+  }
+
+  if (
+    tipoServicio === 'takeaway' ||
+    origen === 'takeaway' ||
+    origen === 'pickup' ||
+    origen === 'retiro' ||
+    origen === 'takeaway_web' ||
+    origen === 'takeaway_manual'
+  ) {
+    return 'takeaway';
+  }
+
+  return 'restaurant';
+}
+
+function getLocalBadge(canal: OperacionCanal) {
+  if (canal === 'takeaway') {
+    return {
+      label: 'TAKE AWAY',
+      className:
+        'rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800',
+    };
+  }
+
+  return {
+    label: 'SALÓN',
+    className:
+      'rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700',
+  };
+}
+
+function getLocalLocationLabel(pedido: OperacionPedido, canal: OperacionCanal) {
+  if (canal === 'takeaway') {
+    return pedido.mesa_nombre || 'Retiro / mostrador';
+  }
+
+  return pedido.mesa_nombre || 'Mesa';
+}
+
 export default function AdminOperacionesPage() {
   const [data, setData] = useState<OperacionesResponse | null>(null);
   const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
@@ -180,36 +260,37 @@ export default function AdminOperacionesPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const copy = useMemo(() => {
-    if (businessMode === 'takeaway') {
-      return {
-        intro:
-          'Vista operativa del local, delivery y alertas de WhatsApp.',
-        localTitle: 'Movimientos del local',
-        localDescription:
-          'Pedidos abiertos del negocio en estado solicitado, pendiente, en preparación o listo.',
-        localEmpty: 'No hay movimientos activos del local.',
-        localBadge: 'LOCAL',
-        locationFallback: 'Retiro / mostrador',
-        statsRequested: 'Local · solicitados',
-        statsInProgress: 'Local · en curso',
-        statsReady: 'Local · listos',
-      };
-    }
+  const localPedidosConCanal = useMemo(() => {
+    return (data?.salonPedidos ?? []).map((pedido) => ({
+      ...pedido,
+      _canal: resolveOperacionCanal(pedido),
+    }));
+  }, [data?.salonPedidos]);
 
+  const localResumenCanales = useMemo(() => {
+    return localPedidosConCanal.reduce(
+      (acc, pedido) => {
+        if (pedido._canal === 'takeaway') acc.takeaway += 1;
+        if (pedido._canal === 'restaurant') acc.restaurant += 1;
+        return acc;
+      },
+      { restaurant: 0, takeaway: 0 }
+    );
+  }, [localPedidosConCanal]);
+
+  const copy = useMemo(() => {
     return {
-      intro: 'Vista operativa del salón, delivery y alertas de WhatsApp.',
-      localTitle: 'Movimientos del salón',
+      intro:
+        'Vista operativa del local, take away, delivery y alertas de WhatsApp.',
+      localTitle: 'Movimientos del local',
       localDescription:
-        'Pedidos abiertos del salón en estado solicitado, pendiente, en preparación o listo.',
-      localEmpty: 'No hay movimientos activos del salón.',
-      localBadge: 'SALÓN',
-      locationFallback: 'Mesa',
-      statsRequested: 'Salón · solicitados',
-      statsInProgress: 'Salón · en curso',
-      statsReady: 'Salón · listos',
+        'Pedidos abiertos del negocio en estado solicitado, pendiente, en preparación o listo.',
+      localEmpty: 'No hay movimientos activos del local.',
+      statsRequested: 'Local · solicitados',
+      statsInProgress: 'Local · en curso',
+      statsReady: 'Local · listos',
     };
-  }, [businessMode]);
+  }, []);
 
   return (
     <main className="p-6">
@@ -296,46 +377,59 @@ export default function AdminOperacionesPage() {
                 <p className="mt-1 text-sm text-neutral-600">
                   {copy.localDescription}
                 </p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                    Salón: {localResumenCanales.restaurant}
+                  </span>
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
+                    Take away: {localResumenCanales.takeaway}
+                  </span>
+                </div>
               </div>
 
-              {data.salonPedidos.length === 0 ? (
+              {localPedidosConCanal.length === 0 ? (
                 <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-neutral-600">
                   {copy.localEmpty}
                 </div>
               ) : (
                 <div className="grid gap-3">
-                  {data.salonPedidos.map((pedido) => (
-                    <article
-                      key={pedido.id}
-                      className="rounded-xl border px-4 py-3"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                              {copy.localBadge}
-                            </span>
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                              {pedido.mesa_nombre || copy.locationFallback}
-                            </span>
+                  {localPedidosConCanal.map((pedido) => {
+                    const badge = getLocalBadge(pedido._canal);
+
+                    return (
+                      <article
+                        key={pedido.id}
+                        className="rounded-xl border px-4 py-3"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={badge.className}>
+                                {badge.label}
+                              </span>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                                {getLocalLocationLabel(pedido, pedido._canal)}
+                              </span>
+                            </div>
+
+                            <h3 className="mt-2 text-base font-semibold">
+                              {pedido.codigo_publico || `Pedido #${pedido.id}`}
+                            </h3>
+
+                            <p className="text-sm text-neutral-600">
+                              {formatDate(pedido.creado_en)}
+                            </p>
                           </div>
 
-                          <h3 className="mt-2 text-base font-semibold">
-                            {pedido.codigo_publico || `Pedido #${pedido.id}`}
-                          </h3>
-
-                          <p className="text-sm text-neutral-600">
-                            {formatDate(pedido.creado_en)}
-                          </p>
+                          <div className="text-right">
+                            <p className="text-sm text-neutral-500">Estado</p>
+                            <p className="font-medium">{pedido.estado}</p>
+                          </div>
                         </div>
-
-                        <div className="text-right">
-                          <p className="text-sm text-neutral-500">Estado</p>
-                          <p className="font-medium">{pedido.estado}</p>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
+                      </article>
+                    );
+                  })}
                 </div>
               )}
             </article>

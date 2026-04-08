@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const DELIVERY_MESA_ID = 0;
+const SIN_MESA_ID = 0;
 
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -18,6 +18,8 @@ type RestaurantContext = {
   slug: string;
   plan?: string | null;
 };
+
+type TipoServicio = 'mesa' | 'delivery' | 'takeaway';
 
 type PedidoItemInput = {
   producto_id: number;
@@ -46,9 +48,7 @@ function normalizePlan(plan: unknown): 'esencial' | 'pro' | 'intelligence' {
   return 'esencial';
 }
 
-function normalizeTipoServicio(
-  value: unknown
-): 'mesa' | 'delivery' | 'takeaway' {
+function normalizeTipoServicio(value: unknown): TipoServicio {
   const raw = String(value ?? '').trim().toLowerCase();
 
   if (raw === 'delivery' || raw === 'envio') return 'delivery';
@@ -66,10 +66,7 @@ function normalizeTipoServicio(
   return 'mesa';
 }
 
-function normalizeOrigen(
-  value: unknown,
-  tipoServicio: 'mesa' | 'delivery' | 'takeaway'
-) {
+function normalizeOrigen(value: unknown, tipoServicio: TipoServicio) {
   const raw = String(value ?? '').trim().toLowerCase();
 
   if (raw) return raw;
@@ -133,6 +130,56 @@ async function resolveRestaurantContext(sb: ReturnType<typeof supabaseAdmin>) {
   }
 
   return null;
+}
+
+async function resolveMesaIdForPedido(
+  sb: ReturnType<typeof supabaseAdmin>,
+  rawMesaId: number,
+  tipoServicio: TipoServicio
+) {
+  if (tipoServicio !== 'mesa') {
+    return { ok: true as const, mesaId: SIN_MESA_ID };
+  }
+
+  if (!Number.isFinite(rawMesaId) || rawMesaId <= SIN_MESA_ID) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { error: 'mesa_id inválido para un pedido de mesa.' },
+        { status: 400 }
+      ),
+    };
+  }
+
+  const { data: mesa, error: mesaError } = await sb
+    .from('mesas')
+    .select('id')
+    .eq('id', rawMesaId)
+    .maybeSingle();
+
+  if (mesaError) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        {
+          error: `No se pudo validar la mesa seleccionada: ${mesaError.message}`,
+        },
+        { status: 500 }
+      ),
+    };
+  }
+
+  if (!mesa?.id) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { error: 'La mesa indicada no existe.' },
+        { status: 400 }
+      ),
+    };
+  }
+
+  return { ok: true as const, mesaId: rawMesaId };
 }
 
 export async function GET() {
@@ -212,40 +259,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let mesaIdResolved = DELIVERY_MESA_ID;
+    const mesaResolution = await resolveMesaIdForPedido(
+      sb,
+      rawMesaId,
+      tipoServicio
+    );
 
-    if (tipoServicio === 'mesa') {
-      if (!Number.isFinite(rawMesaId) || rawMesaId <= DELIVERY_MESA_ID) {
-        return NextResponse.json(
-          { error: 'mesa_id inválido para un pedido de mesa.' },
-          { status: 400 }
-        );
-      }
-
-      const { data: mesa, error: mesaError } = await sb
-        .from('mesas')
-        .select('id')
-        .eq('id', rawMesaId)
-        .maybeSingle();
-
-      if (mesaError) {
-        return NextResponse.json(
-          {
-            error: `No se pudo validar la mesa seleccionada: ${mesaError.message}`,
-          },
-          { status: 500 }
-        );
-      }
-
-      if (!mesa?.id) {
-        return NextResponse.json(
-          { error: 'La mesa indicada no existe.' },
-          { status: 400 }
-        );
-      }
-
-      mesaIdResolved = rawMesaId;
+    if (!mesaResolution.ok) {
+      return mesaResolution.response;
     }
+
+    const mesaIdResolved = mesaResolution.mesaId;
 
     const restaurant = await resolveRestaurantContext(sb);
     const plan = normalizePlan(restaurant?.plan);
@@ -332,6 +356,12 @@ export async function POST(request: NextRequest) {
           mesa_id_resuelto: mesaIdResolved,
           tipo_servicio: tipoServicio,
           origen,
+          canal_operativo:
+            tipoServicio === 'takeaway'
+              ? 'takeaway'
+              : tipoServicio === 'delivery'
+              ? 'delivery'
+              : 'restaurant',
         },
       },
       { status: 201 }
