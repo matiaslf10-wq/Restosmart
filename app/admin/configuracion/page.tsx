@@ -10,6 +10,18 @@ import {
   type PlanCode,
 } from '@/lib/plans';
 
+type PublicOrderingMeta = {
+  business_mode_label: string;
+  customer_entry_kind: 'restaurant' | 'takeaway';
+  customer_entry_strategy:
+    | 'table_qr_route'
+    | 'separate_public_route_required';
+  current_customer_entry_path: string | null;
+  planned_customer_entry_path: string | null;
+  table_qr_enabled: boolean;
+  takeaway_enabled: boolean;
+};
+
 type AdminSessionPayload = {
   adminId: string;
   email: string;
@@ -18,6 +30,7 @@ type AdminSessionPayload = {
   tenantId?: string;
   plan?: PlanCode;
   business_mode?: BusinessMode;
+  public_ordering?: PublicOrderingMeta;
   addons?: {
     whatsapp_delivery?: boolean;
   };
@@ -44,6 +57,10 @@ type LocalConfig = {
   google_analytics_id: string;
   google_analytics_property_id: string;
   business_mode: BusinessMode;
+};
+
+type LocalConfigResponse = LocalConfig & {
+  public_ordering?: PublicOrderingMeta;
 };
 
 type DeliveryConfig = {
@@ -83,6 +100,30 @@ const DEFAULT_DELIVERY: DeliveryConfig = {
   costo_envio: 0,
 };
 
+function getPublicOrderingMeta(businessMode: BusinessMode): PublicOrderingMeta {
+  if (businessMode === 'takeaway') {
+    return {
+      business_mode_label: formatBusinessModeLabel(businessMode),
+      customer_entry_kind: 'takeaway',
+      customer_entry_strategy: 'separate_public_route_required',
+      current_customer_entry_path: null,
+      planned_customer_entry_path: '/pedir',
+      table_qr_enabled: false,
+      takeaway_enabled: true,
+    };
+  }
+
+  return {
+    business_mode_label: formatBusinessModeLabel(businessMode),
+    customer_entry_kind: 'restaurant',
+    customer_entry_strategy: 'table_qr_route',
+    current_customer_entry_path: '/mesa/[numero]',
+    planned_customer_entry_path: null,
+    table_qr_enabled: true,
+    takeaway_enabled: false,
+  };
+}
+
 export default function AdminConfiguracionPage() {
   const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
   const [localForm, setLocalForm] = useState<LocalConfig>(DEFAULT_LOCAL);
@@ -98,7 +139,8 @@ export default function AdminConfiguracionPage() {
   const capabilities = sessionData?.capabilities ?? {};
   const deliveryAddonEnabled = !!addons.whatsapp_delivery;
   const analyticsEnabled = !!capabilities.analytics;
-  const tenantLabel = sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
+  const tenantLabel =
+    sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
   const businessModeLabel = formatBusinessModeLabel(localForm.business_mode);
 
   const waiterModeStatus =
@@ -107,6 +149,11 @@ export default function AdminConfiguracionPage() {
       : capabilities.waiter_mode
       ? 'Activo'
       : 'Bloqueado';
+
+  const publicOrdering = useMemo(
+    () => getPublicOrderingMeta(localForm.business_mode),
+    [localForm.business_mode]
+  );
 
   const analyticsHint = useMemo(() => {
     if (analyticsEnabled) {
@@ -148,7 +195,9 @@ export default function AdminConfiguracionPage() {
           cache: 'no-store',
         });
 
-        const localData = await localRes.json().catch(() => null);
+        const localData = (await localRes.json().catch(() => null)) as
+          | LocalConfigResponse
+          | null;
 
         if (!activo) return;
 
@@ -304,6 +353,28 @@ export default function AdminConfiguracionPage() {
           ? 'Configuración general guardada correctamente.'
           : 'Configuración del local e integraciones guardadas correctamente.'
       );
+
+      setSessionData((prev) =>
+        prev
+          ? {
+              ...prev,
+              business_mode: localForm.business_mode,
+              restaurant: prev.restaurant
+                ? {
+                    ...prev.restaurant,
+                    business_mode: localForm.business_mode,
+                  }
+                : prev.restaurant,
+              capabilities: {
+                    ...prev.capabilities,
+                    waiter_mode:
+                      localForm.business_mode === 'restaurant' &&
+                      !!prev.capabilities?.waiter_mode,
+                  },
+              public_ordering: getPublicOrderingMeta(localForm.business_mode),
+            }
+          : prev
+      );
     } catch (err) {
       console.error(err);
       setError(
@@ -354,7 +425,9 @@ export default function AdminConfiguracionPage() {
         </div>
 
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-neutral-500">Modo mozo</p>
+          <p className="text-xs uppercase tracking-wide text-neutral-500">
+            Modo mozo
+          </p>
           <p className="mt-1 text-xl font-bold">{waiterModeStatus}</p>
         </div>
 
@@ -522,17 +595,135 @@ export default function AdminConfiguracionPage() {
             {localForm.business_mode === 'restaurant' ? (
               <>
                 Este negocio quedará configurado para operar con lógica de salón.
-                Más adelante, las pantallas de mesas, mozo y QR se mostrarán según
-                este modo y según el plan contratado.
+                Las pantallas de mesas, mozo y QR se mostrarán según este modo y
+                según el plan contratado.
               </>
             ) : (
               <>
-                Este negocio quedará configurado en modo take away. La idea es
-                ocultar la lógica de mesas y adaptar la experiencia a retiro por
-                mostrador, sin cambiar de plan ni migrar datos.
+                Este negocio quedará configurado en modo take away. La lógica de
+                mesas no aplica y la experiencia del cliente deberá entrar por una
+                ruta pública específica de retiro.
               </>
             )}
           </div>
+        </section>
+
+        <section className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-medium">Acceso público al cliente</h2>
+              <p className="mt-1 text-sm text-neutral-600">
+                Vista previa de cómo debería entrar el cliente según el modo del
+                negocio.
+              </p>
+            </div>
+
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+              {publicOrdering.business_mode_label}
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Estrategia
+              </p>
+              <p className="mt-2 text-sm text-slate-800">
+                {publicOrdering.customer_entry_strategy === 'table_qr_route'
+                  ? 'Entrada por QR y ruta de mesa'
+                  : 'Ruta pública separada para take away'}
+              </p>
+
+              <div className="mt-4 space-y-2 text-sm text-slate-700">
+                <p>
+                  <span className="font-medium">Ruta actual:</span>{' '}
+                  {publicOrdering.current_customer_entry_path ?? 'Todavía no creada'}
+                </p>
+                <p>
+                  <span className="font-medium">Ruta prevista:</span>{' '}
+                  {publicOrdering.planned_customer_entry_path ?? 'No aplica'}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Estado funcional
+              </p>
+
+              <div className="mt-3 grid gap-2 text-sm text-slate-700">
+                <div className="flex items-center justify-between rounded-xl border px-3 py-2">
+                  <span>QR por mesa</span>
+                  <span className="font-semibold">
+                    {publicOrdering.table_qr_enabled ? 'Sí' : 'No'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl border px-3 py-2">
+                  <span>Take away</span>
+                  <span className="font-semibold">
+                    {publicOrdering.takeaway_enabled ? 'Sí' : 'No'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {localForm.business_mode === 'restaurant' ? (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <p className="text-sm font-medium text-emerald-900">
+                El acceso público actual del cliente funciona por mesa
+              </p>
+              <p className="mt-2 text-sm text-emerald-900 leading-relaxed">
+                Hoy el cliente entra por <code>/mesa/[numero]</code>. Para probar el
+                flujo podés usar una mesa real o el entorno de prueba.
+              </p>
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  href="/mesa/1"
+                  className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-emerald-800 border border-emerald-300 hover:bg-emerald-100"
+                >
+                  Abrir ejemplo de mesa
+                </Link>
+
+                <Link
+                  href="/admin/mesas"
+                  className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                >
+                  Gestionar mesas y QR
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-medium text-amber-900">
+                La ruta pública de take away todavía no está creada
+              </p>
+              <p className="mt-2 text-sm text-amber-900 leading-relaxed">
+                El modo take away ya existe a nivel de configuración y operación,
+                pero la entrada pública específica del cliente todavía falta. La
+                referencia actual está en la demo interactiva y la ruta sugerida es{' '}
+                <code>/pedir</code>.
+              </p>
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  href="/demo?modo=takeaway&vista=cliente"
+                  className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-amber-800 border border-amber-300 hover:bg-amber-100"
+                >
+                  Probar demo take away
+                </Link>
+
+                <Link
+                  href="/inicio"
+                  className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+                >
+                  Ver entorno de prueba
+                </Link>
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
