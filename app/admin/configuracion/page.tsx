@@ -63,6 +63,10 @@ type LocalConfigResponse = LocalConfig & {
   public_ordering?: PublicOrderingMeta;
 };
 
+type ApiErrorResponse = {
+  error?: string;
+};
+
 type DeliveryConfig = {
   activo: boolean;
   whatsapp_numero: string;
@@ -196,8 +200,9 @@ export default function AdminConfiguracionPage() {
         });
 
         const localData = (await localRes.json().catch(() => null)) as
-          | LocalConfigResponse
-          | null;
+  | LocalConfigResponse
+  | ApiErrorResponse
+  | null;
 
         if (!activo) return;
 
