@@ -79,6 +79,22 @@ type DeliveryConfig = {
   costo_envio: number;
 };
 
+function getApiErrorMessage(
+  value: unknown,
+  fallback: string
+) {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'error' in value &&
+    typeof value.error === 'string'
+  ) {
+    return value.error;
+  }
+
+  return fallback;
+}
+
 const DEFAULT_LOCAL: LocalConfig = {
   nombre_local: '',
   direccion: '',
@@ -207,10 +223,13 @@ export default function AdminConfiguracionPage() {
         if (!activo) return;
 
         if (!localRes.ok) {
-          throw new Error(
-            localData?.error || 'No se pudo cargar la configuración del local.'
-          );
-        }
+  throw new Error(
+    getApiErrorMessage(
+      localData,
+      'No se pudo cargar la configuración del local.'
+    )
+  );
+}
 
         const resolvedBusinessMode = normalizeBusinessMode(
           localData?.business_mode ??
