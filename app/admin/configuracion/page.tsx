@@ -63,6 +63,11 @@ type LocalConfigResponse = LocalConfig & {
   public_ordering?: PublicOrderingMeta;
 };
 
+type LocalConfigSaveResponse = {
+  ok: boolean;
+  config: LocalConfigResponse;
+};
+
 type ApiErrorResponse = {
   error?: string;
 };
@@ -78,22 +83,6 @@ type DeliveryConfig = {
   tiempo_estimado_min: number;
   costo_envio: number;
 };
-
-function getApiErrorMessage(
-  value: unknown,
-  fallback: string
-) {
-  if (
-    value &&
-    typeof value === 'object' &&
-    'error' in value &&
-    typeof value.error === 'string'
-  ) {
-    return value.error;
-  }
-
-  return fallback;
-}
 
 const DEFAULT_LOCAL: LocalConfig = {
   nombre_local: '',
@@ -119,6 +108,46 @@ const DEFAULT_DELIVERY: DeliveryConfig = {
   tiempo_estimado_min: 45,
   costo_envio: 0,
 };
+
+function getApiErrorMessage(value: unknown, fallback: string) {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'error' in value &&
+    typeof value.error === 'string'
+  ) {
+    return value.error;
+  }
+
+  return fallback;
+}
+
+function isLocalConfigResponse(value: unknown): value is LocalConfigResponse {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    'business_mode' in value &&
+    'nombre_local' in value &&
+    'direccion' in value &&
+    'telefono' in value &&
+    'celular' in value &&
+    'email' in value &&
+    'horario_atencion' in value &&
+    'google_analytics_id' in value &&
+    'google_analytics_property_id' in value
+  );
+}
+
+function isLocalConfigSaveResponse(
+  value: unknown
+): value is LocalConfigSaveResponse {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    'config' in value &&
+    isLocalConfigResponse(value.config)
+  );
+}
 
 function getPublicOrderingMeta(businessMode: BusinessMode): PublicOrderingMeta {
   if (businessMode === 'takeaway') {
@@ -203,7 +232,10 @@ export default function AdminConfiguracionPage() {
 
         if (!sessionRes.ok) {
           throw new Error(
-            sessionJson?.error || 'No se pudo cargar la sesión del admin.'
+            getApiErrorMessage(
+              sessionJson,
+              'No se pudo cargar la sesión del admin.'
+            )
           );
         }
 
@@ -215,21 +247,23 @@ export default function AdminConfiguracionPage() {
           cache: 'no-store',
         });
 
-        const localData = (await localRes.json().catch(() => null)) as
-  | LocalConfigResponse
-  | ApiErrorResponse
-  | null;
+        const localRaw = (await localRes.json().catch(() => null)) as
+          | LocalConfigResponse
+          | ApiErrorResponse
+          | null;
 
         if (!activo) return;
 
         if (!localRes.ok) {
-  throw new Error(
-    getApiErrorMessage(
-      localData,
-      'No se pudo cargar la configuración del local.'
-    )
-  );
-}
+          throw new Error(
+            getApiErrorMessage(
+              localRaw,
+              'No se pudo cargar la configuración del local.'
+            )
+          );
+        }
+
+        const localData = isLocalConfigResponse(localRaw) ? localRaw : null;
 
         const resolvedBusinessMode = normalizeBusinessMode(
           localData?.business_mode ??
@@ -262,7 +296,10 @@ export default function AdminConfiguracionPage() {
 
           if (!deliveryRes.ok) {
             throw new Error(
-              deliveryData?.error || 'No se pudo cargar la configuración de delivery.'
+              getApiErrorMessage(
+                deliveryData,
+                'No se pudo cargar la configuración de delivery.'
+              )
             );
           }
 
@@ -348,12 +385,37 @@ export default function AdminConfiguracionPage() {
         body: JSON.stringify(localForm),
       });
 
-      const localData = await localRes.json().catch(() => null);
+      const localRaw = (await localRes.json().catch(() => null)) as
+        | LocalConfigSaveResponse
+        | ApiErrorResponse
+        | null;
 
       if (!localRes.ok) {
         throw new Error(
-          localData?.error || 'No se pudo guardar la configuración del local.'
+          getApiErrorMessage(
+            localRaw,
+            'No se pudo guardar la configuración del local.'
+          )
         );
+      }
+
+      const savedLocalConfig = isLocalConfigSaveResponse(localRaw)
+        ? localRaw.config
+        : null;
+
+      if (savedLocalConfig) {
+        setLocalForm({
+          nombre_local: savedLocalConfig.nombre_local,
+          direccion: savedLocalConfig.direccion,
+          telefono: savedLocalConfig.telefono,
+          celular: savedLocalConfig.celular,
+          email: savedLocalConfig.email,
+          horario_atencion: savedLocalConfig.horario_atencion,
+          google_analytics_id: savedLocalConfig.google_analytics_id,
+          google_analytics_property_id:
+            savedLocalConfig.google_analytics_property_id,
+          business_mode: normalizeBusinessMode(savedLocalConfig.business_mode),
+        });
       }
 
       if (deliveryAddonEnabled) {
@@ -367,10 +429,17 @@ export default function AdminConfiguracionPage() {
 
         if (!deliveryRes.ok) {
           throw new Error(
-            deliveryData?.error || 'No se pudo guardar la configuración de delivery.'
+            getApiErrorMessage(
+              deliveryData,
+              'No se pudo guardar la configuración de delivery.'
+            )
           );
         }
       }
+
+      const nextBusinessMode = normalizeBusinessMode(
+        savedLocalConfig?.business_mode ?? localForm.business_mode
+      );
 
       setMensaje(
         deliveryAddonEnabled
@@ -382,20 +451,20 @@ export default function AdminConfiguracionPage() {
         prev
           ? {
               ...prev,
-              business_mode: localForm.business_mode,
+              business_mode: nextBusinessMode,
               restaurant: prev.restaurant
                 ? {
                     ...prev.restaurant,
-                    business_mode: localForm.business_mode,
+                    business_mode: nextBusinessMode,
                   }
                 : prev.restaurant,
               capabilities: {
-                    ...prev.capabilities,
-                    waiter_mode:
-                      localForm.business_mode === 'restaurant' &&
-                      !!prev.capabilities?.waiter_mode,
-                  },
-              public_ordering: getPublicOrderingMeta(localForm.business_mode),
+                ...prev.capabilities,
+                waiter_mode:
+                  nextBusinessMode === 'restaurant' &&
+                  !!prev.capabilities?.waiter_mode,
+              },
+              public_ordering: getPublicOrderingMeta(nextBusinessMode),
             }
           : prev
       );
@@ -706,7 +775,7 @@ export default function AdminConfiguracionPage() {
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
                   href="/mesa/1"
-                  className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-emerald-800 border border-emerald-300 hover:bg-emerald-100"
+                  className="rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
                 >
                   Abrir ejemplo de mesa
                 </Link>
@@ -734,7 +803,7 @@ export default function AdminConfiguracionPage() {
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
                   href="/demo?modo=takeaway&vista=cliente"
-                  className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-amber-800 border border-amber-300 hover:bg-amber-100"
+                  className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
                 >
                   Probar demo take away
                 </Link>
@@ -906,7 +975,7 @@ export default function AdminConfiguracionPage() {
               <div className="mt-4 flex flex-wrap gap-3">
                 <a
                   href="mailto:contacto@restosmart.com?subject=Activar%20WhatsApp%20Delivery"
-                  className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-blue-700 border border-blue-300 hover:bg-blue-100"
+                  className="rounded-xl border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
                 >
                   Solicitar activación
                 </a>
