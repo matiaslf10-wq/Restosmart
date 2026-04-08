@@ -22,7 +22,33 @@ type LocalConfigRow = {
   business_mode?: BusinessMode | string | null;
 };
 
+function getBusinessModeMeta(businessMode: BusinessMode) {
+  if (businessMode === 'takeaway') {
+    return {
+      business_mode_label: 'Take Away',
+      customer_entry_kind: 'takeaway',
+      customer_entry_strategy: 'separate_public_route_required',
+      current_customer_entry_path: null,
+      planned_customer_entry_path: '/pedir',
+      table_qr_enabled: false,
+      takeaway_enabled: true,
+    };
+  }
+
+  return {
+    business_mode_label: 'Restaurante',
+    customer_entry_kind: 'restaurant',
+    customer_entry_strategy: 'table_qr_route',
+    current_customer_entry_path: '/mesa/[numero]',
+    planned_customer_entry_path: null,
+    table_qr_enabled: true,
+    takeaway_enabled: false,
+  };
+}
+
 function normalizeRow(row?: LocalConfigRow | null) {
+  const businessMode = normalizeBusinessMode(row?.business_mode);
+
   return {
     nombre_local: row?.nombre_local ?? '',
     direccion: row?.direccion ?? '',
@@ -32,7 +58,8 @@ function normalizeRow(row?: LocalConfigRow | null) {
     horario_atencion: row?.horario_atencion ?? '',
     google_analytics_id: row?.google_analytics_id ?? '',
     google_analytics_property_id: row?.google_analytics_property_id ?? '',
-    business_mode: normalizeBusinessMode(row?.business_mode),
+    business_mode: businessMode,
+    public_ordering: getBusinessModeMeta(businessMode),
   };
 }
 

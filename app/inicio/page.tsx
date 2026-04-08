@@ -12,10 +12,10 @@ export default function HomePage() {
             Entorno de prueba
           </h1>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-slate-600">
-            Acá podés entrar a los flujos principales del sistema. Desde este punto,
-            dejamos explícito que el acceso <code>/mesa/[id]</code> corresponde al
-            modo restaurante con mesas, y que take away va a necesitar una ruta
-            pública separada.
+            Acá podés entrar a los flujos principales del sistema. El acceso{' '}
+            <code>/mesa/[id]</code> queda reservado para salón, y el flujo de take
+            away se prueba por ahora desde la demo interactiva hasta crear la ruta
+            pública real.
           </p>
         </header>
 
@@ -44,6 +44,13 @@ export default function HomePage() {
                 className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
               >
                 🍽️ Cliente en Mesa 1
+              </Link>
+
+              <Link
+                href="/demo?modo=restaurant&vista=cliente&mesa=12"
+                className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+              >
+                🧪 Probar demo restaurante
               </Link>
 
               <div className="grid gap-3 sm:grid-cols-2">
@@ -92,24 +99,38 @@ export default function HomePage() {
               Flujo de retiro
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-600">
-              Este modo no debería entrar por <code>/mesa/[id]</code>. El siguiente
-              paso correcto es crear una ruta pública separada, por ejemplo
-              <code> /pedir</code> o <code>/takeaway</code>, para que el cliente
-              haga su pedido sin depender de una mesa.
+              Este modo no debería entrar por <code>/mesa/[id]</code>. La ruta
+              pública real todavía no está creada, pero ya podés probar la
+              experiencia del cliente en la demo interactiva de take away.
             </p>
 
             <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-sm font-medium text-amber-900">
-                Qué ya está resuelto
+                Estado actual del proyecto
               </p>
               <ul className="mt-2 space-y-2 text-sm text-amber-900">
                 <li>• El negocio ya puede configurarse como Restaurante o Take Away.</li>
-                <li>• Las pantallas de mesas y mozo ya entienden cuándo no aplican.</li>
-                <li>• Falta la entrada pública específica para el cliente take away.</li>
+                <li>• Mesas y mozo ya entienden cuándo no aplican.</li>
+                <li>• Cocina y operación ya distinguen take away de delivery.</li>
+                <li>• Falta crear la entrada pública real, por ejemplo <code>/pedir</code>.</li>
               </ul>
             </div>
 
             <div className="mt-5 flex flex-col gap-3">
+              <Link
+                href="/demo?modo=takeaway&vista=cliente"
+                className="rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-600"
+              >
+                🛍️ Probar demo take away
+              </Link>
+
+              <Link
+                href="/demo?modo=takeaway&vista=cocina"
+                className="rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-50"
+              >
+                👨‍🍳 Ver cómo llega a cocina
+              </Link>
+
               <Link
                 href="/admin/configuracion"
                 className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
@@ -125,6 +146,33 @@ export default function HomePage() {
               </Link>
             </div>
           </article>
+        </section>
+
+        <section className="rounded-3xl border bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-bold text-slate-900">
+            Próximo paso técnico recomendado
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+            Crear una ruta pública específica para take away, por ejemplo{' '}
+            <code>/pedir</code>, que use el menú del local, permita cargar nombre
+            para retiro y cree pedidos con <code>tipo_servicio = takeaway</code>.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link
+              href="/demo?modo=takeaway&vista=cliente"
+              className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+            >
+              Ver referencia en demo
+            </Link>
+
+            <Link
+              href="/admin/operaciones"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Ver operaciones
+            </Link>
+          </div>
         </section>
       </div>
     </main>
