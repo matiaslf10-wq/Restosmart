@@ -83,20 +83,23 @@ function getPedidoKindBadge(pedido: Pedido) {
   if (kind === 'delivery') {
     return {
       text: 'DELIVERY',
-      className: 'bg-indigo-500/20 border border-indigo-400/40 text-indigo-100',
+      className:
+        'bg-indigo-500/20 border border-indigo-400/40 text-indigo-100',
     };
   }
 
   if (kind === 'takeaway') {
     return {
       text: 'TAKE AWAY',
-      className: 'bg-amber-500/20 border border-amber-400/40 text-amber-100',
+      className:
+        'bg-amber-500/20 border border-amber-400/40 text-amber-100',
     };
   }
 
   return {
     text: 'SALÓN',
-    className: 'bg-emerald-500/20 border border-emerald-400/40 text-emerald-100',
+    className:
+      'bg-emerald-500/20 border border-emerald-400/40 text-emerald-100',
   };
 }
 
