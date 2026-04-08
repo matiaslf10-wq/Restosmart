@@ -1,6 +1,9 @@
-import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireAdminAuth } from '@/lib/adminAuth';
+import { getRestaurantContext } from '@/lib/tenant';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const DELIVERY_MESA_ID = 0;
@@ -40,19 +43,61 @@ type WhatsappAlertRow = {
   created_at: string;
 };
 
+type PedidoCanal = 'restaurant' | 'takeaway' | 'delivery';
+
+function normalizeText(value: string | null | undefined) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
 function esDelivery(pedido: PedidoRow) {
+  const tipoServicio = normalizeText(pedido.tipo_servicio);
+  const origen = normalizeText(pedido.origen);
+
   return (
-    pedido.mesa_id === DELIVERY_MESA_ID ||
-    pedido.tipo_servicio === 'delivery' ||
-    pedido.origen === 'delivery' ||
-    pedido.origen === 'delivery_whatsapp' ||
-    pedido.origen === 'delivery_manual'
+    tipoServicio === 'delivery' ||
+    tipoServicio === 'envio' ||
+    origen === 'delivery' ||
+    origen === 'delivery_whatsapp' ||
+    origen === 'delivery_manual'
   );
+}
+
+function esTakeaway(pedido: PedidoRow) {
+  const tipoServicio = normalizeText(pedido.tipo_servicio);
+  const origen = normalizeText(pedido.origen);
+
+  return (
+    tipoServicio === 'takeaway' ||
+    tipoServicio === 'take_away' ||
+    tipoServicio === 'pickup' ||
+    tipoServicio === 'pick_up' ||
+    tipoServicio === 'retiro' ||
+    origen === 'takeaway' ||
+    origen === 'takeaway_web' ||
+    origen === 'takeaway_manual' ||
+    origen === 'pickup' ||
+    origen === 'retiro'
+  );
+}
+
+function getPedidoCanal(pedido: PedidoRow): PedidoCanal {
+  if (esDelivery(pedido)) return 'delivery';
+  if (esTakeaway(pedido)) return 'takeaway';
+
+  if (pedido.mesa_id === DELIVERY_MESA_ID) {
+    return 'delivery';
+  }
+
+  return 'restaurant';
+}
+
+function esOperacionLocal(pedido: PedidoRow) {
+  return getPedidoCanal(pedido) !== 'delivery';
 }
 
 function esPendienteAprobacionEfectivo(pedido: PedidoRow) {
   return (
-    esDelivery(pedido) &&
+    getPedidoCanal(pedido) === 'delivery' &&
     pedido.medio_pago === 'efectivo' &&
     !pedido.efectivo_aprobado &&
     (pedido.estado_pago === 'esperando_aprobacion' ||
@@ -60,18 +105,33 @@ function esPendienteAprobacionEfectivo(pedido: PedidoRow) {
   );
 }
 
-function getMesaDisplay(mesa: MesaRow | undefined) {
-  if (!mesa) return 'Delivery';
+function getMesaDisplay(mesa: MesaRow | undefined, pedido: PedidoRow) {
+  const canal = getPedidoCanal(pedido);
+
+  if (canal === 'delivery') return 'Delivery';
+  if (canal === 'takeaway') return 'Take Away';
+
+  if (!mesa) return 'Mesa';
   if (mesa.id === DELIVERY_MESA_ID) return 'Delivery';
   if (mesa.numero != null && mesa.numero > 0) return `Mesa ${mesa.numero}`;
-  return mesa.nombre || 'Delivery';
+  return mesa.nombre || 'Mesa';
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = requireAdminAuth(request);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
+    const restaurant = await getRestaurantContext().catch(() => null);
+
     const [mesasResult, pedidosResult, alertasResult] = await Promise.all([
-      supabase.from('mesas').select('id, numero, nombre').order('id', { ascending: true }),
-      supabase
+      supabaseAdmin
+        .from('mesas')
+        .select('id, numero, nombre')
+        .order('id', { ascending: true }),
+      supabaseAdmin
         .from('pedidos')
         .select(
           `
@@ -93,7 +153,7 @@ export async function GET() {
         )
         .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
         .order('creado_en', { ascending: false }),
-      supabase
+      supabaseAdmin
         .from('whatsapp_alertas')
         .select(
           `
@@ -139,28 +199,34 @@ export async function GET() {
       mesasMap.set(mesa.id, mesa);
     });
 
-    const salonPedidos = pedidos
-      .filter((pedido) => !esDelivery(pedido))
+    const operacionLocalPedidos = pedidos
+      .filter((pedido) => esOperacionLocal(pedido))
       .map((pedido) => ({
         ...pedido,
-        mesa_nombre: pedido.mesa_id ? getMesaDisplay(mesasMap.get(pedido.mesa_id)) : 'Mesa',
+        operacion_canal: getPedidoCanal(pedido),
+        mesa_nombre:
+          pedido.mesa_id != null
+            ? getMesaDisplay(mesasMap.get(pedido.mesa_id), pedido)
+            : getMesaDisplay(undefined, pedido),
       }))
       .slice(0, 20);
 
     const deliveryPedidos = pedidos
-      .filter((pedido) => esDelivery(pedido))
+      .filter((pedido) => getPedidoCanal(pedido) === 'delivery')
       .map((pedido) => ({
         ...pedido,
+        operacion_canal: 'delivery' as const,
         mesa_nombre: 'Delivery',
       }))
       .slice(0, 20);
 
     const resumen = {
-      salonSolicitados: salonPedidos.filter((p) => p.estado === 'solicitado').length,
-      salonEnCurso: salonPedidos.filter(
+      salonSolicitados: operacionLocalPedidos.filter((p) => p.estado === 'solicitado')
+        .length,
+      salonEnCurso: operacionLocalPedidos.filter(
         (p) => p.estado === 'pendiente' || p.estado === 'en_preparacion'
       ).length,
-      salonListos: salonPedidos.filter((p) => p.estado === 'listo').length,
+      salonListos: operacionLocalPedidos.filter((p) => p.estado === 'listo').length,
       deliveryPendientesAprobacion: deliveryPedidos.filter((p) =>
         esPendienteAprobacionEfectivo(p)
       ).length,
@@ -171,11 +237,18 @@ export async function GET() {
     return NextResponse.json(
       {
         resumen,
-        salonPedidos,
+        salonPedidos: operacionLocalPedidos,
         deliveryPedidos,
         whatsappAlertas: alertas,
         meta: {
           alertasDisponibles: !alertasError,
+          restaurant: restaurant
+            ? {
+                id: restaurant.id,
+                slug: restaurant.slug,
+                plan: restaurant.plan ?? null,
+              }
+            : null,
         },
       },
       { status: 200 }
