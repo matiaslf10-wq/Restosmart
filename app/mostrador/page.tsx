@@ -114,6 +114,8 @@ function normalizeText(value: unknown) {
 }
 
 function isDeliveryPedido(pedido: Pedido) {
+  if (isTakeawayPedido(pedido)) return false;
+
   const tipo = normalizeText(pedido.tipo_servicio);
   const origen = normalizeText(pedido.origen);
 
@@ -147,8 +149,8 @@ function isTakeawayPedido(pedido: Pedido) {
 }
 
 function getPedidoKind(pedido: Pedido): PedidoKind {
-  if (isDeliveryPedido(pedido)) return 'delivery';
   if (isTakeawayPedido(pedido)) return 'takeaway';
+  if (isDeliveryPedido(pedido)) return 'delivery';
   return 'salon';
 }
 
