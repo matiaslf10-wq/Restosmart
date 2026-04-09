@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 
-const LOGIN_HREF = '/admin/login';
+const LOGIN_HREF = '/login';
 
 function PhoneMockup() {
   return (
