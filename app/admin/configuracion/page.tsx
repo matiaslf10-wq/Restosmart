@@ -169,10 +169,10 @@ function getPublicOrderingMeta(businessMode: BusinessMode): PublicOrderingMeta {
     customer_entry_kind: 'restaurant',
     customer_entry_strategy: 'table_qr_route',
     current_customer_entry_path: '/mesa/[id]',
-    planned_customer_entry_path: null,
-    takeaway_ready_screen_path: null,
+    planned_customer_entry_path: '/pedir',
+    takeaway_ready_screen_path: '/retiro',
     table_qr_enabled: true,
-    takeaway_enabled: false,
+    takeaway_enabled: true,
   };
 }
 
@@ -732,15 +732,23 @@ export default function AdminConfiguracionPage() {
               </p>
 
               <div className="mt-4 space-y-2 text-sm text-slate-700">
-                <p>
-                  <span className="font-medium">Ingreso del cliente:</span>{' '}
-                  {publicOrdering.current_customer_entry_path ?? 'Todavía no creada'}
-                </p>
-                <p>
-                  <span className="font-medium">Pantalla de retiro:</span>{' '}
-                  {publicOrdering.takeaway_ready_screen_path ?? 'No aplica'}
-                </p>
-              </div>
+  <p>
+    <span className="font-medium">Ingreso principal del cliente:</span>{' '}
+    {publicOrdering.current_customer_entry_path ?? 'Todavía no creada'}
+  </p>
+
+  {publicOrdering.planned_customer_entry_path ? (
+    <p>
+      <span className="font-medium">Ruta adicional de take away:</span>{' '}
+      {publicOrdering.planned_customer_entry_path}
+    </p>
+  ) : null}
+
+  <p>
+    <span className="font-medium">Pantalla de retiro:</span>{' '}
+    {publicOrdering.takeaway_ready_screen_path ?? 'No aplica'}
+  </p>
+</div>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -779,9 +787,10 @@ export default function AdminConfiguracionPage() {
                 El acceso público actual del cliente funciona por mesa
               </p>
               <p className="mt-2 text-sm text-emerald-900 leading-relaxed">
-                Hoy el cliente entra por <code>/mesa/[id]</code>. Para probar el
-                flujo podés usar una mesa real o el entorno de prueba.
-              </p>
+  Hoy el ingreso principal del cliente funciona por <code>/mesa/[id]</code>.
+  Además, el flujo opcional de retiro sigue disponible por <code>/pedir</code> y
+  la pantalla pública de retiro por <code>/retiro</code>.
+</p>
 
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
