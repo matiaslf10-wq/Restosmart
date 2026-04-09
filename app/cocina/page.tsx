@@ -147,12 +147,27 @@ function getPedidoKindBadge(pedido: Pedido) {
   };
 }
 
-function getRetiroActionLabel(pedido: Pedido) {
+function getReadyMessage(params: {
+  pedido: Pedido;
+  businessMode: BusinessMode;
+  canUseWaiterMode: boolean;
+}) {
+  const { pedido, businessMode, canUseWaiterMode } = params;
   const kind = getPedidoKind(pedido);
 
-  if (kind === 'takeaway') return 'Marcar retirado';
-  if (kind === 'delivery') return 'Marcar entregado';
-  return 'Cerrar en cocina';
+  if (kind === 'takeaway') {
+    return 'El pedido quedó listo. Ahora Mostrador / Caja debe entregarlo y marcarlo como retirado.';
+  }
+
+  if (kind === 'delivery') {
+    return 'El pedido quedó listo. Ahora la operación del local debe despacharlo o entregarlo.';
+  }
+
+  if (businessMode === 'restaurant' && canUseWaiterMode) {
+    return 'El pedido quedó listo. El mozo ya puede verlo en su pantalla para retirarlo y llevarlo a la mesa.';
+  }
+
+  return 'El pedido quedó listo. Ahora Caja / Salón debe verlo desde Mostrador para entregarlo y luego cerrar la cuenta cuando corresponda.';
 }
 
 export default function CocinaPage() {
@@ -454,8 +469,8 @@ export default function CocinaPage() {
               Pedidos de salón, take away y delivery en una sola vista.
             </p>
             <p className="text-sm text-slate-400">
-              Los pedidos nuevos se muestran arriba. En take away también aparece
-              el nombre de la persona que retira.
+              Cocina toma el pedido y lo deja en <strong>listo</strong>. La entrega y el
+              cierre final se resuelven fuera de esta pantalla.
             </p>
           </div>
 
@@ -480,6 +495,13 @@ export default function CocinaPage() {
               className="px-3 py-1 rounded-lg text-sm bg-slate-800 border border-slate-600 hover:bg-slate-700"
             >
               Actualizar
+            </button>
+
+            <button
+              onClick={() => router.push('/mostrador')}
+              className="px-3 py-1 rounded-lg text-sm bg-amber-400 text-slate-900 font-semibold hover:bg-amber-300"
+            >
+              Ir a mostrador
             </button>
 
             <button
@@ -635,24 +657,15 @@ export default function CocinaPage() {
                       Marcar listo
                     </button>
                   )}
-
-                  {p.estado === 'listo' && kind !== 'salon' && (
-                    <button
-                      onClick={() => {
-                        void cambiarEstado(p.id, 'entregado');
-                      }}
-                      className="px-3 py-1 rounded-lg bg-violet-500 text-white text-sm font-semibold hover:bg-violet-400"
-                    >
-                      {getRetiroActionLabel(p)}
-                    </button>
-                  )}
                 </div>
 
-                {p.estado === 'listo' && kind === 'salon' ? (
+                {p.estado === 'listo' ? (
                   <p className="mt-3 text-xs text-slate-400">
-                    Los pedidos de salón quedan visibles en cocina hasta que la mesa
-                    se cierre. Así no se pierde el seguimiento del consumo antes del
-                    cobro.
+                    {getReadyMessage({
+                      pedido: p,
+                      businessMode,
+                      canUseWaiterMode,
+                    })}
                   </p>
                 ) : null}
               </article>
