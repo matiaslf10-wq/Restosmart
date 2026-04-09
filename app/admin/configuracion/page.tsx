@@ -168,7 +168,7 @@ function getPublicOrderingMeta(businessMode: BusinessMode): PublicOrderingMeta {
     business_mode_label: formatBusinessModeLabel(businessMode),
     customer_entry_kind: 'restaurant',
     customer_entry_strategy: 'table_qr_route',
-    current_customer_entry_path: '/mesa/[numero]',
+    current_customer_entry_path: '/mesa/[id]',
     planned_customer_entry_path: null,
     takeaway_ready_screen_path: null,
     table_qr_enabled: true,
@@ -779,7 +779,7 @@ export default function AdminConfiguracionPage() {
                 El acceso público actual del cliente funciona por mesa
               </p>
               <p className="mt-2 text-sm text-emerald-900 leading-relaxed">
-                Hoy el cliente entra por <code>/mesa/[numero]</code>. Para probar el
+                Hoy el cliente entra por <code>/mesa/[id]</code>. Para probar el
                 flujo podés usar una mesa real o el entorno de prueba.
               </p>
 
