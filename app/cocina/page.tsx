@@ -75,6 +75,7 @@ function isTakeawayPedido(pedido: Pedido) {
     origen === 'takeaway' ||
     origen === 'takeaway_web' ||
     origen === 'takeaway_manual' ||
+    origen === 'takeaway_manual_mostrador' ||
     origen === 'pickup' ||
     origen === 'retiro'
   );
