@@ -75,6 +75,7 @@ function esTakeaway(pedido: PedidoRow) {
     origen === 'takeaway' ||
     origen === 'takeaway_web' ||
     origen === 'takeaway_manual' ||
+    origen === 'takeaway_manual_mostrador' ||
     origen === 'pickup' ||
     origen === 'retiro'
   );
@@ -273,6 +274,10 @@ export async function GET(request: NextRequest) {
         whatsappAlertas: alertas,
         meta: {
           alertasDisponibles: !alertasError,
+          operation_identity:
+            localTakeawayPedidos.length > 0 && localRestaurantPedidos.length === 0
+              ? 'persona'
+              : 'mesa',
           restaurant: restaurant
             ? {
                 id: restaurant.id,

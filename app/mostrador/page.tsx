@@ -53,8 +53,8 @@ type ItemCarrito = {
 };
 
 type PedidoKind = 'salon' | 'takeaway' | 'delivery';
-type ManualMode = 'salon' | 'takeaway';
 type FormaPago = 'efectivo' | 'virtual';
+type PrimaryMode = 'salon' | 'takeaway';
 
 type AdminSessionPayload = {
   adminId?: string;
@@ -251,7 +251,7 @@ function getMesaEstadoBadge(estado: 'libre' | 'en_curso' | 'lista') {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-800">
         <span className="h-2 w-2 rounded-full bg-emerald-500" />
-        Lista para entregar / cobrar
+        Lista para cobrar / liberar
       </span>
     );
   }
@@ -275,9 +275,13 @@ function getMesaEstadoBadge(estado: 'libre' | 'en_curso' | 'lista') {
 
 function sortMesas(a: MesaRef, b: MesaRef) {
   const aNumero =
-    typeof a.numero === 'number' && a.numero > 0 ? a.numero : Number.MAX_SAFE_INTEGER;
+    typeof a.numero === 'number' && a.numero > 0
+      ? a.numero
+      : Number.MAX_SAFE_INTEGER;
   const bNumero =
-    typeof b.numero === 'number' && b.numero > 0 ? b.numero : Number.MAX_SAFE_INTEGER;
+    typeof b.numero === 'number' && b.numero > 0
+      ? b.numero
+      : Number.MAX_SAFE_INTEGER;
 
   if (aNumero !== bNumero) return aNumero - bNumero;
   return a.id - b.id;
@@ -298,7 +302,6 @@ export default function MostradorPage() {
   const [categorias, setCategorias] = useState<string[]>([]);
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string | null>(null);
 
-  const [manualMode, setManualMode] = useState<ManualMode>('takeaway');
   const [manualMesaId, setManualMesaId] = useState<string>('');
   const [manualClienteNombre, setManualClienteNombre] = useState('');
   const [manualFormaPago, setManualFormaPago] = useState<FormaPago>('efectivo');
@@ -361,6 +364,12 @@ export default function MostradorPage() {
       active = false;
     };
   }, [router]);
+
+  const primaryMode: PrimaryMode =
+    businessMode === 'takeaway' ? 'takeaway' : 'salon';
+
+  const isRestaurantMode = primaryMode === 'salon';
+  const isTakeawayMode = primaryMode === 'takeaway';
 
   const cargarDatos = useCallback(async () => {
     setCargando(true);
@@ -442,7 +451,7 @@ export default function MostradorPage() {
       setMesasMap(map);
       setMesasList(mesas);
 
-      if (!manualMesaId && mesas.length > 0) {
+      if (mesas.length > 0 && !manualMesaId) {
         setManualMesaId(String(mesas[0].id));
       }
     }
@@ -481,10 +490,10 @@ export default function MostradorPage() {
   }, [checkingAccess, cargarDatos]);
 
   useEffect(() => {
-    if (manualMode === 'salon' && !manualMesaId && mesasList.length > 0) {
+    if (isRestaurantMode && !manualMesaId && mesasList.length > 0) {
       setManualMesaId(String(mesasList[0].id));
     }
-  }, [manualMesaId, manualMode, mesasList]);
+  }, [isRestaurantMode, manualMesaId, mesasList]);
 
   const productosFiltrados =
     categoriaSeleccionada == null
@@ -645,7 +654,9 @@ export default function MostradorPage() {
       return;
     }
 
-    setMensaje(`Pedido #${pedidoId} actualizado a ${formatEstadoLabel(nuevoEstado)}.`);
+    setMensaje(
+      `Pedido #${pedidoId} actualizado a ${formatEstadoLabel(nuevoEstado)}.`
+    );
     setActualizandoPedidoId(null);
     await cargarDatos();
   }
@@ -690,7 +701,7 @@ export default function MostradorPage() {
       return;
     }
 
-    if (manualMode === 'salon') {
+    if (primaryMode === 'salon') {
       const mesaId = Number(manualMesaId);
       if (!Number.isFinite(mesaId) || mesaId <= DELIVERY_MESA_ID) {
         setError('Seleccioná una mesa válida.');
@@ -698,7 +709,7 @@ export default function MostradorPage() {
       }
     }
 
-    if (manualMode === 'takeaway' && !manualClienteNombre.trim()) {
+    if (primaryMode === 'takeaway' && !manualClienteNombre.trim()) {
       setError('Ingresá el nombre del cliente para retirar.');
       return;
     }
@@ -709,24 +720,24 @@ export default function MostradorPage() {
 
     try {
       const payload = {
-        mesa_id: manualMode === 'salon' ? Number(manualMesaId) : undefined,
+        mesa_id: primaryMode === 'salon' ? Number(manualMesaId) : undefined,
         total: totalCarrito,
         forma_pago: manualFormaPago,
         origen:
-          manualMode === 'salon'
+          primaryMode === 'salon'
             ? resolverEnMostrador
               ? 'salon_manual_mostrador'
               : 'salon_manual'
             : resolverEnMostrador
             ? 'takeaway_manual_mostrador'
             : 'takeaway_manual',
-        tipo_servicio: manualMode === 'salon' ? 'mesa' : 'takeaway',
+        tipo_servicio: primaryMode === 'salon' ? 'mesa' : 'takeaway',
         medio_pago: manualFormaPago,
         estado_pago: manualFormaPago === 'efectivo' ? 'aprobado' : 'pendiente',
         efectivo_aprobado: manualFormaPago === 'efectivo',
         paga_efectivo: manualFormaPago === 'efectivo',
         cliente_nombre:
-          manualMode === 'takeaway' ? manualClienteNombre.trim() : undefined,
+          primaryMode === 'takeaway' ? manualClienteNombre.trim() : undefined,
         items: carrito.map((item) => ({
           producto_id: item.producto.id,
           cantidad: item.cantidad,
@@ -756,8 +767,8 @@ export default function MostradorPage() {
 
       setMensaje(
         resolverEnMostrador
-          ? `Pedido #${pedidoId} creado en mostrador. Ya podés tomarlo y prepararlo desde esta misma pantalla.`
-          : `Pedido #${pedidoId} creado correctamente. Va a seguir el circuito normal del local.`
+          ? `Pedido #${pedidoId} creado en mostrador. Ya podés tomarlo y resolverlo desde esta misma pantalla.`
+          : `Pedido #${pedidoId} creado correctamente. Si querés, podés apoyarte en cocina, pero no es obligatorio para operar.`
       );
 
       await cargarDatos();
@@ -772,6 +783,18 @@ export default function MostradorPage() {
       setCreandoPedido(false);
     }
   }
+
+  const manualTitle = isRestaurantMode
+    ? 'Alta manual por mesa'
+    : 'Alta manual por cliente';
+
+  const manualDescription = isRestaurantMode
+    ? 'En modo restaurante la identificación principal es la mesa. Mostrador puede cargar, resolver y cerrar sin depender de mozo.'
+    : 'En modo take away la identificación principal es la persona. Mostrador puede cargar, preparar, entregar y cobrar desde una sola pantalla.';
+
+  const manualIdentifierLabel = isRestaurantMode
+    ? 'Identificación principal: Mesa'
+    : 'Identificación principal: Persona';
 
   if (checkingAccess) {
     return (
@@ -800,6 +823,16 @@ export default function MostradorPage() {
                   Modo {formatBusinessModeLabel(businessMode)}
                 </span>
 
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    isRestaurantMode
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {manualIdentifierLabel}
+                </span>
+
                 {businessMode === 'restaurant' && canUseWaiterMode ? (
                   <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
                     Pro / mozo disponible
@@ -808,12 +841,17 @@ export default function MostradorPage() {
               </div>
 
               <h1 className="mt-4 text-3xl font-bold text-slate-900">
-                Punto de venta y operación final
+                Punto de venta y operación principal
               </h1>
 
               <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
-                Desde acá podés crear pedidos manuales, resolver pedidos rápidos
-                sin cocina, entregar take away y cerrar cuentas del salón.
+                {isRestaurantMode
+                  ? 'Esta pantalla puede operar el salón completo en Esencial: crear pedidos por mesa, resolver salidas rápidas, cobrar y liberar mesas.'
+                  : 'Esta pantalla puede operar el take away completo en Esencial: crear pedidos por cliente, resolverlos acá mismo, entregarlos y cobrarlos.'}
+              </p>
+
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
+                Cocina y pantalla de retiro siguen disponibles como apoyo opcional.
               </p>
             </div>
 
@@ -873,45 +911,34 @@ export default function MostradorPage() {
         ) : null}
 
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setManualMode('takeaway')}
-              className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                manualMode === 'takeaway'
-                  ? 'bg-amber-500 text-white'
-                  : 'bg-slate-100 text-slate-700'
-              }`}
-            >
-              Pedido take away
-            </button>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  isRestaurantMode
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                {manualTitle}
+              </span>
 
-            <button
-              type="button"
-              onClick={() => setManualMode('salon')}
-              className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                manualMode === 'salon'
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-700'
-              }`}
-            >
-              Pedido de salón
-            </button>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                {manualIdentifierLabel}
+              </span>
+            </div>
+
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Datos del pedido manual
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">{manualDescription}</p>
+            </div>
           </div>
 
           <div className="mt-4 grid gap-6 xl:grid-cols-[1fr_1.1fr_0.9fr]">
             <div className="space-y-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  Datos del pedido manual
-                </h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Si el pedido no requiere cocina, activá la opción para resolverlo
-                  desde este mismo mostrador.
-                </p>
-              </div>
-
-              {manualMode === 'salon' ? (
+              {isRestaurantMode ? (
                 <label className="grid gap-2">
                   <span className="text-sm font-medium text-slate-700">Mesa</span>
                   <select
@@ -981,18 +1008,21 @@ export default function MostradorPage() {
 
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-semibold text-slate-900">
-                  Comportamiento de esta primera versión
+                  Criterio de identificación
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                  Por ahora esta decisión es por pedido completo. Más adelante la
-                  podemos refinar por producto desde administración.
+                  {isRestaurantMode
+                    ? 'En este local el pedido manual nace asociado a una mesa. La mesa es la unidad principal para cobrar y liberar el salón.'
+                    : 'En este local el pedido manual nace asociado a una persona. El nombre del cliente es la referencia principal para preparar y entregar.'}
                 </p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Categorías</h3>
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Categorías
+                </h3>
 
                 {categorias.length === 0 ? (
                   <p className="mt-2 text-sm text-slate-600">
@@ -1087,7 +1117,9 @@ export default function MostradorPage() {
             </div>
 
             <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="text-xl font-semibold text-slate-900">Pedido actual</h3>
+              <h3 className="text-xl font-semibold text-slate-900">
+                Pedido actual
+              </h3>
 
               {carrito.length === 0 ? (
                 <p className="mt-3 text-sm text-slate-600">
@@ -1175,7 +1207,9 @@ export default function MostradorPage() {
                     ? 'Creando pedido...'
                     : resolverEnMostrador
                     ? 'Crear pedido y resolver en mostrador'
-                    : 'Crear pedido manual'}
+                    : isRestaurantMode
+                    ? 'Crear pedido para mesa'
+                    : 'Crear pedido para cliente'}
                 </button>
               </div>
             </aside>
@@ -1189,18 +1223,25 @@ export default function MostradorPage() {
         ) : null}
 
         <section className="grid gap-6 xl:grid-cols-2">
-          <article className="rounded-3xl border border-amber-200 bg-white p-5 shadow-sm">
+          <article
+            className={`rounded-3xl border bg-white p-5 shadow-sm ${
+              isTakeawayMode ? 'border-amber-300' : 'border-amber-200'
+            }`}
+          >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">
                   Take away
                 </p>
                 <h2 className="mt-2 text-2xl font-bold text-slate-900">
-                  Pedidos para mostrador
+                  {isTakeawayMode
+                    ? 'Pedidos por cliente'
+                    : 'Retiros activos (opcional)'}
                 </h2>
                 <p className="mt-2 text-sm text-slate-600">
-                  Si el pedido fue creado para resolverse en mostrador, podés
-                  tomarlo, prepararlo, marcarlo listo y entregarlo desde acá.
+                  {isTakeawayMode
+                    ? 'En este local la referencia principal es la persona. Desde acá preparás, entregás y cerrás el flujo del retiro.'
+                    : 'Aunque el modo principal del local sea restaurante, esta pantalla puede seguir mostrando retiros si el negocio decide usarlos.'}
                 </p>
               </div>
 
@@ -1311,7 +1352,10 @@ export default function MostradorPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              void actualizarEstadoPedido(pedido.id, 'en_preparacion');
+                              void actualizarEstadoPedido(
+                                pedido.id,
+                                'en_preparacion'
+                              );
                             }}
                             disabled={actualizandoPedidoId === pedido.id}
                             className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
@@ -1365,18 +1409,25 @@ export default function MostradorPage() {
             )}
           </article>
 
-          <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <article
+            className={`rounded-3xl border bg-white p-5 shadow-sm ${
+              isRestaurantMode ? 'border-emerald-300' : 'border-slate-200'
+            }`}
+          >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-600">
                   Salón
                 </p>
                 <h2 className="mt-2 text-2xl font-bold text-slate-900">
-                  Mesas activas
+                  {isRestaurantMode
+                    ? 'Mesas activas'
+                    : 'Mesas activas (fuera del modo principal)'}
                 </h2>
                 <p className="mt-2 text-sm text-slate-600">
-                  En Esencial, esta pantalla también sirve para tomar pedidos
-                  manuales de una mesa, resolver salidas rápidas y cerrar la cuenta.
+                  {isRestaurantMode
+                    ? 'En modo restaurante la unidad principal es la mesa. Desde acá podés seguir todo el salón, cobrar y liberar la mesa.'
+                    : 'El local está configurado en take away. Si esta sección aparece con datos, sirve solo como referencia secundaria.'}
                 </p>
               </div>
 
@@ -1458,7 +1509,8 @@ export default function MostradorPage() {
                                 <div>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="text-sm font-semibold text-slate-900">
-                                      {pedido.codigo_publico || `Pedido #${pedido.id}`}
+                                      {pedido.codigo_publico ||
+                                        `Pedido #${pedido.id}`}
                                     </span>
 
                                     {handledHere ? (
@@ -1506,7 +1558,9 @@ export default function MostradorPage() {
                                           'en_preparacion'
                                         );
                                       }}
-                                      disabled={actualizandoPedidoId === pedido.id}
+                                      disabled={
+                                        actualizandoPedidoId === pedido.id
+                                      }
                                       className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                                     >
                                       {actualizandoPedidoId === pedido.id
@@ -1524,7 +1578,9 @@ export default function MostradorPage() {
                                           'listo'
                                         );
                                       }}
-                                      disabled={actualizandoPedidoId === pedido.id}
+                                      disabled={
+                                        actualizandoPedidoId === pedido.id
+                                      }
                                       className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                                     >
                                       {actualizandoPedidoId === pedido.id
@@ -1571,8 +1627,8 @@ export default function MostradorPage() {
 
             {businessMode === 'takeaway' ? (
               <div className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                El local está configurado en modo <strong>take away</strong>. Esta
-                sección de salón puede quedar vacía y eso es normal.
+                El local está configurado en modo <strong>take away</strong>. En
+                este contexto la referencia principal sigue siendo la persona, no la mesa.
               </div>
             ) : null}
           </article>
