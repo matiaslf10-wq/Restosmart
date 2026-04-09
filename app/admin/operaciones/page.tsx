@@ -161,7 +161,8 @@ function resolveOperacionCanal(pedido: OperacionPedido): OperacionCanal {
     origen === 'pickup' ||
     origen === 'retiro' ||
     origen === 'takeaway_web' ||
-    origen === 'takeaway_manual'
+    origen === 'takeaway_manual' ||
+    origen === 'takeaway_manual_mostrador'
   ) {
     return 'takeaway';
   }
@@ -315,7 +316,7 @@ export default function AdminOperacionesPage() {
   const copy = useMemo(() => {
     return {
       intro:
-        'Vista operativa del local, take away, delivery y alertas de WhatsApp.',
+        'Tablero general de la operación. Acá monitoreás el estado del local, delivery y alertas. La acción operativa final vive en Mostrador / Caja.',
       localTitle: 'Movimientos del local',
       localDescription:
         'Pedidos abiertos del negocio en estado solicitado, pendiente, en preparación o listo.',
@@ -325,6 +326,18 @@ export default function AdminOperacionesPage() {
       statsReady: 'Local · listos',
     };
   }, []);
+
+  const quickFlowText = useMemo(() => {
+    if (businessMode === 'takeaway') {
+      return 'En take away, el flujo práctico es: cliente pide → cocina prepara → mostrador entrega y marca retirado.';
+    }
+
+    if (waiterModeEnabled) {
+      return 'En restaurante con Pro, el flujo práctico es: cliente/mozo genera pedido → cocina prepara → mozo o caja entregan/cobran según el caso.';
+    }
+
+    return 'En restaurante Esencial, el flujo práctico es: cliente pide → cocina prepara → mostrador/caja entrega lo listo y cierra la cuenta cuando la mesa se libera.';
+  }, [businessMode, waiterModeEnabled]);
 
   return (
     <main className="p-6">
@@ -359,6 +372,13 @@ export default function AdminOperacionesPage() {
             Ver cocina
           </Link>
 
+          <Link
+            href="/mostrador"
+            className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 hover:bg-amber-100"
+          >
+            Ir a mostrador / caja
+          </Link>
+
           {businessMode === 'restaurant' && waiterModeEnabled ? (
             <Link
               href="/mozo/mesas"
@@ -384,10 +404,87 @@ export default function AdminOperacionesPage() {
         </div>
       ) : null}
 
+      <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+        <p className="font-semibold">Cómo leer este tablero</p>
+        <p className="mt-1 leading-relaxed">
+          {quickFlowText}
+        </p>
+      </div>
+
       {cargando && !data ? <p>Cargando panel...</p> : null}
 
       {data ? (
         <>
+          <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Link
+              href="/mostrador"
+              className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
+            >
+              <p className="text-sm font-semibold text-amber-800">
+                Acción operativa
+              </p>
+              <h2 className="mt-2 text-xl font-bold text-slate-900">
+                Mostrador / Caja
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Crear pedidos manuales, resolver pedidos rápidos, entregar take away y cerrar cuentas del salón.
+              </p>
+            </Link>
+
+            <Link
+              href="/cocina"
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
+            >
+              <p className="text-sm font-semibold text-slate-700">Producción</p>
+              <h2 className="mt-2 text-xl font-bold text-slate-900">Cocina</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Tomar pedidos, prepararlos y dejarlos en listo.
+              </p>
+            </Link>
+
+            {businessMode === 'restaurant' && waiterModeEnabled ? (
+              <Link
+                href="/mozo/mesas"
+                className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
+              >
+                <p className="text-sm font-semibold text-emerald-800">
+                  Atención de salón
+                </p>
+                <h2 className="mt-2 text-xl font-bold text-slate-900">Mozo</h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  Vista distribuida del salón, mesas y atención asistida.
+                </p>
+              </Link>
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-sm font-semibold text-slate-700">
+                  Atención de salón
+                </p>
+                <h2 className="mt-2 text-xl font-bold text-slate-900">
+                  Sin modo mozo activo
+                </h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  En este contexto, Mostrador / Caja absorbe la operación final del salón.
+                </p>
+              </div>
+            )}
+
+            <Link
+              href="/admin"
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
+            >
+              <p className="text-sm font-semibold text-slate-700">
+                Vista comercial
+              </p>
+              <h2 className="mt-2 text-xl font-bold text-slate-900">
+                Dashboard admin
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                KPIs, módulos disponibles y navegación general del negocio.
+              </p>
+            </Link>
+          </section>
+
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
               <p className="text-sm text-neutral-500">{copy.statsRequested}</p>
@@ -438,20 +535,29 @@ export default function AdminOperacionesPage() {
 
           <section className="mt-8 grid gap-6 xl:grid-cols-2">
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
-              <div className="mb-4">
-                <h2 className="text-lg font-medium">{copy.localTitle}</h2>
-                <p className="mt-1 text-sm text-neutral-600">
-                  {copy.localDescription}
-                </p>
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-medium">{copy.localTitle}</h2>
+                  <p className="mt-1 text-sm text-neutral-600">
+                    {copy.localDescription}
+                  </p>
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                    Salón: {localResumenCanales.restaurant}
-                  </span>
-                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
-                    Take away: {localResumenCanales.takeaway}
-                  </span>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                      Salón: {localResumenCanales.restaurant}
+                    </span>
+                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
+                      Take away: {localResumenCanales.takeaway}
+                    </span>
+                  </div>
                 </div>
+
+                <Link
+                  href="/mostrador"
+                  className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+                >
+                  Operar desde mostrador
+                </Link>
               </div>
 
               {localPedidosConCanal.length === 0 ? (
