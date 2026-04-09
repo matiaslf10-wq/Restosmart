@@ -21,6 +21,11 @@ type PublicRetiroResponse = {
   generatedAt: string;
 };
 
+const REFRESH_INTERVAL_MS = 10000;
+const CLOCK_INTERVAL_MS = 1000;
+const ROTATION_INTERVAL_MS = 7000;
+const ITEMS_PER_PAGE = 4;
+
 function formatTime(value: string) {
   try {
     return new Intl.DateTimeFormat('es-AR', {
@@ -31,11 +36,35 @@ function formatTime(value: string) {
   }
 }
 
+function formatClock(value: Date) {
+  try {
+    return new Intl.DateTimeFormat('es-AR', {
+      timeStyle: 'short',
+    }).format(value);
+  } catch {
+    return '';
+  }
+}
+
+function chunkItems<T>(items: T[], size: number) {
+  if (!items.length) return [[]] as T[][];
+
+  const chunks: T[][] = [];
+
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+
+  return chunks;
+}
+
 export default function RetiroPage() {
   const [data, setData] = useState<PublicRetiroResponse | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [now, setNow] = useState(() => new Date());
+  const [preparingPage, setPreparingPage] = useState(0);
+  const [readyPage, setReadyPage] = useState(0);
 
   useEffect(() => {
     let activo = true;
@@ -79,8 +108,8 @@ export default function RetiroPage() {
 
     cargar();
 
-    const refreshInterval = setInterval(cargar, 10000);
-    const clockInterval = setInterval(() => setNow(new Date()), 30000);
+    const refreshInterval = setInterval(cargar, REFRESH_INTERVAL_MS);
+    const clockInterval = setInterval(() => setNow(new Date()), CLOCK_INTERVAL_MS);
 
     return () => {
       activo = false;
@@ -90,188 +119,281 @@ export default function RetiroPage() {
   }, []);
 
   const localNombre = data?.local?.nombre?.trim() || 'RestoSmart';
+
   const generatedLabel = useMemo(() => {
     if (!data?.generatedAt) return null;
     return formatTime(data.generatedAt);
   }, [data?.generatedAt]);
 
+  const preparingPages = useMemo(
+    () => chunkItems(data?.preparingOrders ?? [], ITEMS_PER_PAGE),
+    [data?.preparingOrders]
+  );
+
+  const readyPages = useMemo(
+    () => chunkItems(data?.readyOrders ?? [], ITEMS_PER_PAGE),
+    [data?.readyOrders]
+  );
+
+  useEffect(() => {
+    setPreparingPage((current) =>
+      current >= preparingPages.length ? 0 : current
+    );
+  }, [preparingPages.length]);
+
+  useEffect(() => {
+    setReadyPage((current) => (current >= readyPages.length ? 0 : current));
+  }, [readyPages.length]);
+
+  useEffect(() => {
+    if (preparingPages.length <= 1 && readyPages.length <= 1) return;
+
+    const interval = setInterval(() => {
+      setPreparingPage((current) =>
+        preparingPages.length > 1 ? (current + 1) % preparingPages.length : 0
+      );
+
+      setReadyPage((current) =>
+        readyPages.length > 1 ? (current + 1) % readyPages.length : 0
+      );
+    }, ROTATION_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [preparingPages.length, readyPages.length]);
+
+  const visiblePreparingOrders = preparingPages[preparingPage] ?? [];
+  const visibleReadyOrders = readyPages[readyPage] ?? [];
+
+  const preparingTotal = data?.preparingOrders.length ?? 0;
+  const readyTotal = data?.readyOrders.length ?? 0;
+  const totalActivos = preparingTotal + readyTotal;
+
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-4 text-white">
-      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4">
-        <header className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 shadow-sm">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div>
+    <main className="h-screen overflow-hidden bg-slate-950 text-white">
+      <div className="mx-auto flex h-full w-full max-w-[1920px] flex-col gap-4 px-4 py-4 xl:px-6">
+        <header className="rounded-[32px] border border-slate-800 bg-slate-900 px-5 py-4 shadow-2xl shadow-black/20">
+          <div className="flex h-full flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-amber-500/20 px-3 py-1 text-xs font-semibold text-amber-200">
-                  TAKE AWAY
+                <span className="rounded-full bg-amber-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-200">
+                  Take Away
                 </span>
-                <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-200">
-                  Pantalla pública de retiro
+                <span className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-200">
+                  Pantalla de retiro
                 </span>
               </div>
 
-              <h1 className="mt-3 text-3xl font-bold">{localNombre}</h1>
+              <h1 className="mt-3 text-[clamp(2rem,3vw,3.8rem)] font-black leading-none tracking-tight text-white">
+                {localNombre}
+              </h1>
 
-              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-300">
-                Cuando tu nombre aparezca en <strong>“Listo para retirar”</strong>,
-                podés acercarte al mostrador a buscar tu pedido.
+              <p className="mt-2 text-sm font-medium text-slate-300 md:text-base">
+                Cuando tu nombre aparezca en{' '}
+                <span className="font-extrabold text-emerald-300">
+                  LISTO PARA RETIRAR
+                </span>
+                , acercate al mostrador.
               </p>
 
-              {data?.local?.business_mode === 'restaurant' ? (
-                <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                  El negocio sigue configurado como restaurante, pero esta pantalla
-                  igualmente puede usarse para pedidos de retiro.
+              {error ? (
+                <div className="mt-3 inline-flex max-w-full rounded-2xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-100">
+                  {error}
                 </div>
               ) : null}
             </div>
 
-            <div className="flex min-w-[220px] flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-right">
-              <span className="text-xs uppercase tracking-wide text-slate-400">
-                Hora actual
-              </span>
-              <span className="text-2xl font-bold">
-                {new Intl.DateTimeFormat('es-AR', {
-                  timeStyle: 'short',
-                }).format(now)}
-              </span>
-              <span className="text-xs text-slate-500">
-                Actualización automática cada 10 segundos
-              </span>
-              {generatedLabel ? (
-                <span className="text-xs text-slate-500">
-                  Última actualización: {generatedLabel}
-                </span>
-              ) : null}
+            <div className="grid shrink-0 grid-cols-2 gap-3 lg:min-w-[420px]">
+              <div className="rounded-[28px] border border-slate-800 bg-slate-950 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Hora actual
+                </p>
+                <p className="mt-2 text-[clamp(1.8rem,2.4vw,3.25rem)] font-black leading-none tabular-nums text-white">
+                  {formatClock(now)}
+                </p>
+                {generatedLabel ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Actualizado: {generatedLabel}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Actualización automática
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-[28px] border border-slate-800 bg-slate-950 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Pedidos visibles
+                </p>
+                <p className="mt-2 text-[clamp(1.8rem,2.4vw,3.25rem)] font-black leading-none tabular-nums text-white">
+                  {totalActivos}
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Preparación {preparingTotal} · Listos {readyTotal}
+                </p>
+              </div>
             </div>
           </div>
         </header>
 
-        {error ? (
-          <div className="rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-            {error}
-          </div>
-        ) : null}
-
         {cargando && !data ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-8 text-center text-slate-300">
-            Cargando pantalla de retiro...
-          </div>
-        ) : null}
-
-        <section className="grid gap-4 lg:grid-cols-2">
-          <article className="flex min-h-[70vh] flex-col rounded-3xl border border-slate-800 bg-slate-900 p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-200">
-                  En preparación
-                </p>
-                <h2 className="mt-2 text-2xl font-bold text-white">
-                  Tu pedido está en curso
-                </h2>
-              </div>
-
-              <div className="rounded-2xl bg-slate-800 px-4 py-2 text-right">
-                <p className="text-xs text-slate-400">Pedidos activos</p>
-                <p className="text-2xl font-bold text-white">
-                  {data?.preparingOrders.length ?? 0}
-                </p>
-              </div>
+          <section className="flex flex-1 items-center justify-center rounded-[32px] border border-slate-800 bg-slate-900">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-white">
+                Cargando pantalla de retiro...
+              </p>
+              <p className="mt-2 text-sm text-slate-400">
+                Esperá un momento.
+              </p>
             </div>
+          </section>
+        ) : (
+          <section className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
+            <article className="flex min-h-0 flex-col rounded-[36px] border border-slate-800 bg-slate-900 px-5 py-5 shadow-2xl shadow-black/20">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[12px] font-bold uppercase tracking-[0.28em] text-amber-200">
+                    En preparación
+                  </p>
+                  <h2 className="mt-2 text-[clamp(1.6rem,2.1vw,2.8rem)] font-black leading-none tracking-tight text-white">
+                    Tu pedido está en curso
+                  </h2>
+                </div>
 
-            {!data || data.preparingOrders.length === 0 ? (
-              <div className="mt-6 flex flex-1 items-center justify-center rounded-2xl border border-dashed border-slate-700 px-4 py-8 text-center text-slate-400">
-                No hay pedidos en preparación.
+                <div className="rounded-[24px] bg-slate-950 px-4 py-3 text-right">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Activos
+                  </p>
+                  <p className="mt-1 text-3xl font-black leading-none tabular-nums text-white">
+                    {preparingTotal}
+                  </p>
+                  {preparingPages.length > 1 ? (
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Página {preparingPage + 1}/{preparingPages.length}
+                    </p>
+                  ) : null}
+                </div>
               </div>
-            ) : (
-              <div className="mt-6 flex-1 overflow-y-auto pr-1">
-                <div className="space-y-3">
-                  {data.preparingOrders.map((pedido) => (
-                    <div
+
+              {!data || preparingTotal === 0 ? (
+                <div className="mt-4 flex flex-1 items-center justify-center rounded-[28px] border border-dashed border-slate-700 bg-slate-950/60 px-6 py-8 text-center">
+                  <div>
+                    <p className="text-[clamp(1.6rem,2vw,2.5rem)] font-black tracking-tight text-white">
+                      No hay pedidos en preparación
+                    </p>
+                    <p className="mt-2 text-sm text-slate-400">
+                      Los nuevos pedidos van a aparecer acá.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
+                  {visiblePreparingOrders.map((pedido) => (
+                    <article
                       key={pedido.id}
-                      className="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-4"
+                      className="flex min-h-0 flex-1 flex-col justify-between rounded-[28px] border border-slate-800 bg-slate-950 px-5 py-4"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-2xl font-bold text-white">
-                            {pedido.cliente_nombre}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-400">
-                            {pedido.codigo}
-                          </p>
-                          <p className="mt-2 text-xs text-slate-500">
-                            Pedido de las {formatTime(pedido.creado_en)}
-                          </p>
-                        </div>
+                        <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">
+                          {pedido.codigo}
+                        </p>
 
-                        <span className="rounded-full bg-amber-500/20 px-3 py-1 text-xs font-semibold text-amber-200">
+                        <span className="rounded-full bg-amber-500/20 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-200">
                           {pedido.estado === 'pendiente'
                             ? 'Pendiente'
                             : 'En preparación'}
                         </span>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </article>
 
-          <article className="flex min-h-[70vh] flex-col rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-200">
-                  Listo para retirar
-                </p>
-                <h2 className="mt-2 text-2xl font-bold text-white">
-                  Pasá por mostrador
-                </h2>
-              </div>
+                      <div className="mt-2 flex-1">
+                        <h3 className="break-words text-[clamp(2rem,3vw,4rem)] font-black uppercase leading-[0.95] tracking-tight text-white">
+                          {pedido.cliente_nombre}
+                        </h3>
+                      </div>
 
-              <div className="rounded-2xl bg-emerald-400/20 px-4 py-2 text-right">
-                <p className="text-xs text-emerald-100">Pedidos listos</p>
-                <p className="text-2xl font-bold text-white">
-                  {data?.readyOrders.length ?? 0}
-                </p>
-              </div>
-            </div>
-
-            {!data || data.readyOrders.length === 0 ? (
-              <div className="mt-6 flex flex-1 items-center justify-center rounded-2xl border border-dashed border-emerald-300/30 bg-black/10 px-5 py-12 text-center">
-                <div>
-                  <p className="text-xl font-semibold text-emerald-100">
-                    Todavía no hay pedidos listos
-                  </p>
-                  <p className="mt-2 text-sm text-emerald-50/80">
-                    Cuando un pedido esté listo, va a aparecer acá con nombre y código.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-6 flex-1 overflow-y-auto pr-1">
-                <div className="space-y-3">
-                  {data.readyOrders.map((pedido) => (
-                    <article
-                      key={pedido.id}
-                      className="rounded-3xl border border-emerald-300/30 bg-slate-950/40 p-5"
-                    >
-                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200">
-                        {pedido.codigo}
-                      </p>
-
-                      <h3 className="mt-3 text-3xl font-extrabold leading-tight text-white">
-                        {pedido.cliente_nombre}
-                      </h3>
-
-                      <p className="mt-3 text-sm text-emerald-100/80">
-                        Pedido de las {formatTime(pedido.creado_en)}
-                      </p>
+                      <div className="mt-3 flex items-end justify-between gap-3">
+                        <p className="text-sm font-medium text-slate-300">
+                          Pedido de las {formatTime(pedido.creado_en)}
+                        </p>
+                      </div>
                     </article>
                   ))}
                 </div>
+              )}
+            </article>
+
+            <article className="flex min-h-0 flex-col rounded-[36px] border border-emerald-500/35 bg-emerald-500/12 px-5 py-5 shadow-2xl shadow-emerald-950/10">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[12px] font-bold uppercase tracking-[0.28em] text-emerald-200">
+                    Listo para retirar
+                  </p>
+                  <h2 className="mt-2 text-[clamp(1.6rem,2.1vw,2.8rem)] font-black leading-none tracking-tight text-white">
+                    Pasá por mostrador
+                  </h2>
+                </div>
+
+                <div className="rounded-[24px] bg-emerald-400/20 px-4 py-3 text-right">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                    Listos
+                  </p>
+                  <p className="mt-1 text-3xl font-black leading-none tabular-nums text-white">
+                    {readyTotal}
+                  </p>
+                  {readyPages.length > 1 ? (
+                    <p className="mt-1 text-[11px] text-emerald-100/70">
+                      Página {readyPage + 1}/{readyPages.length}
+                    </p>
+                  ) : null}
+                </div>
               </div>
-            )}
-          </article>
-        </section>
+
+              {!data || readyTotal === 0 ? (
+                <div className="mt-4 flex flex-1 items-center justify-center rounded-[28px] border border-dashed border-emerald-300/30 bg-black/10 px-6 py-8 text-center">
+                  <div>
+                    <p className="text-[clamp(1.6rem,2vw,2.5rem)] font-black tracking-tight text-white">
+                      Todavía no hay pedidos listos
+                    </p>
+                    <p className="mt-2 text-sm text-emerald-50/75">
+                      Cuando un pedido esté listo, se va a mostrar acá.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
+                  {visibleReadyOrders.map((pedido) => (
+                    <article
+                      key={pedido.id}
+                      className="flex min-h-0 flex-1 flex-col justify-between rounded-[30px] border border-emerald-300/30 bg-slate-950/70 px-5 py-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm font-bold uppercase tracking-[0.18em] text-emerald-200">
+                          {pedido.codigo}
+                        </p>
+
+                        <span className="rounded-full bg-emerald-400/20 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-100">
+                          Retirar
+                        </span>
+                      </div>
+
+                      <div className="mt-2 flex-1">
+                        <h3 className="break-words text-[clamp(2.2rem,3.2vw,4.4rem)] font-black uppercase leading-[0.95] tracking-tight text-white">
+                          {pedido.cliente_nombre}
+                        </h3>
+                      </div>
+
+                      <div className="mt-3 flex items-end justify-between gap-3">
+                        <p className="text-sm font-medium text-emerald-50/85">
+                          Pedido de las {formatTime(pedido.creado_en)}
+                        </p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </article>
+          </section>
+        )}
       </div>
     </main>
   );
