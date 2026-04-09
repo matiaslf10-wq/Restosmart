@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
@@ -32,6 +33,12 @@ type AdminSessionPayload = {
     plan: PlanCode;
     business_mode?: BusinessMode;
   } | null;
+};
+
+type NavItem = {
+  href: string;
+  label: string;
+  visible: boolean;
 };
 
 export default function AdminLayout({
@@ -130,11 +137,18 @@ export default function AdminLayout({
   );
   const businessModeLabel = formatBusinessModeLabel(businessMode);
 
-  const navItems = useMemo(() => {
+  const navItems = useMemo<NavItem[]>(() => {
     const capabilities = sessionData?.capabilities ?? {};
 
     return [
+      { href: '/inicio', label: 'Inicio', visible: true },
       { href: '/admin', label: 'Dashboard', visible: true },
+      { href: '/cocina', label: 'Cocina', visible: true },
+      {
+        href: '/pedir',
+        label: 'Take Away',
+        visible: businessMode === 'takeaway',
+      },
       { href: '/admin/configuracion', label: 'Configuración', visible: true },
       { href: '/admin/operaciones', label: 'Operaciones', visible: true },
       { href: '/admin/productos', label: 'Menú / Productos', visible: true },
@@ -163,6 +177,10 @@ export default function AdminLayout({
 
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin';
+    if (href === '/inicio') return pathname === '/inicio';
+    if (href === '/cocina') return pathname === '/cocina';
+    if (href === '/mozo/mesas') return pathname === '/mozo/mesas';
+    if (href === '/pedir') return pathname === '/pedir';
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
@@ -194,7 +212,7 @@ export default function AdminLayout({
         <div className="max-w-6xl mx-auto flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-bold text-lg">Restosmart · Admin</span>
+              <span className="font-bold text-lg">RestoSmart · Admin</span>
 
               {sessionData?.restaurant?.slug ? (
                 <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-200">
@@ -225,15 +243,15 @@ export default function AdminLayout({
 
             <nav className="flex items-center gap-2 text-sm flex-wrap">
               {navItems.map((item) => (
-                <button
+                <Link
                   key={item.href}
-                  onClick={() => router.push(item.href)}
+                  href={item.href}
                   className={`px-2 py-1 rounded-md transition ${
                     isActive(item.href) ? 'bg-slate-700' : 'hover:bg-slate-800'
                   }`}
                 >
                   {item.label}
-                </button>
+                </Link>
               ))}
             </nav>
           </div>

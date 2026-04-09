@@ -13,7 +13,10 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: 'RestoSmart',
+  title: {
+    default: 'RestoSmart',
+    template: '%s | RestoSmart',
+  },
   description:
     'Software inteligente para restaurantes, bares, cafés y take away. Un solo sistema para operar con mesas o en modo retiro.',
   keywords: [
@@ -37,7 +40,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className={`${inter.variable} ${manrope.variable} antialiased`}>
+      <body
+        className={`${inter.variable} ${manrope.variable} antialiased bg-white text-slate-900`}
+      >
         {children}
       </body>
     </html>
