@@ -24,7 +24,8 @@ type PublicRetiroResponse = {
 const REFRESH_INTERVAL_MS = 10000;
 const CLOCK_INTERVAL_MS = 1000;
 const ROTATION_INTERVAL_MS = 7000;
-const ITEMS_PER_PAGE = 4;
+const PREPARING_ITEMS_PER_PAGE = 3;
+const READY_ITEMS_PER_PAGE = 3;
 
 function formatTime(value: string) {
   try {
@@ -58,6 +59,31 @@ function chunkItems<T>(items: T[], size: number) {
   return chunks;
 }
 
+function getNameClass(
+  nombre: string,
+  variant: 'preparing' | 'ready'
+): string {
+  const length = nombre.trim().length;
+
+  if (variant === 'ready') {
+    if (length >= 18) {
+      return 'text-[clamp(1.8rem,2.2vw,2.8rem)] leading-[0.95]';
+    }
+    if (length >= 12) {
+      return 'text-[clamp(2rem,2.5vw,3.1rem)] leading-[0.95]';
+    }
+    return 'text-[clamp(2.2rem,2.8vw,3.4rem)] leading-[0.95]';
+  }
+
+  if (length >= 18) {
+    return 'text-[clamp(1.7rem,2.1vw,2.6rem)] leading-[0.95]';
+  }
+  if (length >= 12) {
+    return 'text-[clamp(1.9rem,2.3vw,2.9rem)] leading-[0.95]';
+  }
+  return 'text-[clamp(2.1rem,2.6vw,3.1rem)] leading-[0.95]';
+}
+
 export default function RetiroPage() {
   const [data, setData] = useState<PublicRetiroResponse | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -82,8 +108,7 @@ export default function RetiroPage() {
 
         if (!res.ok) {
           throw new Error(
-            body?.error ||
-              'No se pudo cargar la pantalla pública de retiro.'
+            body?.error || 'No se pudo cargar la pantalla pública de retiro.'
           );
         }
 
@@ -126,12 +151,12 @@ export default function RetiroPage() {
   }, [data?.generatedAt]);
 
   const preparingPages = useMemo(
-    () => chunkItems(data?.preparingOrders ?? [], ITEMS_PER_PAGE),
+    () => chunkItems(data?.preparingOrders ?? [], PREPARING_ITEMS_PER_PAGE),
     [data?.preparingOrders]
   );
 
   const readyPages = useMemo(
-    () => chunkItems(data?.readyOrders ?? [], ITEMS_PER_PAGE),
+    () => chunkItems(data?.readyOrders ?? [], READY_ITEMS_PER_PAGE),
     [data?.readyOrders]
   );
 
@@ -170,24 +195,24 @@ export default function RetiroPage() {
 
   return (
     <main className="h-screen overflow-hidden bg-slate-950 text-white">
-      <div className="mx-auto flex h-full w-full max-w-[1920px] flex-col gap-4 px-4 py-4 xl:px-6">
-        <header className="rounded-[32px] border border-slate-800 bg-slate-900 px-5 py-4 shadow-2xl shadow-black/20">
-          <div className="flex h-full flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mx-auto flex h-full w-full max-w-[1920px] flex-col gap-3 px-3 py-3 xl:px-5">
+        <header className="rounded-[28px] border border-slate-800 bg-slate-900 px-4 py-3 shadow-2xl shadow-black/20">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-amber-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-200">
+                <span className="rounded-full bg-amber-500/20 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-200">
                   Take Away
                 </span>
-                <span className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-200">
+                <span className="rounded-full bg-slate-800 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-200">
                   Pantalla de retiro
                 </span>
               </div>
 
-              <h1 className="mt-3 text-[clamp(2rem,3vw,3.8rem)] font-black leading-none tracking-tight text-white">
+              <h1 className="mt-2 text-[clamp(1.9rem,2.8vw,3.2rem)] font-black leading-none tracking-tight text-white">
                 {localNombre}
               </h1>
 
-              <p className="mt-2 text-sm font-medium text-slate-300 md:text-base">
+              <p className="mt-1 text-sm font-medium text-slate-300 md:text-base">
                 Cuando tu nombre aparezca en{' '}
                 <span className="font-extrabold text-emerald-300">
                   LISTO PARA RETIRAR
@@ -196,36 +221,32 @@ export default function RetiroPage() {
               </p>
 
               {error ? (
-                <div className="mt-3 inline-flex max-w-full rounded-2xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-100">
+                <div className="mt-2 inline-flex max-w-full rounded-2xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-100">
                   {error}
                 </div>
               ) : null}
             </div>
 
-            <div className="grid shrink-0 grid-cols-2 gap-3 lg:min-w-[420px]">
-              <div className="rounded-[28px] border border-slate-800 bg-slate-950 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+            <div className="grid shrink-0 grid-cols-2 gap-3 lg:min-w-[380px]">
+              <div className="rounded-[24px] border border-slate-800 bg-slate-950 px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
                   Hora actual
                 </p>
-                <p className="mt-2 text-[clamp(1.8rem,2.4vw,3.25rem)] font-black leading-none tabular-nums text-white">
+                <p className="mt-2 text-[clamp(1.7rem,2.2vw,2.8rem)] font-black leading-none tabular-nums text-white">
                   {formatClock(now)}
                 </p>
-                {generatedLabel ? (
-                  <p className="mt-2 text-xs text-slate-500">
-                    Actualizado: {generatedLabel}
-                  </p>
-                ) : (
-                  <p className="mt-2 text-xs text-slate-500">
-                    Actualización automática
-                  </p>
-                )}
+                <p className="mt-2 text-xs text-slate-500">
+                  {generatedLabel
+                    ? `Actualizado: ${generatedLabel}`
+                    : 'Actualización automática'}
+                </p>
               </div>
 
-              <div className="rounded-[28px] border border-slate-800 bg-slate-950 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+              <div className="rounded-[24px] border border-slate-800 bg-slate-950 px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
                   Pedidos visibles
                 </p>
-                <p className="mt-2 text-[clamp(1.8rem,2.4vw,3.25rem)] font-black leading-none tabular-nums text-white">
+                <p className="mt-2 text-[clamp(1.7rem,2.2vw,2.8rem)] font-black leading-none tabular-nums text-white">
                   {totalActivos}
                 </p>
                 <p className="mt-2 text-xs text-slate-500">
@@ -237,7 +258,7 @@ export default function RetiroPage() {
         </header>
 
         {cargando && !data ? (
-          <section className="flex flex-1 items-center justify-center rounded-[32px] border border-slate-800 bg-slate-900">
+          <section className="flex flex-1 items-center justify-center rounded-[28px] border border-slate-800 bg-slate-900">
             <div className="text-center">
               <p className="text-2xl font-bold text-white">
                 Cargando pantalla de retiro...
@@ -248,27 +269,27 @@ export default function RetiroPage() {
             </div>
           </section>
         ) : (
-          <section className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
-            <article className="flex min-h-0 flex-col rounded-[36px] border border-slate-800 bg-slate-900 px-5 py-5 shadow-2xl shadow-black/20">
+          <section className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
+            <article className="flex min-h-0 flex-col rounded-[32px] border border-slate-800 bg-slate-900 px-4 py-4 shadow-2xl shadow-black/20">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[12px] font-bold uppercase tracking-[0.28em] text-amber-200">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-amber-200">
                     En preparación
                   </p>
-                  <h2 className="mt-2 text-[clamp(1.6rem,2.1vw,2.8rem)] font-black leading-none tracking-tight text-white">
+                  <h2 className="mt-1 text-[clamp(1.4rem,1.9vw,2.2rem)] font-black leading-none tracking-tight text-white">
                     Tu pedido está en curso
                   </h2>
                 </div>
 
-                <div className="rounded-[24px] bg-slate-950 px-4 py-3 text-right">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <div className="rounded-[22px] bg-slate-950 px-4 py-3 text-right">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                     Activos
                   </p>
                   <p className="mt-1 text-3xl font-black leading-none tabular-nums text-white">
                     {preparingTotal}
                   </p>
                   {preparingPages.length > 1 ? (
-                    <p className="mt-1 text-[11px] text-slate-500">
+                    <p className="mt-1 text-[10px] text-slate-500">
                       Página {preparingPage + 1}/{preparingPages.length}
                     </p>
                   ) : null}
@@ -276,9 +297,9 @@ export default function RetiroPage() {
               </div>
 
               {!data || preparingTotal === 0 ? (
-                <div className="mt-4 flex flex-1 items-center justify-center rounded-[28px] border border-dashed border-slate-700 bg-slate-950/60 px-6 py-8 text-center">
+                <div className="mt-3 flex flex-1 items-center justify-center rounded-[24px] border border-dashed border-slate-700 bg-slate-950/60 px-6 py-8 text-center">
                   <div>
-                    <p className="text-[clamp(1.6rem,2vw,2.5rem)] font-black tracking-tight text-white">
+                    <p className="text-[clamp(1.4rem,1.8vw,2rem)] font-black tracking-tight text-white">
                       No hay pedidos en preparación
                     </p>
                     <p className="mt-2 text-sm text-slate-400">
@@ -287,18 +308,18 @@ export default function RetiroPage() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
+                <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
                   {visiblePreparingOrders.map((pedido) => (
                     <article
                       key={pedido.id}
-                      className="flex min-h-0 flex-1 flex-col justify-between rounded-[28px] border border-slate-800 bg-slate-950 px-5 py-4"
+                      className="flex min-h-0 flex-1 flex-col justify-between rounded-[24px] border border-slate-800 bg-slate-950 px-4 py-3"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
                           {pedido.codigo}
                         </p>
 
-                        <span className="rounded-full bg-amber-500/20 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-amber-200">
+                        <span className="rounded-full bg-amber-500/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-amber-200">
                           {pedido.estado === 'pendiente'
                             ? 'Pendiente'
                             : 'En preparación'}
@@ -306,42 +327,45 @@ export default function RetiroPage() {
                       </div>
 
                       <div className="mt-2 flex-1">
-                        <h3 className="break-words text-[clamp(2rem,3vw,4rem)] font-black uppercase leading-[0.95] tracking-tight text-white">
+                        <h3
+                          className={`break-words font-black tracking-tight text-white ${getNameClass(
+                            pedido.cliente_nombre,
+                            'preparing'
+                          )}`}
+                        >
                           {pedido.cliente_nombre}
                         </h3>
                       </div>
 
-                      <div className="mt-3 flex items-end justify-between gap-3">
-                        <p className="text-sm font-medium text-slate-300">
-                          Pedido de las {formatTime(pedido.creado_en)}
-                        </p>
-                      </div>
+                      <p className="mt-2 text-sm font-medium text-slate-300">
+                        Pedido de las {formatTime(pedido.creado_en)}
+                      </p>
                     </article>
                   ))}
                 </div>
               )}
             </article>
 
-            <article className="flex min-h-0 flex-col rounded-[36px] border border-emerald-500/35 bg-emerald-500/12 px-5 py-5 shadow-2xl shadow-emerald-950/10">
+            <article className="flex min-h-0 flex-col rounded-[32px] border border-emerald-500/35 bg-emerald-500/12 px-4 py-4 shadow-2xl shadow-emerald-950/10">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[12px] font-bold uppercase tracking-[0.28em] text-emerald-200">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-emerald-200">
                     Listo para retirar
                   </p>
-                  <h2 className="mt-2 text-[clamp(1.6rem,2.1vw,2.8rem)] font-black leading-none tracking-tight text-white">
+                  <h2 className="mt-1 text-[clamp(1.4rem,1.9vw,2.2rem)] font-black leading-none tracking-tight text-white">
                     Pasá por mostrador
                   </h2>
                 </div>
 
-                <div className="rounded-[24px] bg-emerald-400/20 px-4 py-3 text-right">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                <div className="rounded-[22px] bg-emerald-400/20 px-4 py-3 text-right">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
                     Listos
                   </p>
                   <p className="mt-1 text-3xl font-black leading-none tabular-nums text-white">
                     {readyTotal}
                   </p>
                   {readyPages.length > 1 ? (
-                    <p className="mt-1 text-[11px] text-emerald-100/70">
+                    <p className="mt-1 text-[10px] text-emerald-100/70">
                       Página {readyPage + 1}/{readyPages.length}
                     </p>
                   ) : null}
@@ -349,9 +373,9 @@ export default function RetiroPage() {
               </div>
 
               {!data || readyTotal === 0 ? (
-                <div className="mt-4 flex flex-1 items-center justify-center rounded-[28px] border border-dashed border-emerald-300/30 bg-black/10 px-6 py-8 text-center">
+                <div className="mt-3 flex flex-1 items-center justify-center rounded-[24px] border border-dashed border-emerald-300/30 bg-black/10 px-6 py-8 text-center">
                   <div>
-                    <p className="text-[clamp(1.6rem,2vw,2.5rem)] font-black tracking-tight text-white">
+                    <p className="text-[clamp(1.4rem,1.8vw,2rem)] font-black tracking-tight text-white">
                       Todavía no hay pedidos listos
                     </p>
                     <p className="mt-2 text-sm text-emerald-50/75">
@@ -360,33 +384,36 @@ export default function RetiroPage() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
+                <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3">
                   {visibleReadyOrders.map((pedido) => (
                     <article
                       key={pedido.id}
-                      className="flex min-h-0 flex-1 flex-col justify-between rounded-[30px] border border-emerald-300/30 bg-slate-950/70 px-5 py-4"
+                      className="flex min-h-0 flex-1 flex-col justify-between rounded-[24px] border border-emerald-300/30 bg-slate-950/70 px-4 py-3"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-sm font-bold uppercase tracking-[0.18em] text-emerald-200">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-200">
                           {pedido.codigo}
                         </p>
 
-                        <span className="rounded-full bg-emerald-400/20 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-100">
+                        <span className="rounded-full bg-emerald-400/20 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-100">
                           Retirar
                         </span>
                       </div>
 
                       <div className="mt-2 flex-1">
-                        <h3 className="break-words text-[clamp(2.2rem,3.2vw,4.4rem)] font-black uppercase leading-[0.95] tracking-tight text-white">
+                        <h3
+                          className={`break-words font-black tracking-tight text-white ${getNameClass(
+                            pedido.cliente_nombre,
+                            'ready'
+                          )}`}
+                        >
                           {pedido.cliente_nombre}
                         </h3>
                       </div>
 
-                      <div className="mt-3 flex items-end justify-between gap-3">
-                        <p className="text-sm font-medium text-emerald-50/85">
-                          Pedido de las {formatTime(pedido.creado_en)}
-                        </p>
-                      </div>
+                      <p className="mt-2 text-sm font-medium text-emerald-50/85">
+                        Pedido de las {formatTime(pedido.creado_en)}
+                      </p>
                     </article>
                   ))}
                 </div>
