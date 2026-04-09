@@ -184,7 +184,10 @@ export default function AdminHome() {
             ? 'Alta de mesas del salón, generación de QR y material imprimible para cada mesa.'
             : 'No se usa en modo take away porque la operación no se organiza por mesas.',
         status: businessMode === 'restaurant' ? 'enabled' : 'not_applicable',
-        href: businessMode === 'restaurant' ? '/admin/mesas' : '/admin/configuracion',
+        href:
+          businessMode === 'restaurant'
+            ? '/admin/mesas'
+            : '/admin/configuracion',
         action:
           businessMode === 'restaurant' ? 'Abrir módulo' : 'Ver configuración',
       },
@@ -290,16 +293,41 @@ export default function AdminHome() {
     <div className="space-y-6">
       <section className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <h1 className="text-2xl font-bold">Panel admin</h1>
           <p className="mt-1 text-sm text-slate-600">
             Resumen operativo y comercial del negocio.
           </p>
         </div>
 
-        {cargando && (
-          <p className="text-sm text-slate-500">Cargando estadísticas...</p>
-        )}
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/inicio"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Volver a inicio
+          </Link>
+
+          <Link
+            href="/cocina"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Abrir cocina
+          </Link>
+
+          {businessMode === 'restaurant' && capabilities.waiter_mode ? (
+            <Link
+              href="/mozo/mesas"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Abrir mozo
+            </Link>
+          ) : null}
+        </div>
       </section>
+
+      {cargando && (
+        <p className="text-sm text-slate-500">Cargando estadísticas...</p>
+      )}
 
       {error ? (
         <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -333,6 +361,61 @@ export default function AdminHome() {
           <p className="mt-1 text-2xl font-bold">
             {addons.whatsapp_delivery ? 'Activo' : 'No activo'}
           </p>
+        </div>
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+        <h2 className="text-lg font-semibold">Accesos rápidos</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Atajos internos según la función y el modo de operación.
+        </p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Link
+            href="/admin/productos"
+            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+          >
+            Menú / Productos
+          </Link>
+
+          <Link
+            href="/cocina"
+            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+          >
+            Cocina
+          </Link>
+
+          {businessMode === 'restaurant' ? (
+            <Link
+              href="/admin/mesas"
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+            >
+              Mesas y QR
+            </Link>
+          ) : (
+            <Link
+              href="/pedir"
+              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+            >
+              Abrir take away
+            </Link>
+          )}
+
+          {businessMode === 'restaurant' && capabilities.waiter_mode ? (
+            <Link
+              href="/mozo/mesas"
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+            >
+              Modo mozo
+            </Link>
+          ) : (
+            <Link
+              href="/inicio"
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+            >
+              Ir a inicio
+            </Link>
+          )}
         </div>
       </section>
 

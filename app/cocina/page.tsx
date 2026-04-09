@@ -1,7 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import {
+  normalizeBusinessMode,
+  type BusinessMode,
+} from '@/lib/plans';
 
 const DELIVERY_MESA_ID = 0;
 
@@ -23,8 +28,25 @@ type Pedido = {
   tipo_servicio?: string | null;
 };
 
+type MesaRef = {
+  id: number;
+  numero: number | null;
+  nombre: string | null;
+};
+
 type FiltroEstado = 'todos' | 'pendiente' | 'en_preparacion' | 'listo';
 type PedidoKind = 'salon' | 'takeaway' | 'delivery';
+
+type AdminSessionPayload = {
+  adminId?: string;
+  business_mode?: BusinessMode;
+  capabilities?: {
+    waiter_mode?: boolean;
+  };
+  restaurant?: {
+    business_mode?: BusinessMode;
+  } | null;
+};
 
 function isDeliveryPedido(pedido: Pedido) {
   const tipo = String(pedido.tipo_servicio ?? '').trim().toLowerCase();
@@ -68,13 +90,23 @@ function getPedidoKind(pedido: Pedido): PedidoKind {
   return 'salon';
 }
 
-function getPedidoLabel(pedido: Pedido) {
+function getPedidoLabel(pedido: Pedido, mesasMap: Record<number, MesaRef>) {
   const kind = getPedidoKind(pedido);
 
   if (kind === 'delivery') return 'Delivery';
   if (kind === 'takeaway') return 'Take Away';
 
-  return `Mesa ${pedido.mesa_id}`;
+  const mesa = mesasMap[pedido.mesa_id];
+
+  if (mesa?.numero != null && mesa.numero > 0) {
+    return `Mesa ${mesa.numero}`;
+  }
+
+  if (mesa?.nombre?.trim()) {
+    return mesa.nombre.trim();
+  }
+
+  return `Mesa ID ${pedido.mesa_id}`;
 }
 
 function getPedidoKindBadge(pedido: Pedido) {
@@ -104,12 +136,68 @@ function getPedidoKindBadge(pedido: Pedido) {
 }
 
 export default function CocinaPage() {
+  const router = useRouter();
+
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
+  const [businessMode, setBusinessMode] = useState<BusinessMode>('restaurant');
+
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [mesasMap, setMesasMap] = useState<Record<number, MesaRef>>({});
   const [cargando, setCargando] = useState(true);
   const [destacados, setDestacados] = useState<number[]>([]);
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function verifyAccess() {
+      try {
+        const res = await fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        if (!res.ok) {
+          router.replace('/admin/login');
+          return;
+        }
+
+        const data = await res.json().catch(() => null);
+        const session = (data?.session as AdminSessionPayload | null) ?? null;
+
+        if (!active) return;
+
+        if (!session?.adminId) {
+          router.replace('/admin/login');
+          return;
+        }
+
+        setCanUseWaiterMode(!!session?.capabilities?.waiter_mode);
+        setBusinessMode(
+          normalizeBusinessMode(
+            session?.business_mode ?? session?.restaurant?.business_mode
+          )
+        );
+      } catch (error) {
+        console.error('No se pudo verificar acceso a cocina', error);
+        if (!active) return;
+        router.replace('/admin/login');
+      } finally {
+        if (active) {
+          setCheckingAccess(false);
+        }
+      }
+    }
+
+    verifyAccess();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
 
   useEffect(() => {
     audioRef.current = new Audio('/sounds/sonido.wav');
@@ -124,28 +212,36 @@ export default function CocinaPage() {
   };
 
   const cargarPedidos = async () => {
-    const { data, error } = await supabase
-      .from('pedidos')
-      .select(`
-        id,
-        mesa_id,
-        creado_en,
-        estado,
-        origen,
-        tipo_servicio,
-        codigo_publico,
-        items_pedido (
-          id,
-          cantidad,
-          comentarios,
-          producto:productos ( nombre )
-        )
-      `)
-      .in('estado', ['pendiente', 'en_preparacion', 'listo'])
-      .order('creado_en', { ascending: true });
+    setCargando(true);
 
-    if (!error && data) {
-      const formateados: Pedido[] = data.map((p: any) => ({
+    const [{ data: pedidosData, error: pedidosError }, { data: mesasData, error: mesasError }] =
+      await Promise.all([
+        supabase
+          .from('pedidos')
+          .select(`
+            id,
+            mesa_id,
+            creado_en,
+            estado,
+            origen,
+            tipo_servicio,
+            codigo_publico,
+            items_pedido (
+              id,
+              cantidad,
+              comentarios,
+              producto:productos ( nombre )
+            )
+          `)
+          .in('estado', ['pendiente', 'en_preparacion', 'listo'])
+          .order('creado_en', { ascending: true }),
+        supabase
+          .from('mesas')
+          .select('id, numero, nombre'),
+      ]);
+
+    if (!pedidosError && pedidosData) {
+      const formateados: Pedido[] = pedidosData.map((p: any) => ({
         id: p.id,
         mesa_id: p.mesa_id,
         creado_en: p.creado_en,
@@ -158,10 +254,20 @@ export default function CocinaPage() {
       setPedidos(formateados);
     }
 
+    if (!mesasError && mesasData) {
+      const map: Record<number, MesaRef> = {};
+      for (const mesa of mesasData as MesaRef[]) {
+        map[mesa.id] = mesa;
+      }
+      setMesasMap(map);
+    }
+
     setCargando(false);
   };
 
   useEffect(() => {
+    if (checkingAccess) return;
+
     cargarPedidos();
 
     const canalPedidos = supabase
@@ -213,7 +319,7 @@ export default function CocinaPage() {
       supabase.removeChannel(canalPedidos);
       supabase.removeChannel(canalItems);
     };
-  }, []);
+  }, [checkingAccess]);
 
   const cambiarEstado = async (pedidoId: number, nuevoEstado: string) => {
     await supabase.from('pedidos').update({ estado: nuevoEstado }).eq('id', pedidoId);
@@ -225,9 +331,17 @@ export default function CocinaPage() {
     filtroEstado === 'todos' ? true : p.estado === filtroEstado
   );
 
+  if (checkingAccess) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-50">
+        <p>Verificando acceso a cocina...</p>
+      </main>
+    );
+  }
+
   if (cargando) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
+      <main className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-50">
         <p>Cargando pedidos...</p>
       </main>
     );
@@ -235,36 +349,72 @@ export default function CocinaPage() {
 
   return (
     <main className="min-h-screen bg-slate-900 text-slate-50 px-4 py-6">
-      <div className="max-w-4xl mx-auto space-y-4">
-        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="max-w-5xl mx-auto space-y-4">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">Cocina (tiempo real)</h1>
             <p className="text-sm text-slate-300">
               Pedidos de salón, take away y delivery en una sola vista.
             </p>
+            <p className="text-sm text-slate-400">
+              En pedidos de salón se muestra el número visible de mesa, aunque la
+              base use IDs internos para QR y navegación.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {[
-              { value: 'todos', label: 'Todos' },
-              { value: 'pendiente', label: 'Pendientes' },
-              { value: 'en_preparacion', label: 'En preparación' },
-              { value: 'listo', label: 'Listos' },
-            ].map((f) => (
+            <button
+              onClick={cargarPedidos}
+              className="px-3 py-1 rounded-lg text-sm bg-slate-800 border border-slate-600 hover:bg-slate-700"
+            >
+              Actualizar
+            </button>
+
+            <button
+              onClick={() => router.push('/inicio')}
+              className="px-3 py-1 rounded-lg text-sm bg-white text-slate-900 hover:bg-slate-100"
+            >
+              Volver a inicio
+            </button>
+
+            <button
+              onClick={() => router.push('/admin')}
+              className="px-3 py-1 rounded-lg text-sm bg-white text-slate-900 hover:bg-slate-100"
+            >
+              Ir a admin
+            </button>
+
+            {businessMode === 'restaurant' && canUseWaiterMode ? (
               <button
-                key={f.value}
-                onClick={() => setFiltroEstado(f.value as FiltroEstado)}
-                className={`px-3 py-1 rounded-full text-sm border ${
-                  filtroEstado === f.value
-                    ? 'bg-emerald-500 border-emerald-400 text-slate-900'
-                    : 'bg-slate-800 border-slate-600 hover:bg-slate-700'
-                }`}
+                onClick={() => router.push('/mozo/mesas')}
+                className="px-3 py-1 rounded-lg text-sm bg-emerald-400 text-slate-900 font-semibold hover:bg-emerald-300"
               >
-                {f.label}
+                Ir a mozo
               </button>
-            ))}
+            ) : null}
           </div>
         </header>
+
+        <div className="flex flex-wrap gap-2">
+          {[
+            { value: 'todos', label: 'Todos' },
+            { value: 'pendiente', label: 'Pendientes' },
+            { value: 'en_preparacion', label: 'En preparación' },
+            { value: 'listo', label: 'Listos' },
+          ].map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setFiltroEstado(f.value as FiltroEstado)}
+              className={`px-3 py-1 rounded-full text-sm border ${
+                filtroEstado === f.value
+                  ? 'bg-emerald-500 border-emerald-400 text-slate-900'
+                  : 'bg-slate-800 border-slate-600 hover:bg-slate-700'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
 
         {pedidosFiltrados.length === 0 && (
           <p className="text-slate-400">No hay pedidos para mostrar.</p>
@@ -293,7 +443,8 @@ export default function CocinaPage() {
                     </span>
 
                     <h3 className="font-semibold">
-                      {p.codigo_publico || `Pedido #${p.id}`} – {getPedidoLabel(p)}
+                      {p.codigo_publico || `Pedido #${p.id}`} –{' '}
+                      {getPedidoLabel(p, mesasMap)}
                     </h3>
                   </div>
 
