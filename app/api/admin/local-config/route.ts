@@ -41,10 +41,10 @@ function getBusinessModeMeta(businessMode: BusinessMode) {
     customer_entry_kind: 'restaurant',
     customer_entry_strategy: 'table_qr_route',
     current_customer_entry_path: '/mesa/[id]',
-    planned_customer_entry_path: null,
-    takeaway_ready_screen_path: null,
+    planned_customer_entry_path: '/pedir',
+    takeaway_ready_screen_path: '/retiro',
     table_qr_enabled: true,
-    takeaway_enabled: false,
+    takeaway_enabled: true,
   };
 }
 
