@@ -259,37 +259,42 @@ export default function MesasMozoPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const getMesaPublicUrl = (numero: number | null) => {
-    if (numero == null || numero <= 0) return '';
-    if (typeof window === 'undefined') return `/mesa/${numero}`;
-    return `${window.location.origin}/mesa/${numero}`;
+  const getMesaPublicPath = (mesaId: number | null | undefined) => {
+    if (mesaId == null || mesaId <= DELIVERY_MESA_ID) return '';
+    return `/mesa/${mesaId}`;
   };
 
-  const getMesaQrUrl = (numero: number | null) => {
-    const mesaUrl = getMesaPublicUrl(numero);
+  const getMesaPublicUrl = (mesaId: number | null | undefined) => {
+    const path = getMesaPublicPath(mesaId);
+    if (!path) return '';
+    if (typeof window === 'undefined') return path;
+    return `${window.location.origin}${path}`;
+  };
+
+  const getMesaQrUrl = (mesaId: number | null | undefined) => {
+    const mesaUrl = getMesaPublicUrl(mesaId);
     if (!mesaUrl) return '';
     return `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(
       mesaUrl
     )}`;
   };
 
-  const copiarLinkMesa = async (numero: number | null) => {
-    if (numero == null || numero <= 0) return;
-
-    const url = getMesaPublicUrl(numero);
+  const copiarLinkMesa = async (mesa: MesaConCuenta) => {
+    const url = getMesaPublicUrl(mesa.id);
+    if (!url) return;
 
     try {
       await navigator.clipboard.writeText(url);
-      setMensaje(`Link de Mesa ${numero} copiado: ${url}`);
+      setMensaje(`Link de ${getMesaDisplayName(mesa)} copiado: ${url}`);
     } catch (error) {
       console.error(error);
-      setMensaje(`No se pudo copiar el link de Mesa ${numero}.`);
+      setMensaje(`No se pudo copiar el link de ${getMesaDisplayName(mesa)}.`);
     }
   };
 
-  const abrirMesa = (numero: number | null) => {
-    if (numero == null || numero <= 0) return;
-    const url = getMesaPublicUrl(numero);
+  const abrirMesa = (mesa: MesaConCuenta) => {
+    const url = getMesaPublicUrl(mesa.id);
+    if (!url) return;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
@@ -298,12 +303,11 @@ export default function MesasMozoPage() {
   };
 
   const imprimirQrMesa = (mesa: MesaConCuenta) => {
-    const numero = mesa.numero;
-    if (numero == null || numero <= 0) return;
-
-    const mesaUrl = getMesaPublicUrl(numero);
-    const qrUrl = getMesaQrUrl(numero);
+    const mesaUrl = getMesaPublicUrl(mesa.id);
+    const qrUrl = getMesaQrUrl(mesa.id);
     const mesaTitulo = getMesaDisplayName(mesa);
+
+    if (!mesaUrl || !qrUrl) return;
 
     const printWindow = window.open('', '_blank', 'width=900,height=1000');
 
@@ -484,13 +488,12 @@ export default function MesasMozoPage() {
   };
 
   const descargarCartelMesaPng = async (mesa: MesaConCuenta) => {
-    const numero = mesa.numero;
-    if (numero == null || numero <= 0) return;
-
     try {
       const mesaTitulo = getMesaDisplayName(mesa);
-      const mesaUrl = getMesaPublicUrl(numero);
-      const qrUrl = getMesaQrUrl(numero);
+      const mesaUrl = getMesaPublicUrl(mesa.id);
+      const qrUrl = getMesaQrUrl(mesa.id);
+
+      if (!mesaUrl || !qrUrl) return;
 
       const qrResponse = await fetch(qrUrl);
 
@@ -567,7 +570,7 @@ export default function MesasMozoPage() {
       img.src = svgUrl;
     } catch (error) {
       console.error(error);
-      setMensaje(`No se pudo descargar el cartel PNG de Mesa ${numero}.`);
+      setMensaje(`No se pudo descargar el cartel PNG de ${getMesaDisplayName(mesa)}.`);
     }
   };
 
@@ -874,12 +877,14 @@ export default function MesasMozoPage() {
     const mesa = mesas.find((m) => m.id === mesaId);
     if (!mesa) return;
 
+    const mesaLabel = getMesaDisplayName(mesa);
+
     if (mesa.pedidos.length === 0) {
-      setMensaje(`La mesa ${mesa.nombre} no tiene pedidos abiertos.`);
+      setMensaje(`${mesaLabel} no tiene pedidos abiertos.`);
       return;
     }
 
-    const confirmar = window.confirm(`¿Cerrar la cuenta de ${mesa.nombre}?`);
+    const confirmar = window.confirm(`¿Cerrar la cuenta de ${mesaLabel}?`);
     if (!confirmar) return;
 
     setProcesandoMesaId(mesaId);
@@ -907,7 +912,7 @@ export default function MesasMozoPage() {
       return;
     }
 
-    setMensaje(`Cuenta de ${mesa.nombre} cerrada correctamente.`);
+    setMensaje(`Cuenta de ${mesaLabel} cerrada correctamente.`);
     setProcesandoMesaId(null);
     cargarDatos();
   };
@@ -964,6 +969,8 @@ export default function MesasMozoPage() {
     const mesa = mesas.find((m) => m.id === mesaId);
     if (!mesa) return;
 
+    const mesaLabel = getMesaDisplayName(mesa);
+
     setEliminandoMesaId(mesaId);
     setMensaje(null);
 
@@ -981,14 +988,14 @@ export default function MesasMozoPage() {
 
     if ((count ?? 0) > 0) {
       setMensaje(
-        `No se puede eliminar ${mesa.nombre} porque tiene pedidos asociados en el historial.`
+        `No se puede eliminar ${mesaLabel} porque tiene pedidos asociados en el historial.`
       );
       setEliminandoMesaId(null);
       return;
     }
 
     const confirmar = window.confirm(
-      `¿Eliminar ${mesa.nombre}? Esta acción no se puede deshacer.`
+      `¿Eliminar ${mesaLabel}? Esta acción no se puede deshacer.`
     );
     if (!confirmar) {
       setEliminandoMesaId(null);
@@ -1008,7 +1015,7 @@ export default function MesasMozoPage() {
       return;
     }
 
-    setMensaje(`${mesa.nombre} fue eliminada.`);
+    setMensaje(`${mesaLabel} fue eliminada.`);
     setEliminandoMesaId(null);
     cargarDatos();
   };
@@ -1115,10 +1122,10 @@ export default function MesasMozoPage() {
                 Ir a Configuración
               </button>
               <button
-                onClick={() => router.push('/admin')}
+                onClick={() => router.push('/inicio')}
                 className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Volver al admin
+                Volver a inicio
               </button>
             </div>
           </div>
@@ -1154,10 +1161,10 @@ export default function MesasMozoPage() {
                 Ver planes
               </a>
               <button
-                onClick={() => router.push('/admin')}
+                onClick={() => router.push('/inicio')}
                 className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Volver al admin
+                Volver a inicio
               </button>
             </div>
           </div>
@@ -1185,6 +1192,10 @@ export default function MesasMozoPage() {
             <p className="text-sm text-slate-500">
               La mesa técnica #{DELIVERY_MESA_ID} está reservada para delivery y no
               aparece en esta vista.
+            </p>
+            <p className="text-sm text-slate-500">
+              Los links y QR de cliente usan <strong>/mesa/[id]</strong> con el ID interno.
+              La identificación visible del salón sigue siendo el número de mesa.
             </p>
           </div>
 
@@ -1253,7 +1264,7 @@ export default function MesasMozoPage() {
             const tiempo = tiempoMesa(mesa);
             const resumen = resumenCantidades(mesa);
             const formaPago = formaPagoMesa(mesa);
-            const mesaUrl = getMesaPublicUrl(mesa.numero);
+            const mesaUrl = getMesaPublicUrl(mesa.id);
 
             return (
               <article
@@ -1299,14 +1310,14 @@ export default function MesasMozoPage() {
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => abrirMesa(mesa.numero)}
+                      onClick={() => abrirMesa(mesa)}
                       className="px-2 py-1 rounded-md bg-slate-800 text-white text-[11px] font-medium hover:bg-slate-700"
                     >
                       Abrir mesa
                     </button>
                     <button
                       type="button"
-                      onClick={() => copiarLinkMesa(mesa.numero)}
+                      onClick={() => copiarLinkMesa(mesa)}
                       className="px-2 py-1 rounded-md bg-white border border-slate-300 text-slate-700 text-[11px] font-medium hover:bg-slate-50"
                     >
                       Copiar link
@@ -1482,7 +1493,7 @@ export default function MesasMozoPage() {
 
             <div className="mt-4 rounded-2xl border p-4">
               <img
-                src={getMesaQrUrl(mesaQrActiva.numero)}
+                src={getMesaQrUrl(mesaQrActiva.id)}
                 alt={`QR ${getMesaDisplayName(mesaQrActiva)}`}
                 className="mx-auto h-72 w-72 max-w-full"
               />
@@ -1490,21 +1501,21 @@ export default function MesasMozoPage() {
                 {getMesaDisplayName(mesaQrActiva)}
               </p>
               <p className="mt-2 break-all text-center text-xs text-slate-600">
-                {getMesaPublicUrl(mesaQrActiva.numero)}
+                {getMesaPublicUrl(mesaQrActiva.id)}
               </p>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => abrirMesa(mesaQrActiva.numero)}
+                onClick={() => abrirMesa(mesaQrActiva)}
                 className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
               >
                 Abrir mesa
               </button>
               <button
                 type="button"
-                onClick={() => copiarLinkMesa(mesaQrActiva.numero)}
+                onClick={() => copiarLinkMesa(mesaQrActiva)}
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Copiar link

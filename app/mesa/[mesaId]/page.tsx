@@ -37,7 +37,7 @@ type PedidoCreado = {
 export default function MesaPage() {
   const params = useParams();
   const rawMesaId = params?.mesaId as string | string[] | undefined;
-  const mesaNumero = Number(Array.isArray(rawMesaId) ? rawMesaId[0] : rawMesaId);
+  const mesaRutaId = Number(Array.isArray(rawMesaId) ? rawMesaId[0] : rawMesaId);
 
   const [mesa, setMesa] = useState<Mesa | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -54,7 +54,7 @@ export default function MesaPage() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const mesaValida = Number.isFinite(mesaNumero) && mesaNumero > DELIVERY_MESA_ID;
+  const mesaValida = Number.isFinite(mesaRutaId) && mesaRutaId > DELIVERY_MESA_ID;
 
   useEffect(() => {
     const cargarDatosIniciales = async () => {
@@ -71,7 +71,7 @@ export default function MesaPage() {
             supabase
               .from('mesas')
               .select('id, numero, nombre')
-              .eq('numero', mesaNumero)
+              .eq('id', mesaRutaId)
               .maybeSingle(),
             supabase
               .from('productos')
@@ -124,7 +124,7 @@ export default function MesaPage() {
     };
 
     cargarDatosIniciales();
-  }, [mesaNumero, mesaValida]);
+  }, [mesaRutaId, mesaValida]);
 
   useEffect(() => {
     if (!mesa?.id) return;
@@ -379,9 +379,9 @@ export default function MesaPage() {
             Esta URL no corresponde a una mesa válida
           </h1>
           <p className="mt-3 text-sm leading-relaxed text-slate-600">
-            El acceso <code>/mesa/[id]</code> está pensado solo para el salón.
-            Si el local trabaja en take away, conviene usar una entrada pública
-            separada para retiro.
+            El acceso del salón usa la ruta <code>/mesa/[id]</code> con el ID interno
+            de cada mesa. Si llegaste desde un QR viejo o mal impreso, pedile ayuda
+            al personal del local.
           </p>
 
           <div className="mt-5 flex flex-wrap justify-center gap-3">
@@ -418,6 +418,11 @@ export default function MesaPage() {
           <p className="mt-3 text-sm leading-relaxed text-slate-600">
             Este acceso digital está reservado para mesas del salón. Revisá el QR o
             pedile ayuda al personal del local.
+          </p>
+
+          <p className="mt-3 text-sm leading-relaxed text-slate-600">
+            Si este QR fue generado antes de la corrección de numeración, puede que
+            ya no coincida con la mesa visible y haya que reimprimirlo.
           </p>
 
           <div className="mt-5 flex flex-wrap justify-center gap-3">
