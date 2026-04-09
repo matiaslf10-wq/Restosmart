@@ -1,10 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import {
-  formatBusinessModeLabel,
-  type BusinessMode,
-} from '@/lib/plans';
+import { formatBusinessModeLabel, type BusinessMode } from '@/lib/plans';
 import { supabase } from '@/lib/supabaseClient';
 
 type Producto = {
@@ -56,7 +54,9 @@ export default function PedirPage() {
   const [localConfig, setLocalConfig] = useState<LocalPublicConfig | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
-  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string | null>(null);
+  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string | null>(
+    null
+  );
 
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [clienteNombre, setClienteNombre] = useState('');
@@ -67,6 +67,8 @@ export default function PedirPage() {
 
   const businessMode = normalizeBusinessModeForPublic(localConfig?.business_mode);
   const actualBusinessModeLabel = formatBusinessModeLabel(businessMode);
+  const isTakeawayMode = businessMode === 'takeaway';
+  const isRestaurantMode = businessMode === 'restaurant';
 
   useEffect(() => {
     let activo = true;
@@ -86,7 +88,9 @@ export default function PedirPage() {
             .maybeSingle(),
           supabase
             .from('productos')
-            .select('id, nombre, descripcion, precio, categoria, imagen_url, disponible')
+            .select(
+              'id, nombre, descripcion, precio, categoria, imagen_url, disponible'
+            )
             .eq('disponible', true)
             .order('categoria', { ascending: true })
             .order('nombre', { ascending: true }),
@@ -95,7 +99,10 @@ export default function PedirPage() {
         if (!activo) return;
 
         if (configRes.error) {
-          console.warn('No se pudo cargar configuracion_local en /pedir:', configRes.error);
+          console.warn(
+            'No se pudo cargar configuracion_local en /pedir:',
+            configRes.error
+          );
         } else {
           setLocalConfig((configRes.data as LocalPublicConfig | null) ?? null);
         }
@@ -123,7 +130,7 @@ export default function PedirPage() {
         setError(
           err instanceof Error
             ? err.message
-            : 'No se pudo cargar la pantalla de take away.'
+            : 'No se pudo cargar la pantalla de retiro.'
         );
       } finally {
         if (activo) {
@@ -266,10 +273,23 @@ export default function PedirPage() {
   const localDireccion = localConfig?.direccion?.trim() || '';
   const localHorario = localConfig?.horario_atencion?.trim() || '';
 
+  const heroBadge = isTakeawayMode ? 'TAKE AWAY' : 'RETIRO OPCIONAL';
+  const heroTitle = isTakeawayMode
+    ? 'Hacé tu pedido para retirar'
+    : 'Pedido de retiro por mostrador';
+  const heroDescription = isTakeawayMode
+    ? 'Este local está operando en modo take away. Tu identificación principal es tu nombre, no una mesa.'
+    : 'Este local está configurado como restaurante. Esta pantalla sigue disponible para pedidos de retiro, pero el flujo principal del salón sigue pasando por mesa.';
+  const sideTitle = isTakeawayMode ? 'Tu pedido' : 'Tu pedido de retiro';
+  const menuTitle = isTakeawayMode ? 'Menú para retiro' : 'Menú para retiro opcional';
+  const helperText = isTakeawayMode
+    ? 'El pedido se envía con lógica de take away y tu nombre queda guardado como referencia principal.'
+    : 'Aunque el local esté en modo restaurante, este pedido se crea como take away y tu nombre queda guardado como referencia principal para el retiro.';
+
   if (cargando) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-        <p className="text-slate-700">Cargando take away...</p>
+        <p className="text-slate-700">Cargando retiro...</p>
       </main>
     );
   }
@@ -280,19 +300,29 @@ export default function PedirPage() {
         <header className="rounded-3xl border bg-white p-6 shadow-sm">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                TAKE AWAY
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  isTakeawayMode
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-blue-100 text-blue-800'
+                }`}
+              >
+                {heroBadge}
               </span>
 
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                 Modo configurado: {actualBusinessModeLabel}
               </span>
 
-              {businessMode === 'restaurant' ? (
-                <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
-                  El local sigue configurado como restaurante
-                </span>
-              ) : null}
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  isTakeawayMode
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                Identificación principal: persona
+              </span>
             </div>
 
             <h1 className="mt-3 text-3xl font-bold text-slate-900">
@@ -300,7 +330,11 @@ export default function PedirPage() {
             </h1>
 
             <p className="mt-2 text-sm leading-relaxed text-slate-600">
-              Hacé tu pedido para retirar por mostrador, sin depender de una mesa.
+              {heroTitle}
+            </p>
+
+            <p className="mt-2 text-sm leading-relaxed text-slate-500">
+              {heroDescription}
             </p>
 
             {(localDireccion || localHorario) && (
@@ -309,14 +343,32 @@ export default function PedirPage() {
                 {localHorario ? <p>🕒 {localHorario}</p> : null}
               </div>
             )}
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link
+                href="/retiro"
+                className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Ver pantalla de retiro
+              </Link>
+
+              {isRestaurantMode ? (
+                <Link
+                  href="/inicio"
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Volver al flujo principal
+                </Link>
+              ) : null}
+            </div>
           </div>
         </header>
 
-        {businessMode === 'restaurant' ? (
+        {isRestaurantMode ? (
           <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Esta pantalla sigue funcionando para retiro, pero el negocio figura
-            configurado como <strong>{actualBusinessModeLabel}</strong>. Si querés que
-            todo el flujo quede alineado, revisá la configuración del local.
+            Este negocio está configurado como <strong>{actualBusinessModeLabel}</strong>.
+            La operación principal del salón sigue identificándose por <strong>mesa</strong>.
+            Esta pantalla queda habilitada como flujo opcional de <strong>retiro por persona</strong>.
           </div>
         ) : null}
 
@@ -354,7 +406,9 @@ export default function PedirPage() {
                 </label>
 
                 <p className="text-xs text-slate-500">
-                  Este nombre se guarda dentro del pedido y se usa para identificarlo cuando esté listo.
+                  Este nombre se guarda dentro del pedido y se usa para identificarlo
+                  cuando esté listo. En esta pantalla la referencia principal siempre
+                  es la persona que retira.
                 </p>
               </div>
             </div>
@@ -393,7 +447,7 @@ export default function PedirPage() {
 
             <section className="space-y-3">
               <h2 className="text-lg font-semibold text-slate-900">
-                Menú para retiro
+                {menuTitle}
               </h2>
 
               {categoriaSeleccionada == null && (
@@ -466,7 +520,9 @@ export default function PedirPage() {
 
           <aside className="space-y-4">
             <div className="rounded-3xl border bg-white p-5 shadow-sm">
-              <h2 className="text-xl font-semibold text-slate-900">Tu pedido</h2>
+              <h2 className="text-xl font-semibold text-slate-900">
+                {sideTitle}
+              </h2>
 
               {carrito.length === 0 ? (
                 <p className="mt-3 text-sm text-slate-600">
@@ -567,7 +623,7 @@ export default function PedirPage() {
                 </div>
 
                 <p className="mt-3 text-xs leading-relaxed text-slate-500">
-                  El pedido se envía a cocina con lógica de take away y el nombre de retiro queda guardado como dato propio del pedido.
+                  {helperText}
                 </p>
               </div>
             </div>
