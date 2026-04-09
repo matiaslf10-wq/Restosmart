@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import QRCode from 'react-qr-code';
@@ -15,7 +15,8 @@ const DELIVERY_MESA_ID = 0;
 
 type Mesa = {
   id: number;
-  nombre: string;
+  nombre: string | null;
+  numero: number | null;
 };
 
 type AdminSessionPayload = {
@@ -26,6 +27,43 @@ type AdminSessionPayload = {
     business_mode?: BusinessMode;
   } | null;
 };
+
+function getMesaNumero(mesa: Mesa, fallbackIndex = 1) {
+  if (typeof mesa.numero === 'number' && mesa.numero > 0) {
+    return mesa.numero;
+  }
+  return fallbackIndex;
+}
+
+function sortMesas(rows: Mesa[]) {
+  return [...rows].sort((a, b) => {
+    const numeroA = getMesaNumero(a, Number.MAX_SAFE_INTEGER);
+    const numeroB = getMesaNumero(b, Number.MAX_SAFE_INTEGER);
+
+    if (numeroA !== numeroB) return numeroA - numeroB;
+    return a.id - b.id;
+  });
+}
+
+function getNextAvailableMesaNumero(rows: Mesa[]) {
+  const used = new Set(
+    rows
+      .map((mesa) => mesa.numero)
+      .filter((numero): numero is number => typeof numero === 'number' && numero > 0)
+  );
+
+  let next = 1;
+  while (used.has(next)) {
+    next += 1;
+  }
+
+  return next;
+}
+
+function isDefaultMesaName(nombre: string | null | undefined, numero: number) {
+  const normalized = String(nombre ?? '').trim().toLowerCase();
+  return normalized === '' || normalized === `mesa ${numero}`.toLowerCase();
+}
 
 export default function AdminMesasPage() {
   const router = useRouter();
@@ -110,14 +148,13 @@ export default function AdminMesasPage() {
 
       const { data, error } = await supabase
         .from('mesas')
-        .select('*')
-        .gt('id', DELIVERY_MESA_ID)
-        .order('id', { ascending: true });
+        .select('id, nombre, numero')
+        .gt('id', DELIVERY_MESA_ID);
 
       if (!active) return;
 
       if (!error && data) {
-        setMesas(data as Mesa[]);
+        setMesas(sortMesas(data as Mesa[]));
       } else if (error) {
         console.error('Error cargando mesas:', error);
         setError('No se pudieron cargar las mesas.');
@@ -139,31 +176,46 @@ export default function AdminMesasPage() {
     }
   };
 
+  const duplicateNumbers = useMemo(() => {
+    const counts = new Map<number, number>();
+
+    for (const mesa of mesas) {
+      if (typeof mesa.numero === 'number' && mesa.numero > 0) {
+        counts.set(mesa.numero, (counts.get(mesa.numero) ?? 0) + 1);
+      }
+    }
+
+    return Array.from(counts.entries())
+      .filter(([, count]) => count > 1)
+      .map(([numero]) => numero)
+      .sort((a, b) => a - b);
+  }, [mesas]);
+
   const handleCrearMesa = async (e: React.FormEvent) => {
     e.preventDefault();
     setMensaje(null);
     setError(null);
+    setCreando(true);
 
     const nombreLimpio = nuevoNombre.trim();
-    if (!nombreLimpio) {
-      setError('El nombre de la mesa no puede estar vacío.');
-      return;
-    }
-
-    setCreando(true);
+    const numeroNuevo = getNextAvailableMesaNumero(mesas);
+    const nombreFinal = nombreLimpio || `Mesa ${numeroNuevo}`;
 
     try {
       const { data, error } = await supabase
         .from('mesas')
         .insert({
-          nombre: nombreLimpio,
+          nombre: nombreFinal,
+          numero: numeroNuevo,
         })
-        .select('*')
+        .select('id, nombre, numero')
         .single();
 
       if (error) {
         console.error('Error creando mesa:', error);
-        setError('No se pudo crear la mesa. Revisá la consola.');
+        setError(
+          'No se pudo crear la mesa. Verificá que exista la columna "numero" y que no haya una restricción incumplida.'
+        );
         setCreando(false);
         return;
       }
@@ -178,9 +230,11 @@ export default function AdminMesasPage() {
         return;
       }
 
-      setMesas((prev) => [...prev, mesaNueva].sort((a, b) => a.id - b.id));
+      setMesas((prev) => sortMesas([...prev, mesaNueva]));
       setNuevoNombre('');
-      setMensaje(`Mesa "${mesaNueva.nombre}" creada con éxito (ID ${mesaNueva.id}).`);
+      setMensaje(
+        `Mesa ${getMesaNumero(mesaNueva)} creada con éxito. ID interno: ${mesaNueva.id}.`
+      );
     } finally {
       setCreando(false);
     }
@@ -226,10 +280,10 @@ export default function AdminMesasPage() {
                 Ir a Configuración
               </Link>
               <button
-                onClick={() => router.push('/admin')}
+                onClick={() => router.push('/inicio')}
                 className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Volver al admin
+                Volver a inicio
               </button>
             </div>
           </div>
@@ -252,15 +306,27 @@ export default function AdminMesasPage() {
         <header className="flex flex-col gap-2 print:hidden">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <h1 className="text-2xl font-bold">Administración de mesas</h1>
-            <button
-              onClick={handlePrint}
-              className="px-3 py-1 rounded-lg bg-slate-800 text-white text-sm hover:bg-slate-700"
-            >
-              Imprimir todos los QR
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => router.push('/inicio')}
+                className="px-3 py-1 rounded-lg border border-slate-300 bg-white text-sm hover:bg-slate-50"
+              >
+                Volver a inicio
+              </button>
+              <button
+                onClick={handlePrint}
+                className="px-3 py-1 rounded-lg bg-slate-800 text-white text-sm hover:bg-slate-700"
+              >
+                Imprimir todos los QR
+              </button>
+            </div>
           </div>
+
           <p className="text-sm text-slate-600">
-            Cada QR apunta a <code>/mesa/[id]</code> en este sitio.
+            Cada QR apunta a <code>/mesa/[id]</code>, usando el <strong>ID interno</strong> de la mesa.
+          </p>
+          <p className="text-sm text-slate-600">
+            La identificación visible del salón se hace con el <strong>número de mesa</strong>, no con el ID.
           </p>
           <p className="text-sm text-slate-600">
             La mesa #{DELIVERY_MESA_ID} está reservada para delivery y no se muestra
@@ -273,21 +339,31 @@ export default function AdminMesasPage() {
             {mensaje}
           </p>
         )}
+
         {error && (
           <p className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-lg print:hidden">
             {error}
           </p>
         )}
 
+        {duplicateNumbers.length > 0 ? (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg print:hidden">
+            Atención: hay números de mesa duplicados en la base. Se repiten:{' '}
+            <strong>{duplicateNumbers.join(', ')}</strong>. El código nuevo ya usa el
+            menor número libre disponible, pero estas duplicaciones viejas conviene corregirlas.
+          </p>
+        ) : null}
+
         <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3 print:hidden">
           <h2 className="text-lg font-semibold">Agregar nueva mesa</h2>
+
           <form
             onSubmit={handleCrearMesa}
             className="flex flex-col sm:flex-row gap-2"
           >
             <input
               type="text"
-              placeholder="Ej: Mesa 1, Terraza, VIP..."
+              placeholder="Nombre opcional. Ej: Terraza, Ventana, VIP..."
               value={nuevoNombre}
               onChange={(e) => setNuevoNombre(e.target.value)}
               className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
@@ -300,9 +376,10 @@ export default function AdminMesasPage() {
               {creando ? 'Creando...' : 'Agregar mesa'}
             </button>
           </form>
+
           <p className="text-xs text-slate-500">
-            El ID se genera automáticamente en la base de datos. Cada mesa nueva tendrá su propio QR.
-            La mesa #{DELIVERY_MESA_ID} queda reservada para delivery.
+            La nueva mesa toma automáticamente el menor número libre disponible.
+            El QR usará el ID interno de base de datos, pero la UI mostrará el número de mesa.
           </p>
         </section>
 
@@ -312,7 +389,8 @@ export default function AdminMesasPage() {
           </p>
         ) : (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 print:grid-cols-2">
-            {mesas.map((mesa) => {
+            {mesas.map((mesa, index) => {
+              const numeroMesa = getMesaNumero(mesa, index + 1);
               const url = baseUrl
                 ? `${baseUrl}/mesa/${mesa.id}`
                 : `/mesa/${mesa.id}`;
@@ -322,13 +400,17 @@ export default function AdminMesasPage() {
                   key={mesa.id}
                   className="bg-white border border-slate-300 rounded-xl p-4 shadow-sm flex flex-col items-center gap-3 print:shadow-none"
                 >
-                  <h2 className="font-semibold text-lg text-center">
-                    {mesa.nombre}
-                    <br />
-                    <span className="text-sm text-slate-500">
-                      Mesa #{mesa.id}
-                    </span>
-                  </h2>
+                  <div className="text-center">
+                    <h2 className="font-semibold text-lg">Mesa {numeroMesa}</h2>
+
+                    {!isDefaultMesaName(mesa.nombre, numeroMesa) ? (
+                      <p className="text-sm text-slate-600">{mesa.nombre}</p>
+                    ) : null}
+
+                    <p className="text-xs text-slate-500 mt-1">
+                      ID interno #{mesa.id}
+                    </p>
+                  </div>
 
                   <div className="bg-white p-2 rounded-md border border-slate-200">
                     <QRCode value={url} size={180} />

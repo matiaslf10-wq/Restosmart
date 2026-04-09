@@ -428,6 +428,8 @@ export default function DemoClient() {
     return { pendientes, enPrep, listos, takeawayActivos };
   }, [pedidos]);
 
+  const allowMozo = modoDemo === 'restaurant';
+
   return (
     <main className="min-h-screen bg-white text-zinc-900">
       <header className="sticky top-0 z-40 border-b border-black/5 bg-white/80 backdrop-blur">
@@ -471,7 +473,11 @@ export default function DemoClient() {
                   type="button"
                   onClick={() => {
                     setModoDemo('takeaway');
-                    setQuery({ mesa, modo: 'takeaway', vista: vista === 'mozo' ? 'cliente' : vista });
+                    setQuery({
+                      mesa,
+                      modo: 'takeaway',
+                      vista: vista === 'mozo' ? 'cliente' : vista,
+                    });
                   }}
                   className={classNames(
                     'rounded-full px-3 py-2 text-xs font-semibold',
@@ -515,24 +521,24 @@ export default function DemoClient() {
                 >
                   Cocina
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (modoDemo === 'takeaway') return;
-                    setVista('mozo');
-                    setQuery({ mesa, vista: 'mozo', modo: modoDemo });
-                  }}
-                  disabled={modoDemo === 'takeaway'}
-                  className={classNames(
-                    'rounded-full px-3 py-2 text-xs font-semibold',
-                    vista === 'mozo'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-zinc-700 hover:bg-zinc-50',
-                    modoDemo === 'takeaway' && 'cursor-not-allowed opacity-50'
-                  )}
-                >
-                  Mozo
-                </button>
+
+                {allowMozo ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVista('mozo');
+                      setQuery({ mesa, vista: 'mozo', modo: modoDemo });
+                    }}
+                    className={classNames(
+                      'rounded-full px-3 py-2 text-xs font-semibold',
+                      vista === 'mozo'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-zinc-700 hover:bg-zinc-50'
+                    )}
+                  >
+                    Mozo
+                  </button>
+                ) : null}
               </div>
 
               <Link
@@ -583,8 +589,9 @@ export default function DemoClient() {
           productosById={productosById}
           stats={statsCocina}
           cambiarEstado={cambiarEstadoPedido}
+          allowMozo={allowMozo}
           onIrMozo={() => {
-            if (modoDemo === 'takeaway') return;
+            if (!allowMozo) return;
             setVista('mozo');
             setQuery({ vista: 'mozo', modo: modoDemo, mesa });
           }}
@@ -917,9 +924,10 @@ function CocinaView(props: {
   productosById: Record<string, Producto>;
   stats: { pendientes: number; enPrep: number; listos: number; takeawayActivos: number };
   cambiarEstado: (id: string, estado: EstadoPedido) => void;
+  allowMozo: boolean;
   onIrMozo: () => void;
 }) {
-  const { pedidos, productosById, stats, cambiarEstado, onIrMozo } = props;
+  const { pedidos, productosById, stats, cambiarEstado, allowMozo, onIrMozo } = props;
 
   const pedidosOrdenados = useMemo(() => {
     const rank: Record<EstadoPedido, number> = {
@@ -956,13 +964,15 @@ function CocinaView(props: {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onIrMozo}
-            className="rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-          >
-            Ir a Mozo
-          </button>
+          {allowMozo ? (
+            <button
+              type="button"
+              onClick={onIrMozo}
+              className="rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+            >
+              Ir a Mozo
+            </button>
+          ) : null}
 
           <Link
             href="/#contacto"
