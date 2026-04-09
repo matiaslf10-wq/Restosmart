@@ -26,6 +26,7 @@ type Pedido = {
   codigo_publico?: string | null;
   origen?: string | null;
   tipo_servicio?: string | null;
+  cliente_nombre?: string | null;
 };
 
 type MesaRef = {
@@ -90,11 +91,22 @@ function getPedidoKind(pedido: Pedido): PedidoKind {
   return 'salon';
 }
 
+function getClienteNombre(pedido: Pedido) {
+  const value = String(pedido.cliente_nombre ?? '').trim();
+  return value.length > 0 ? value : null;
+}
+
 function getPedidoLabel(pedido: Pedido, mesasMap: Record<number, MesaRef>) {
   const kind = getPedidoKind(pedido);
+  const clienteNombre = getClienteNombre(pedido);
 
-  if (kind === 'delivery') return 'Delivery';
-  if (kind === 'takeaway') return 'Take Away';
+  if (kind === 'delivery') {
+    return clienteNombre ? `Delivery · ${clienteNombre}` : 'Delivery';
+  }
+
+  if (kind === 'takeaway') {
+    return clienteNombre ? `Retiro · ${clienteNombre}` : 'Retiro / mostrador';
+  }
 
   const mesa = mesasMap[pedido.mesa_id];
 
@@ -226,6 +238,7 @@ export default function CocinaPage() {
             origen,
             tipo_servicio,
             codigo_publico,
+            cliente_nombre,
             items_pedido (
               id,
               cantidad,
@@ -250,6 +263,7 @@ export default function CocinaPage() {
         origen: p.origen ?? null,
         tipo_servicio: p.tipo_servicio ?? null,
         codigo_publico: p.codigo_publico ?? null,
+        cliente_nombre: p.cliente_nombre ?? null,
       }));
       setPedidos(formateados);
     }
@@ -424,6 +438,7 @@ export default function CocinaPage() {
           {pedidosFiltrados.map((p) => {
             const esNuevo = destacados.includes(p.id);
             const badge = getPedidoKindBadge(p);
+            const pedidoLabel = getPedidoLabel(p, mesasMap);
 
             return (
               <article
@@ -443,8 +458,7 @@ export default function CocinaPage() {
                     </span>
 
                     <h3 className="font-semibold">
-                      {p.codigo_publico || `Pedido #${p.id}`} –{' '}
-                      {getPedidoLabel(p, mesasMap)}
+                      {p.codigo_publico || `Pedido #${p.id}`}
                     </h3>
                   </div>
 
@@ -461,6 +475,8 @@ export default function CocinaPage() {
                     </span>
                   </div>
                 </header>
+
+                <p className="mt-1 text-sm text-slate-300">{pedidoLabel}</p>
 
                 <ul className="mt-2 space-y-1 text-sm">
                   {p.items.map((item) => (

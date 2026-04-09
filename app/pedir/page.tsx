@@ -209,27 +209,11 @@ export default function PedirPage() {
 
       const nombreRetiro = clienteNombre.trim();
 
-      const items = carrito.map((item, index) => {
-        const comentarioLimpio = item.comentarios.trim();
-
-        if (index === 0) {
-          const comentarioConRetiro = comentarioLimpio
-            ? `Retiro: ${nombreRetiro} · ${comentarioLimpio}`
-            : `Retiro: ${nombreRetiro}`;
-
-          return {
-            producto_id: item.producto.id,
-            cantidad: item.cantidad,
-            comentarios: comentarioConRetiro,
-          };
-        }
-
-        return {
-          producto_id: item.producto.id,
-          cantidad: item.cantidad,
-          comentarios: comentarioLimpio || null,
-        };
-      });
+      const items = carrito.map((item) => ({
+        producto_id: item.producto.id,
+        cantidad: item.cantidad,
+        comentarios: item.comentarios.trim() || null,
+      }));
 
       const payload = {
         total,
@@ -240,6 +224,7 @@ export default function PedirPage() {
         estado_pago: formaPago === 'efectivo' ? 'aprobado' : 'pendiente',
         efectivo_aprobado: formaPago === 'efectivo',
         paga_efectivo: formaPago === 'efectivo',
+        cliente_nombre: nombreRetiro,
         items,
       };
 
@@ -263,8 +248,8 @@ export default function PedirPage() {
       setClienteNombre('');
       setMensaje(
         formaPago === 'efectivo'
-          ? `Pedido #${pedido.id} generado correctamente. Quedó registrado para pagar al retirar.`
-          : `Pedido #${pedido.id} generado correctamente. Quedó registrado con pago virtual pendiente.`
+          ? `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado para pagar al retirar.`
+          : `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado con pago virtual pendiente.`
       );
     } catch (err) {
       console.error(err);
@@ -388,7 +373,7 @@ export default function PedirPage() {
                 </label>
 
                 <p className="text-xs text-slate-500">
-                  Este nombre se usa para identificar tu pedido cuando lo vengas a buscar.
+                  Este nombre se guarda dentro del pedido y se usa para identificarlo cuando esté listo.
                 </p>
               </div>
             </div>
@@ -601,8 +586,7 @@ export default function PedirPage() {
                 </div>
 
                 <p className="mt-3 text-xs leading-relaxed text-slate-500">
-                  El pedido se envía a cocina con lógica de take away. Por ahora,
-                  el nombre del retiro se adjunta dentro del comentario del pedido.
+                  El pedido se envía a cocina con lógica de take away y el nombre de retiro queda guardado como dato propio del pedido.
                 </p>
               </div>
             </div>
