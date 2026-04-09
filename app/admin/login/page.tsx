@@ -26,7 +26,7 @@ export default function AdminLoginPage() {
         if (!active) return;
 
         if (res.ok) {
-          router.replace('/admin');
+          router.replace('/inicio');
           router.refresh();
           return;
         }
@@ -70,7 +70,7 @@ export default function AdminLoginPage() {
         throw new Error(data?.error || 'No se pudo iniciar sesión.');
       }
 
-      router.replace('/admin');
+      router.replace(data?.redirectTo || '/inicio');
       router.refresh();
     } catch (error) {
       console.error(error);
@@ -95,7 +95,10 @@ export default function AdminLoginPage() {
   return (
     <main className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
       <div className="bg-white shadow-lg border border-slate-200 rounded-xl p-6 w-full max-w-sm">
-        <h1 className="text-xl font-bold text-center mb-4">Panel Admin</h1>
+        <h1 className="text-xl font-bold text-center mb-2">Ingreso al sistema</h1>
+        <p className="text-sm text-slate-600 text-center mb-4">
+          Ingresá con tu usuario para acceder a inicio.
+        </p>
 
         {errorMsg ? (
           <p className="text-red-600 text-sm mb-3 text-center">{errorMsg}</p>

@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
       {
         ok: true,
         email: adminUser.email ?? email,
+        redirectTo: '/inicio',
       },
       { status: 200 }
     );
