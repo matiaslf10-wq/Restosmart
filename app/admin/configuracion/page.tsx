@@ -18,6 +18,7 @@ type PublicOrderingMeta = {
     | 'separate_public_route_required';
   current_customer_entry_path: string | null;
   planned_customer_entry_path: string | null;
+  takeaway_ready_screen_path?: string | null;
   table_qr_enabled: boolean;
   takeaway_enabled: boolean;
 };
@@ -155,8 +156,9 @@ function getPublicOrderingMeta(businessMode: BusinessMode): PublicOrderingMeta {
       business_mode_label: formatBusinessModeLabel(businessMode),
       customer_entry_kind: 'takeaway',
       customer_entry_strategy: 'separate_public_route_required',
-      current_customer_entry_path: null,
-      planned_customer_entry_path: '/pedir',
+      current_customer_entry_path: '/pedir',
+      planned_customer_entry_path: null,
+      takeaway_ready_screen_path: '/retiro',
       table_qr_enabled: false,
       takeaway_enabled: true,
     };
@@ -168,6 +170,7 @@ function getPublicOrderingMeta(businessMode: BusinessMode): PublicOrderingMeta {
     customer_entry_strategy: 'table_qr_route',
     current_customer_entry_path: '/mesa/[numero]',
     planned_customer_entry_path: null,
+    takeaway_ready_screen_path: null,
     table_qr_enabled: true,
     takeaway_enabled: false,
   };
@@ -694,8 +697,9 @@ export default function AdminConfiguracionPage() {
             ) : (
               <>
                 Este negocio quedará configurado en modo take away. La lógica de
-                mesas no aplica y la experiencia del cliente deberá entrar por una
-                ruta pública específica de retiro.
+                mesas no aplica y la experiencia del cliente entra por una ruta
+                pública de pedido, mientras que la pantalla de retiro avisa cuándo
+                pasar a buscar la orden.
               </>
             )}
           </div>
@@ -706,8 +710,8 @@ export default function AdminConfiguracionPage() {
             <div>
               <h2 className="text-lg font-medium">Acceso público al cliente</h2>
               <p className="mt-1 text-sm text-neutral-600">
-                Vista previa de cómo debería entrar el cliente según el modo del
-                negocio.
+                Vista previa de cómo entra el cliente y qué pantallas públicas
+                quedan disponibles según el modo del negocio.
               </p>
             </div>
 
@@ -729,12 +733,12 @@ export default function AdminConfiguracionPage() {
 
               <div className="mt-4 space-y-2 text-sm text-slate-700">
                 <p>
-                  <span className="font-medium">Ruta actual:</span>{' '}
+                  <span className="font-medium">Ingreso del cliente:</span>{' '}
                   {publicOrdering.current_customer_entry_path ?? 'Todavía no creada'}
                 </p>
                 <p>
-                  <span className="font-medium">Ruta prevista:</span>{' '}
-                  {publicOrdering.planned_customer_entry_path ?? 'No aplica'}
+                  <span className="font-medium">Pantalla de retiro:</span>{' '}
+                  {publicOrdering.takeaway_ready_screen_path ?? 'No aplica'}
                 </p>
               </div>
             </div>
@@ -756,6 +760,13 @@ export default function AdminConfiguracionPage() {
                   <span>Take away</span>
                   <span className="font-semibold">
                     {publicOrdering.takeaway_enabled ? 'Sí' : 'No'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between rounded-xl border px-3 py-2">
+                  <span>Pantalla pública de retiro</span>
+                  <span className="font-semibold">
+                    {publicOrdering.takeaway_ready_screen_path ? 'Sí' : 'No'}
                   </span>
                 </div>
               </div>
@@ -791,26 +802,33 @@ export default function AdminConfiguracionPage() {
           ) : (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-sm font-medium text-amber-900">
-                La ruta pública de take away todavía no está creada
+                El flujo público de take away ya está disponible
               </p>
               <p className="mt-2 text-sm text-amber-900 leading-relaxed">
-                El modo take away ya existe a nivel de configuración y operación,
-                pero la entrada pública específica del cliente todavía falta. La
-                referencia actual está en la demo interactiva y la ruta sugerida es{' '}
-                <code>/pedir</code>.
+                El cliente puede pedir desde <code>/pedir</code> y la pantalla
+                pública para avisar que el pedido está listo queda disponible en{' '}
+                <code>/retiro</code>. Esto sirve para un monitor, televisor o tablet
+                cerca del mostrador.
               </p>
 
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
-                  href="/demo?modo=takeaway&vista=cliente"
+                  href="/pedir"
                   className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
                 >
-                  Probar demo take away
+                  Abrir take away
+                </Link>
+
+                <Link
+                  href="/retiro"
+                  className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+                >
+                  Abrir pantalla de retiro
                 </Link>
 
                 <Link
                   href="/inicio"
-                  className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   Ver entorno de prueba
                 </Link>

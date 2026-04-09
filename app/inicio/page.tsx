@@ -72,7 +72,7 @@ export default function InicioPage() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <QuickAccessCard
             href="/admin"
             title="🛠️ Administración"
@@ -95,6 +95,12 @@ export default function InicioPage() {
             href="/admin/mesas"
             title="🔗 Crear QR"
             description="Entrá a la administración de mesas y QR para generar, imprimir o revisar accesos de mesa."
+          />
+
+          <QuickAccessCard
+            href="/retiro"
+            title="📺 Pantalla de retiro"
+            description="Pantalla pública para mostrar los pedidos take away listos para retirar por nombre y código."
           />
         </section>
 
@@ -170,22 +176,31 @@ export default function InicioPage() {
 
             <p className="mt-2 text-sm leading-relaxed text-slate-600">
               En take away el cliente no necesita una mesa. El ingreso público se
-              resuelve desde la ruta <code>/pedir</code>.
+              resuelve desde la ruta <code>/pedir</code> y la pantalla pública de
+              retiro queda disponible en <code>/retiro</code>.
             </p>
 
             <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-sm font-medium text-amber-900">
                 Desde este inicio seguís entrando a las mismas vistas internas:
-                admin, cocina, mozo y QR. Lo que cambia es el acceso del cliente.
+                admin, cocina, mozo y QR. Lo que cambia es el acceso del cliente y
+                la pantalla visible para avisar que el pedido ya está listo.
               </p>
             </div>
 
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <Link
                 href="/pedir"
                 className="rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-600"
               >
                 Abrir take away
+              </Link>
+
+              <Link
+                href="/retiro"
+                className="rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Abrir pantalla de retiro
               </Link>
 
               <Link
