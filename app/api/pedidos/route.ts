@@ -37,6 +37,9 @@ type CreatePedidoBody = {
   estado_pago?: string | null;
   efectivo_aprobado?: boolean | null;
   paga_efectivo?: boolean | null;
+  cliente_nombre?: string | null;
+  cliente_telefono?: string | null;
+  direccion_entrega?: string | null;
   items: PedidoItemInput[];
 };
 
@@ -74,6 +77,11 @@ function normalizeOrigen(value: unknown, tipoServicio: TipoServicio) {
   if (tipoServicio === 'delivery') return 'delivery';
   if (tipoServicio === 'takeaway') return 'takeaway';
   return 'salon';
+}
+
+function normalizeOptionalText(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text.length ? text : null;
 }
 
 function getInitialPedidoEstado(params: {
@@ -182,6 +190,68 @@ async function resolveMesaIdForPedido(
   return { ok: true as const, mesaId: rawMesaId };
 }
 
+function parseTakeawayMarker(comment: string | null | undefined) {
+  const raw = String(comment ?? '').trim();
+
+  if (!raw) {
+    return {
+      clienteNombre: null as string | null,
+      comentarioLimpio: null as string | null,
+    };
+  }
+
+  const match = raw.match(/^retiro\s*:\s*(.+?)(?:\s*·\s*(.+))?$/i);
+
+  if (!match) {
+    return {
+      clienteNombre: null,
+      comentarioLimpio: raw,
+    };
+  }
+
+  const clienteNombre = normalizeOptionalText(match[1]);
+  const comentarioLimpio = normalizeOptionalText(match[2]);
+
+  return {
+    clienteNombre,
+    comentarioLimpio,
+  };
+}
+
+function extractTakeawayDataFromItems(items: PedidoItemInput[]) {
+  let clienteNombre: string | null = null;
+
+  const sanitizedItems = items.map((item, index) => {
+    const comentarioOriginal =
+      typeof item?.comentarios === 'string' ? item.comentarios : null;
+
+    if (index !== 0) {
+      return {
+        producto_id: Number(item.producto_id),
+        cantidad: Number(item.cantidad),
+        comentarios: normalizeOptionalText(comentarioOriginal),
+      };
+    }
+
+    const parsed = parseTakeawayMarker(comentarioOriginal);
+
+    if (parsed.clienteNombre && !clienteNombre) {
+      clienteNombre = parsed.clienteNombre;
+    }
+
+    return {
+      producto_id: Number(item.producto_id),
+      cantidad: Number(item.cantidad),
+      comentarios: parsed.comentarioLimpio,
+    };
+  });
+
+  return {
+    clienteNombre,
+    sanitizedItems,
+  };
+}
+
 export async function GET() {
   try {
     const sb = supabaseAdmin();
@@ -227,15 +297,35 @@ export async function POST(request: NextRequest) {
     const formaPago = body?.forma_pago === 'efectivo' ? 'efectivo' : 'virtual';
     const tipoServicio = normalizeTipoServicio(body?.tipo_servicio);
     const origen = normalizeOrigen(body?.origen, tipoServicio);
-    const items = Array.isArray(body?.items) ? body.items : [];
+    const rawItems = Array.isArray(body?.items) ? body.items : [];
 
     if (!Number.isFinite(total) || total < 0) {
       return NextResponse.json({ error: 'total inválido.' }, { status: 400 });
     }
 
-    if (items.length === 0) {
+    if (rawItems.length === 0) {
       return NextResponse.json(
         { error: 'El pedido no tiene ítems.' },
+        { status: 400 }
+      );
+    }
+
+    const extractedTakeawayData =
+      tipoServicio === 'takeaway'
+        ? extractTakeawayDataFromItems(rawItems)
+        : { clienteNombre: null as string | null, sanitizedItems: rawItems };
+
+    const items = extractedTakeawayData.sanitizedItems;
+    const clienteNombre =
+      normalizeOptionalText(body?.cliente_nombre) ??
+      extractedTakeawayData.clienteNombre;
+
+    const clienteTelefono = normalizeOptionalText(body?.cliente_telefono);
+    const direccionEntrega = normalizeOptionalText(body?.direccion_entrega);
+
+    if (tipoServicio === 'takeaway' && !clienteNombre) {
+      return NextResponse.json(
+        { error: 'cliente_nombre es obligatorio para take away.' },
         { status: 400 }
       );
     }
@@ -299,6 +389,10 @@ export async function POST(request: NextRequest) {
         typeof body?.efectivo_aprobado === 'boolean'
           ? body.efectivo_aprobado
           : formaPago === 'efectivo',
+      cliente_nombre: clienteNombre,
+      cliente_telefono: clienteTelefono,
+      direccion_entrega:
+        tipoServicio === 'delivery' ? direccionEntrega : null,
     };
 
     const { data: pedido, error: pedidoError } = await sb
@@ -356,6 +450,7 @@ export async function POST(request: NextRequest) {
           mesa_id_resuelto: mesaIdResolved,
           tipo_servicio: tipoServicio,
           origen,
+          cliente_nombre_resuelto: clienteNombre,
           canal_operativo:
             tipoServicio === 'takeaway'
               ? 'takeaway'

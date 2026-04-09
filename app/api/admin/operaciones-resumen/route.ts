@@ -109,7 +109,7 @@ function getMesaDisplay(mesa: MesaRow | undefined, pedido: PedidoRow) {
   const canal = getPedidoCanal(pedido);
 
   if (canal === 'delivery') return 'Delivery';
-  if (canal === 'takeaway') return 'Take Away';
+  if (canal === 'takeaway') return 'Retiro / mostrador';
 
   if (!mesa) return 'Mesa';
   if (mesa.id === DELIVERY_MESA_ID) return 'Delivery';
@@ -201,14 +201,18 @@ export async function GET(request: NextRequest) {
 
     const operacionLocalPedidos = pedidos
       .filter((pedido) => esOperacionLocal(pedido))
-      .map((pedido) => ({
-        ...pedido,
-        operacion_canal: getPedidoCanal(pedido),
-        mesa_nombre:
-          pedido.mesa_id != null
-            ? getMesaDisplay(mesasMap.get(pedido.mesa_id), pedido)
-            : getMesaDisplay(undefined, pedido),
-      }))
+      .map((pedido) => {
+        const canal = getPedidoCanal(pedido);
+
+        return {
+          ...pedido,
+          operacion_canal: canal,
+          mesa_nombre:
+            pedido.mesa_id != null
+              ? getMesaDisplay(mesasMap.get(pedido.mesa_id), pedido)
+              : getMesaDisplay(undefined, pedido),
+        };
+      })
       .slice(0, 20);
 
     const deliveryPedidos = pedidos
@@ -219,6 +223,13 @@ export async function GET(request: NextRequest) {
         mesa_nombre: 'Delivery',
       }))
       .slice(0, 20);
+
+    const localRestaurantPedidos = operacionLocalPedidos.filter(
+      (p) => p.operacion_canal === 'restaurant'
+    );
+    const localTakeawayPedidos = operacionLocalPedidos.filter(
+      (p) => p.operacion_canal === 'takeaway'
+    );
 
     const resumen = {
       salonSolicitados: operacionLocalPedidos.filter((p) => p.estado === 'solicitado')
@@ -232,6 +243,26 @@ export async function GET(request: NextRequest) {
       ).length,
       deliveryActivos: deliveryPedidos.length,
       alertasWhatsAppAbiertas: alertas.length,
+      localRestaurantActivos: localRestaurantPedidos.length,
+      localTakeawayActivos: localTakeawayPedidos.length,
+      localRestaurantSolicitados: localRestaurantPedidos.filter(
+        (p) => p.estado === 'solicitado'
+      ).length,
+      localRestaurantEnCurso: localRestaurantPedidos.filter(
+        (p) => p.estado === 'pendiente' || p.estado === 'en_preparacion'
+      ).length,
+      localRestaurantListos: localRestaurantPedidos.filter(
+        (p) => p.estado === 'listo'
+      ).length,
+      localTakeawaySolicitados: localTakeawayPedidos.filter(
+        (p) => p.estado === 'solicitado'
+      ).length,
+      localTakeawayEnCurso: localTakeawayPedidos.filter(
+        (p) => p.estado === 'pendiente' || p.estado === 'en_preparacion'
+      ).length,
+      localTakeawayListos: localTakeawayPedidos.filter(
+        (p) => p.estado === 'listo'
+      ).length,
     };
 
     return NextResponse.json(
