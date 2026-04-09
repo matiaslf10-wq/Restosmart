@@ -144,6 +144,7 @@ export default function AdminLayout({
       { href: '/inicio', label: 'Inicio', visible: true },
       { href: '/admin', label: 'Dashboard', visible: true },
       { href: '/cocina', label: 'Cocina', visible: true },
+      { href: '/mostrador', label: 'Mostrador / Caja', visible: true },
       {
         href: '/pedir',
         label: 'Take Away',
@@ -179,6 +180,7 @@ export default function AdminLayout({
     if (href === '/admin') return pathname === '/admin';
     if (href === '/inicio') return pathname === '/inicio';
     if (href === '/cocina') return pathname === '/cocina';
+    if (href === '/mostrador') return pathname === '/mostrador';
     if (href === '/mozo/mesas') return pathname === '/mozo/mesas';
     if (href === '/pedir') return pathname === '/pedir';
     return pathname === href || pathname.startsWith(`${href}/`);
