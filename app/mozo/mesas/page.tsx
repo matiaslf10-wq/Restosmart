@@ -49,18 +49,47 @@ type EstadoMesa = 'libre' | 'en_curso' | 'lista_para_cobrar';
 type FiltroMesas = 'todas' | EstadoMesa;
 type FormaPagoMesa = 'ninguna' | 'efectivo' | 'virtual';
 
-function esPedidoDelivery(pedido: Pedido) {
+function normalizeText(value: unknown) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function esPedidoDelivery(pedido: Pick<Pedido, 'mesa_id' | 'origen' | 'tipo_servicio'>) {
+  const origen = normalizeText(pedido.origen);
+  const tipoServicio = normalizeText(pedido.tipo_servicio);
+
   return (
     pedido.mesa_id === DELIVERY_MESA_ID ||
-    pedido.origen === 'delivery' ||
-    pedido.origen === 'delivery_whatsapp' ||
-    pedido.origen === 'delivery_manual' ||
-    pedido.tipo_servicio === 'delivery'
+    origen === 'delivery' ||
+    origen === 'delivery_whatsapp' ||
+    origen === 'delivery_manual' ||
+    tipoServicio === 'delivery' ||
+    tipoServicio === 'envio'
+  );
+}
+
+function esPedidoTakeaway(
+  pedido: Pick<Pedido, 'origen' | 'tipo_servicio'>
+) {
+  const origen = normalizeText(pedido.origen);
+  const tipoServicio = normalizeText(pedido.tipo_servicio);
+
+  return (
+    tipoServicio === 'takeaway' ||
+    tipoServicio === 'take_away' ||
+    tipoServicio === 'pickup' ||
+    tipoServicio === 'pick_up' ||
+    tipoServicio === 'retiro' ||
+    origen === 'takeaway' ||
+    origen === 'takeaway_web' ||
+    origen === 'takeaway_manual' ||
+    origen === 'takeaway_manual_mostrador' ||
+    origen === 'pickup' ||
+    origen === 'retiro'
   );
 }
 
 function shouldShowPedidoInMozo(pedido: Pedido) {
-  return !esPedidoDelivery(pedido);
+  return !esPedidoDelivery(pedido) && !esPedidoTakeaway(pedido);
 }
 
 function esMesaTecnica(mesa: { id: number; numero: number | null }) {
@@ -735,11 +764,9 @@ export default function MesasMozoPage() {
           }
 
           const esSalon =
-            nuevo?.mesa_id !== DELIVERY_MESA_ID &&
-            nuevo?.origen !== 'delivery' &&
-            nuevo?.origen !== 'delivery_whatsapp' &&
-            nuevo?.origen !== 'delivery_manual' &&
-            nuevo?.tipo_servicio !== 'delivery';
+  !esPedidoDelivery(nuevo as Pick<Pedido, 'mesa_id' | 'origen' | 'tipo_servicio'>) &&
+  !esPedidoTakeaway(nuevo as Pick<Pedido, 'origen' | 'tipo_servicio'>) &&
+  nuevo?.mesa_id !== DELIVERY_MESA_ID;
 
           const pagoAntes =
             viejo?.paga_efectivo || viejo?.forma_pago === 'efectivo';
