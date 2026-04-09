@@ -50,12 +50,26 @@ type OperacionesResponse = {
     deliveryPendientesAprobacion: number;
     deliveryActivos: number;
     alertasWhatsAppAbiertas: number;
+    localRestaurantActivos: number;
+    localTakeawayActivos: number;
+    localRestaurantSolicitados: number;
+    localRestaurantEnCurso: number;
+    localRestaurantListos: number;
+    localTakeawaySolicitados: number;
+    localTakeawayEnCurso: number;
+    localTakeawayListos: number;
   };
   salonPedidos: OperacionPedido[];
   deliveryPedidos: OperacionPedido[];
   whatsappAlertas: WhatsappAlert[];
   meta?: {
     alertasDisponibles?: boolean;
+    operation_identity?: 'mesa' | 'persona';
+    restaurant?: {
+      id: string | number;
+      slug: string;
+      plan?: string | null;
+    } | null;
   };
 };
 
