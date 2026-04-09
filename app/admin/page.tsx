@@ -177,6 +177,17 @@ export default function AdminHome() {
         action: 'Abrir módulo',
       },
       {
+        key: 'mostrador',
+        title: 'Mostrador / Caja',
+        description:
+          businessMode === 'takeaway'
+            ? 'Entrega final de pedidos take away y confirmación de retiro desde una sola pantalla.'
+            : 'Punto operativo compacto para entrega final y cierre de cuenta del salón en el flujo Esencial.',
+        status: 'enabled',
+        href: '/mostrador',
+        action: 'Abrir módulo',
+      },
+      {
         key: 'mesas',
         title: 'Mesas y QR',
         description:
@@ -314,6 +325,13 @@ export default function AdminHome() {
             Abrir cocina
           </Link>
 
+          <Link
+            href="/mostrador"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+          >
+            Abrir mostrador / caja
+          </Link>
+
           {businessMode === 'restaurant' && capabilities.waiter_mode ? (
             <Link
               href="/mozo/mesas"
@@ -370,7 +388,7 @@ export default function AdminHome() {
           Atajos internos según la función y el modo de operación.
         </p>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <Link
             href="/admin/productos"
             className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
@@ -383,6 +401,13 @@ export default function AdminHome() {
             className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
           >
             Cocina
+          </Link>
+
+          <Link
+            href="/mostrador"
+            className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+          >
+            Mostrador / Caja
           </Link>
 
           {businessMode === 'restaurant' ? (
@@ -464,7 +489,7 @@ export default function AdminHome() {
           </Link>
         </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {modulos.map((modulo) => (
             <div
               key={modulo.key}
@@ -533,6 +558,13 @@ export default function AdminHome() {
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
           >
             Ir a productos
+          </Link>
+
+          <Link
+            href="/mostrador"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+          >
+            Abrir mostrador / caja
           </Link>
 
           {businessMode === 'restaurant' ? (

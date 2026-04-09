@@ -45,7 +45,8 @@ export default function InicioPage() {
           <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-600">
             Esta pantalla funciona como antesala después del login. Desde acá
             elegís a qué vista querés entrar según tu función dentro del local:
-            administración, cocina, mozo, generación de QR o acceso del cliente.
+            administración, cocina, mostrador/caja, mozo, generación de QR o
+            acceso del cliente.
           </p>
 
           <div className="mt-6 flex flex-wrap gap-3">
@@ -64,6 +65,13 @@ export default function InicioPage() {
             </Link>
 
             <Link
+              href="/mostrador"
+              className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+            >
+              Abrir mostrador / caja
+            </Link>
+
+            <Link
               href="/mozo/mesas"
               className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
@@ -72,7 +80,7 @@ export default function InicioPage() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
           <QuickAccessCard
             href="/admin"
             title="🛠️ Administración"
@@ -86,8 +94,14 @@ export default function InicioPage() {
           />
 
           <QuickAccessCard
+            href="/mostrador"
+            title="🧾 Mostrador / Caja"
+            description="Entrega final de take away y cierre de cuenta en salón para el flujo compacto de Esencial."
+          />
+
+          <QuickAccessCard
             href="/mozo/mesas"
-            title="🧾 Mozo"
+            title="🍽️ Mozo"
             description="Acceso rápido al flujo de salón para visualizar mesas, pedidos y atención al cliente."
           />
 
@@ -143,12 +157,19 @@ export default function InicioPage() {
               </p>
             </div>
 
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <Link
                 href={`/mesa/${mesaId}`}
                 className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
               >
                 Abrir mesa {mesaId}
+              </Link>
+
+              <Link
+                href="/mostrador"
+                className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Abrir caja / salón
               </Link>
 
               <Link
@@ -176,15 +197,17 @@ export default function InicioPage() {
 
             <p className="mt-2 text-sm leading-relaxed text-slate-600">
               En take away el cliente no necesita una mesa. El ingreso público se
-              resuelve desde la ruta <code>/pedir</code> y la pantalla pública de
-              retiro queda disponible en <code>/retiro</code>.
+              resuelve desde la ruta <code>/pedir</code>, la pantalla pública de
+              retiro queda disponible en <code>/retiro</code> y la entrega final se
+              confirma desde <code>/mostrador</code>.
             </p>
 
             <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-sm font-medium text-amber-900">
                 Desde este inicio seguís entrando a las mismas vistas internas:
-                admin, cocina, mozo y QR. Lo que cambia es el acceso del cliente y
-                la pantalla visible para avisar que el pedido ya está listo.
+                admin, cocina, mostrador/caja, mozo y QR. Lo que cambia es el
+                acceso del cliente y la pantalla visible para avisar que el pedido
+                ya está listo.
               </p>
             </div>
 
@@ -194,6 +217,13 @@ export default function InicioPage() {
                 className="rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-600"
               >
                 Abrir take away
+              </Link>
+
+              <Link
+                href="/mostrador"
+                className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Abrir mostrador / caja
               </Link>
 
               <Link
@@ -238,7 +268,7 @@ export default function InicioPage() {
               {
                 step: '4',
                 title: 'Operación',
-                desc: 'Admin, cocina, mozo, QR o acceso cliente.',
+                desc: 'Admin, cocina, mostrador/caja, mozo, QR o acceso cliente.',
               },
             ].map((item) => (
               <div
