@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import {
@@ -147,6 +147,14 @@ function getPedidoKindBadge(pedido: Pedido) {
   };
 }
 
+function getRetiroActionLabel(pedido: Pedido) {
+  const kind = getPedidoKind(pedido);
+
+  if (kind === 'takeaway') return 'Marcar retirado';
+  if (kind === 'delivery') return 'Marcar entregado';
+  return 'Cerrar en cocina';
+}
+
 export default function CocinaPage() {
   const router = useRouter();
 
@@ -159,8 +167,11 @@ export default function CocinaPage() {
   const [cargando, setCargando] = useState(true);
   const [destacados, setDestacados] = useState<number[]>([]);
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos');
+  const [error, setError] = useState<string | null>(null);
+  const [audioReady, setAudioReady] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioReadyRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -193,8 +204,8 @@ export default function CocinaPage() {
             session?.business_mode ?? session?.restaurant?.business_mode
           )
         );
-      } catch (error) {
-        console.error('No se pudo verificar acceso a cocina', error);
+      } catch (err) {
+        console.error('No se pudo verificar acceso a cocina', err);
         if (!active) return;
         router.replace('/admin/login');
       } finally {
@@ -211,20 +222,64 @@ export default function CocinaPage() {
     };
   }, [router]);
 
-  useEffect(() => {
-    audioRef.current = new Audio('/sounds/sonido.wav');
+  const enableAudio = useCallback(async () => {
+    const audio = audioRef.current;
+
+    if (!audio || audioReadyRef.current) return;
+
+    try {
+      audio.volume = 0;
+      await audio.play();
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = 1;
+
+      audioReadyRef.current = true;
+      setAudioReady(true);
+    } catch (err) {
+      console.warn('No se pudo activar el sonido en cocina.', err);
+    }
   }, []);
 
-  const reproducirSonido = () => {
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = 0;
-    audioRef.current.play().catch(() => {
-      console.warn('No se pudo reproducir el sonido en cocina.');
-    });
-  };
+  useEffect(() => {
+    const audio = new Audio('/sounds/sonido.wav');
+    audio.preload = 'auto';
+    audioRef.current = audio;
 
-  const cargarPedidos = async () => {
+    const handleFirstInteraction = () => {
+      void enableAudio();
+    };
+
+    window.addEventListener('pointerdown', handleFirstInteraction, {
+      passive: true,
+    });
+    window.addEventListener('keydown', handleFirstInteraction);
+
+    return () => {
+      window.removeEventListener('pointerdown', handleFirstInteraction);
+      window.removeEventListener('keydown', handleFirstInteraction);
+
+      audio.pause();
+      audioRef.current = null;
+      audioReadyRef.current = false;
+    };
+  }, [enableAudio]);
+
+  const reproducirSonido = useCallback(() => {
+    const audio = audioRef.current;
+
+    if (!audio) return;
+    if (!audioReadyRef.current) return;
+
+    audio.currentTime = 0;
+    audio.play().catch((err) => {
+      console.warn('No se pudo reproducir el sonido en cocina.', err);
+    });
+  }, []);
+
+  const cargarPedidos = useCallback(async () => {
     setCargando(true);
+    setError(null);
 
     const [{ data: pedidosData, error: pedidosError }, { data: mesasData, error: mesasError }] =
       await Promise.all([
@@ -247,13 +302,17 @@ export default function CocinaPage() {
             )
           `)
           .in('estado', ['pendiente', 'en_preparacion', 'listo'])
-          .order('creado_en', { ascending: true }),
+          .order('creado_en', { ascending: false }),
         supabase
           .from('mesas')
           .select('id, numero, nombre'),
       ]);
 
-    if (!pedidosError && pedidosData) {
+    if (pedidosError) {
+      console.error('Error cargando pedidos en cocina:', pedidosError);
+      setError('No se pudieron cargar los pedidos de cocina.');
+      setPedidos([]);
+    } else if (pedidosData) {
       const formateados: Pedido[] = pedidosData.map((p: any) => ({
         id: p.id,
         mesa_id: p.mesa_id,
@@ -268,7 +327,9 @@ export default function CocinaPage() {
       setPedidos(formateados);
     }
 
-    if (!mesasError && mesasData) {
+    if (mesasError) {
+      console.error('Error cargando mesas en cocina:', mesasError);
+    } else if (mesasData) {
       const map: Record<number, MesaRef> = {};
       for (const mesa of mesasData as MesaRef[]) {
         map[mesa.id] = mesa;
@@ -277,12 +338,12 @@ export default function CocinaPage() {
     }
 
     setCargando(false);
-  };
+  }, []);
 
   useEffect(() => {
     if (checkingAccess) return;
 
-    cargarPedidos();
+    void cargarPedidos();
 
     const canalPedidos = supabase
       .channel('realtime-pedidos')
@@ -297,7 +358,9 @@ export default function CocinaPage() {
 
           if (payload.eventType === 'INSERT') {
             if (estadosCocina.includes(nuevo.estado)) {
-              setDestacados((prev) => [...prev, nuevo.id]);
+              setDestacados((prev) =>
+                prev.includes(nuevo.id) ? prev : [nuevo.id, ...prev]
+              );
               reproducirSonido();
             }
           }
@@ -308,12 +371,14 @@ export default function CocinaPage() {
               viejo?.estado !== nuevo.estado &&
               nuevo.estado === 'pendiente'
             ) {
-              setDestacados((prev) => [...prev, nuevo.id]);
+              setDestacados((prev) =>
+                prev.includes(nuevo.id) ? prev : [nuevo.id, ...prev]
+              );
               reproducirSonido();
             }
           }
 
-          cargarPedidos();
+          void cargarPedidos();
         }
       )
       .subscribe();
@@ -324,7 +389,7 @@ export default function CocinaPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'items_pedido' },
         () => {
-          cargarPedidos();
+          void cargarPedidos();
         }
       )
       .subscribe();
@@ -333,17 +398,35 @@ export default function CocinaPage() {
       supabase.removeChannel(canalPedidos);
       supabase.removeChannel(canalItems);
     };
-  }, [checkingAccess]);
+  }, [checkingAccess, cargarPedidos, reproducirSonido]);
 
   const cambiarEstado = async (pedidoId: number, nuevoEstado: string) => {
-    await supabase.from('pedidos').update({ estado: nuevoEstado }).eq('id', pedidoId);
+    setError(null);
+
+    const { error: updateError } = await supabase
+      .from('pedidos')
+      .update({ estado: nuevoEstado })
+      .eq('id', pedidoId);
+
+    if (updateError) {
+      console.error('No se pudo actualizar el estado del pedido:', updateError);
+      setError('No se pudo actualizar el estado del pedido.');
+      return;
+    }
 
     setDestacados((prev) => prev.filter((id) => id !== pedidoId));
+    await cargarPedidos();
   };
 
-  const pedidosFiltrados = pedidos.filter((p) =>
-    filtroEstado === 'todos' ? true : p.estado === filtroEstado
-  );
+  const pedidosFiltrados = [...pedidos]
+    .filter((p) => (filtroEstado === 'todos' ? true : p.estado === filtroEstado))
+    .sort((a, b) => {
+      const timeA = new Date(a.creado_en).getTime();
+      const timeB = new Date(b.creado_en).getTime();
+
+      if (timeA !== timeB) return timeB - timeA;
+      return b.id - a.id;
+    });
 
   if (checkingAccess) {
     return (
@@ -371,14 +454,29 @@ export default function CocinaPage() {
               Pedidos de salón, take away y delivery en una sola vista.
             </p>
             <p className="text-sm text-slate-400">
-              En pedidos de salón se muestra el número visible de mesa, aunque la
-              base use IDs internos para QR y navegación.
+              Los pedidos nuevos se muestran arriba. En take away también aparece
+              el nombre de la persona que retira.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={cargarPedidos}
+              onClick={() => {
+                void enableAudio();
+              }}
+              className={`px-3 py-1 rounded-lg text-sm border ${
+                audioReady
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-100'
+                  : 'bg-amber-500/20 border-amber-400 text-amber-100 hover:bg-amber-500/30'
+              }`}
+            >
+              {audioReady ? 'Sonido activo' : 'Activar sonido'}
+            </button>
+
+            <button
+              onClick={() => {
+                void cargarPedidos();
+              }}
               className="px-3 py-1 rounded-lg text-sm bg-slate-800 border border-slate-600 hover:bg-slate-700"
             >
               Actualizar
@@ -408,6 +506,20 @@ export default function CocinaPage() {
             ) : null}
           </div>
         </header>
+
+        {!audioReady ? (
+          <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            Para volver a escuchar el aviso de ingreso de pedido, hacé click en{' '}
+            <strong>“Activar sonido”</strong>. Algunos navegadores bloquean el audio
+            automático hasta la primera interacción.
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            {error}
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap gap-2">
           {[
@@ -439,6 +551,8 @@ export default function CocinaPage() {
             const esNuevo = destacados.includes(p.id);
             const badge = getPedidoKindBadge(p);
             const pedidoLabel = getPedidoLabel(p, mesasMap);
+            const kind = getPedidoKind(p);
+            const clienteNombre = getClienteNombre(p);
 
             return (
               <article
@@ -478,6 +592,12 @@ export default function CocinaPage() {
 
                 <p className="mt-1 text-sm text-slate-300">{pedidoLabel}</p>
 
+                {kind !== 'salon' && clienteNombre ? (
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    Cliente: {clienteNombre}
+                  </p>
+                ) : null}
+
                 <ul className="mt-2 space-y-1 text-sm">
                   {p.items.map((item) => (
                     <li key={item.id}>
@@ -496,21 +616,45 @@ export default function CocinaPage() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   {p.estado === 'pendiente' && (
                     <button
-                      onClick={() => cambiarEstado(p.id, 'en_preparacion')}
+                      onClick={() => {
+                        void cambiarEstado(p.id, 'en_preparacion');
+                      }}
                       className="px-3 py-1 rounded-lg bg-sky-500 text-slate-900 text-sm font-semibold hover:bg-sky-400"
                     >
                       Tomar pedido
                     </button>
                   )}
+
                   {p.estado === 'en_preparacion' && (
                     <button
-                      onClick={() => cambiarEstado(p.id, 'listo')}
+                      onClick={() => {
+                        void cambiarEstado(p.id, 'listo');
+                      }}
                       className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-900 text-sm font-semibold hover:bg-emerald-400"
                     >
                       Marcar listo
                     </button>
                   )}
+
+                  {p.estado === 'listo' && kind !== 'salon' && (
+                    <button
+                      onClick={() => {
+                        void cambiarEstado(p.id, 'entregado');
+                      }}
+                      className="px-3 py-1 rounded-lg bg-violet-500 text-white text-sm font-semibold hover:bg-violet-400"
+                    >
+                      {getRetiroActionLabel(p)}
+                    </button>
+                  )}
                 </div>
+
+                {p.estado === 'listo' && kind === 'salon' ? (
+                  <p className="mt-3 text-xs text-slate-400">
+                    Los pedidos de salón quedan visibles en cocina hasta que la mesa
+                    se cierre. Así no se pierde el seguimiento del consumo antes del
+                    cobro.
+                  </p>
+                ) : null}
               </article>
             );
           })}
