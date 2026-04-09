@@ -4,6 +4,8 @@ import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 
+const LOGIN_HREF = '/admin/login';
+
 function PhoneMockup() {
   return (
     <div className="relative mx-auto w-full max-w-[420px]">
@@ -162,33 +164,49 @@ export default function RestoSmartLanding() {
           </div>
 
           <nav className="hidden md:flex items-center gap-6 text-sm text-zinc-700">
-            <a href="#funciones" className="hover:text-zinc-900">
-              Funciones
-            </a>
-            <a href="#precios" className="hover:text-zinc-900">
-              Precios
-            </a>
-            <a href="#pasos" className="hover:text-zinc-900">
-              Cómo funciona
-            </a>
-            <a href="#faq" className="hover:text-zinc-900">
-              FAQ
-            </a>
+  <a href="#funciones" className="hover:text-zinc-900">
+    Funciones
+  </a>
+  <a href="#precios" className="hover:text-zinc-900">
+    Precios
+  </a>
+  <a href="#pasos" className="hover:text-zinc-900">
+    Cómo funciona
+  </a>
+  <a href="#faq" className="hover:text-zinc-900">
+    FAQ
+  </a>
 
-            <Link
-              href="/demo"
-              className="rounded-full bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-            >
-              Probar demo
-            </Link>
-          </nav>
+  <Link
+    href={LOGIN_HREF}
+    className="rounded-full border border-black/10 px-4 py-2 text-zinc-900 hover:bg-zinc-50"
+  >
+    Ingresar
+  </Link>
 
-          <Link
-            href="/demo"
-            className="md:hidden rounded-full bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-          >
-            Probar demo
-          </Link>
+  <Link
+    href="/demo"
+    className="rounded-full bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+  >
+    Probar demo
+  </Link>
+</nav>
+
+<div className="flex items-center gap-2 md:hidden">
+  <Link
+    href={LOGIN_HREF}
+    className="rounded-full border border-black/10 px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+  >
+    Ingresar
+  </Link>
+
+  <Link
+    href="/demo"
+    className="rounded-full bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+  >
+    Probar demo
+  </Link>
+</div>
         </div>
       </header>
 
@@ -212,21 +230,28 @@ export default function RestoSmartLanding() {
               cómo trabaje tu negocio.
             </p>
 
-            <div className="flex flex-col sm:flex-row gap-3">
-              <a
-                href="#precios"
-                className="rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
-                Ver planes y precios
-              </a>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
+  <a
+    href="#precios"
+    className="rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+  >
+    Ver planes y precios
+  </a>
 
-              <a
-                href="#contacto"
-                className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-              >
-                Quiero una propuesta
-              </a>
-            </div>
+  <Link
+    href={LOGIN_HREF}
+    className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+  >
+    Ingresar al sistema
+  </Link>
+
+  <a
+    href="#contacto"
+    className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+  >
+    Quiero una propuesta
+  </a>
+</div>
 
             <div className="grid grid-cols-3 gap-3 pt-2 text-center">
               {[
@@ -782,12 +807,21 @@ export default function RestoSmartLanding() {
             Implementá RestoSmart en pocos días y empezá a operar con más control,
             mejor experiencia y decisiones más claras.
           </p>
-          <a
-            href="/demo"
-            className="mt-8 inline-block rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-blue-600 hover:bg-blue-50"
-          >
-            Probar demo
-          </a>
+          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+  <Link
+    href={LOGIN_HREF}
+    className="inline-block rounded-2xl border border-white/30 bg-white px-6 py-3 text-sm font-semibold text-blue-600 hover:bg-blue-50"
+  >
+    Ingresar al sistema
+  </Link>
+
+  <Link
+    href="/demo"
+    className="inline-block rounded-2xl border border-white/30 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
+  >
+    Probar demo
+  </Link>
+</div>
         </div>
       </section>
 
