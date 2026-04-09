@@ -28,8 +28,9 @@ function getBusinessModeMeta(businessMode: BusinessMode) {
       business_mode_label: 'Take Away',
       customer_entry_kind: 'takeaway',
       customer_entry_strategy: 'separate_public_route_required',
-      current_customer_entry_path: null,
-      planned_customer_entry_path: '/pedir',
+      current_customer_entry_path: '/pedir',
+      planned_customer_entry_path: null,
+      takeaway_ready_screen_path: '/retiro',
       table_qr_enabled: false,
       takeaway_enabled: true,
     };
@@ -39,8 +40,9 @@ function getBusinessModeMeta(businessMode: BusinessMode) {
     business_mode_label: 'Restaurante',
     customer_entry_kind: 'restaurant',
     customer_entry_strategy: 'table_qr_route',
-    current_customer_entry_path: '/mesa/[numero]',
+    current_customer_entry_path: '/mesa/[id]',
     planned_customer_entry_path: null,
+    takeaway_ready_screen_path: null,
     table_qr_enabled: true,
     takeaway_enabled: false,
   };

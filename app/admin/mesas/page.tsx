@@ -268,17 +268,38 @@ export default function AdminMesasPage() {
             </p>
 
             <p className="mt-3 text-slate-600 leading-relaxed">
+              En este modo, el cliente hace el pedido desde <code>/pedir</code> y
+              el aviso para pasar a retirar se muestra en la pantalla pública{' '}
+              <code>/retiro</code>.
+            </p>
+
+            <p className="mt-3 text-slate-600 leading-relaxed">
               Si más adelante querés trabajar con salón y mesas, podés cambiar el
               modo del negocio desde Configuración sin cambiar de plan.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
+                href="/pedir"
+                className="rounded-xl border border-amber-300 bg-white px-5 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Abrir take away
+              </Link>
+
+              <Link
+                href="/retiro"
+                className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-white hover:bg-amber-600"
+              >
+                Abrir pantalla de retiro
+              </Link>
+
+              <Link
                 href="/admin/configuracion"
                 className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
               >
                 Ir a Configuración
               </Link>
+
               <button
                 onClick={() => router.push('/inicio')}
                 className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
