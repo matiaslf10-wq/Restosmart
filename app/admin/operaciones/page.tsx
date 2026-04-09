@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import {
   formatBusinessModeLabel,
@@ -168,6 +169,19 @@ function resolveOperacionCanal(pedido: OperacionPedido): OperacionCanal {
   return 'restaurant';
 }
 
+function formatEstadoLabel(value: string) {
+  const estado = String(value ?? '').trim().toLowerCase();
+
+  if (estado === 'solicitado') return 'Solicitado';
+  if (estado === 'pendiente') return 'Pendiente';
+  if (estado === 'en_preparacion') return 'En preparación';
+  if (estado === 'listo') return 'Listo';
+  if (estado === 'cancelado') return 'Cancelado';
+  if (estado === 'cerrado') return 'Cerrado';
+
+  return value || 'Sin estado';
+}
+
 function getLocalBadge(canal: OperacionCanal) {
   if (canal === 'takeaway') {
     return {
@@ -186,10 +200,29 @@ function getLocalBadge(canal: OperacionCanal) {
 
 function getLocalLocationLabel(pedido: OperacionPedido, canal: OperacionCanal) {
   if (canal === 'takeaway') {
-    return pedido.mesa_nombre || 'Retiro / mostrador';
+    return 'Retiro / mostrador';
   }
 
-  return pedido.mesa_nombre || 'Mesa';
+  if (pedido.mesa_nombre?.trim()) {
+    return pedido.mesa_nombre.trim();
+  }
+
+  if (pedido.mesa_id != null) {
+    return `Mesa ID ${pedido.mesa_id}`;
+  }
+
+  return 'Mesa';
+}
+
+function getLocalSecondaryLabel(
+  pedido: OperacionPedido,
+  canal: OperacionCanal
+) {
+  if (canal === 'takeaway') {
+    return pedido.cliente_nombre?.trim() || 'Cliente sin nombre';
+  }
+
+  return formatDate(pedido.creado_en);
 }
 
 export default function AdminOperacionesPage() {
@@ -203,6 +236,7 @@ export default function AdminOperacionesPage() {
   );
   const businessModeLabel = formatBusinessModeLabel(businessMode);
   const deliveryAddonEnabled = !!sessionData?.addons?.whatsapp_delivery;
+  const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
 
   async function cargar() {
     try {
@@ -303,13 +337,45 @@ export default function AdminOperacionesPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={cargar}
-          className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-        >
-          Actualizar
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/inicio"
+            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+          >
+            Volver a inicio
+          </Link>
+
+          <Link
+            href="/admin"
+            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+          >
+            Ir a admin
+          </Link>
+
+          <Link
+            href="/cocina"
+            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+          >
+            Ver cocina
+          </Link>
+
+          {businessMode === 'restaurant' && waiterModeEnabled ? (
+            <Link
+              href="/mozo/mesas"
+              className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+            >
+              Ver mozo
+            </Link>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={cargar}
+            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+          >
+            Actualizar
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -418,13 +484,26 @@ export default function AdminOperacionesPage() {
                             </h3>
 
                             <p className="text-sm text-neutral-600">
-                              {formatDate(pedido.creado_en)}
+                              {getLocalSecondaryLabel(pedido, pedido._canal)}
                             </p>
+
+                            {pedido._canal === 'takeaway' &&
+                            pedido.creado_en ? (
+                              <p className="text-xs text-neutral-500">
+                                {formatDate(pedido.creado_en)}
+                              </p>
+                            ) : null}
                           </div>
 
                           <div className="text-right">
                             <p className="text-sm text-neutral-500">Estado</p>
-                            <p className="font-medium">{pedido.estado}</p>
+                            <p className="font-medium">
+                              {formatEstadoLabel(pedido.estado)}
+                            </p>
+                            <p className="mt-2 text-sm text-neutral-500">Total</p>
+                            <p className="font-semibold">
+                              {formatMoney(pedido.total)}
+                            </p>
                           </div>
                         </div>
                       </article>
