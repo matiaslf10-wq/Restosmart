@@ -19,7 +19,13 @@ type RestaurantContext = {
   plan?: string | null;
 };
 
+type BusinessMode = 'restaurant' | 'takeaway';
 type TipoServicio = 'mesa' | 'delivery' | 'takeaway';
+type IdentityKind = 'mesa' | 'persona' | 'delivery';
+
+type LocalConfigRow = {
+  business_mode?: string | null;
+};
 
 type PedidoItemInput = {
   producto_id: number;
@@ -51,7 +57,16 @@ function normalizePlan(plan: unknown): 'esencial' | 'pro' | 'intelligence' {
   return 'esencial';
 }
 
-function normalizeTipoServicio(value: unknown): TipoServicio {
+function normalizeBusinessMode(value: unknown): BusinessMode {
+  return String(value ?? '').trim().toLowerCase() === 'takeaway'
+    ? 'takeaway'
+    : 'restaurant';
+}
+
+function normalizeTipoServicio(
+  value: unknown,
+  fallback: TipoServicio = 'mesa'
+): TipoServicio {
   const raw = String(value ?? '').trim().toLowerCase();
 
   if (raw === 'delivery' || raw === 'envio') return 'delivery';
@@ -66,7 +81,17 @@ function normalizeTipoServicio(value: unknown): TipoServicio {
     return 'takeaway';
   }
 
-  return 'mesa';
+  if (raw === 'mesa' || raw === 'salon' || raw === 'restaurant') {
+    return 'mesa';
+  }
+
+  return fallback;
+}
+
+function inferTipoServicioFromBusinessMode(
+  businessMode: BusinessMode
+): TipoServicio {
+  return businessMode === 'takeaway' ? 'takeaway' : 'mesa';
 }
 
 function normalizeOrigen(value: unknown, tipoServicio: TipoServicio) {
@@ -84,17 +109,23 @@ function normalizeOptionalText(value: unknown) {
   return text.length ? text : null;
 }
 
+function getIdentityKind(tipoServicio: TipoServicio): IdentityKind {
+  if (tipoServicio === 'delivery') return 'delivery';
+  if (tipoServicio === 'takeaway') return 'persona';
+  return 'mesa';
+}
+
 function getInitialPedidoEstado(params: {
   plan: 'esencial' | 'pro' | 'intelligence';
   origen?: string | null;
   tipo_servicio?: string | null;
 }) {
   const origen = String(params.origen ?? 'salon').trim().toLowerCase();
-  const tipoServicio = normalizeTipoServicio(params.tipo_servicio);
+  const tipoServicio = normalizeTipoServicio(params.tipo_servicio, 'mesa');
 
-  const esSalonMesa = origen === 'salon' && tipoServicio === 'mesa';
+  const esSalonClienteAuto = origen === 'salon' && tipoServicio === 'mesa';
 
-  if (!esSalonMesa) {
+  if (!esSalonClienteAuto) {
     return 'pendiente';
   }
 
@@ -138,6 +169,26 @@ async function resolveRestaurantContext(sb: ReturnType<typeof supabaseAdmin>) {
   }
 
   return null;
+}
+
+async function resolveBusinessMode(sb: ReturnType<typeof supabaseAdmin>) {
+  const result = await sb
+    .from('configuracion_local')
+    .select('business_mode')
+    .order('id', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (result.error) {
+    console.error(
+      'POST /api/pedidos - no se pudo leer business_mode:',
+      result.error
+    );
+    return 'restaurant' as BusinessMode;
+  }
+
+  const config = (result.data ?? null) as LocalConfigRow | null;
+  return normalizeBusinessMode(config?.business_mode);
 }
 
 async function resolveMesaIdForPedido(
@@ -256,6 +307,7 @@ export async function GET() {
   try {
     const sb = supabaseAdmin();
     const ctx = await resolveRestaurantContext(sb);
+    const businessMode = await resolveBusinessMode(sb);
 
     const { data, error } = await sb
       .from('pedidos')
@@ -276,6 +328,11 @@ export async function GET() {
             plan: normalizePlan(ctx.plan),
           }
         : null,
+      meta: {
+        business_mode: businessMode,
+        default_identity:
+          businessMode === 'takeaway' ? 'persona' : 'mesa',
+      },
     });
   } catch (error) {
     console.error('GET /api/pedidos', error);
@@ -292,11 +349,20 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as Partial<CreatePedidoBody>;
     const sb = supabaseAdmin();
 
+    const restaurant = await resolveRestaurantContext(sb);
+    const plan = normalizePlan(restaurant?.plan);
+    const businessMode = await resolveBusinessMode(sb);
+
     const rawMesaId = Number(body?.mesa_id);
     const total = Number(body?.total ?? 0);
     const formaPago = body?.forma_pago === 'efectivo' ? 'efectivo' : 'virtual';
-    const tipoServicio = normalizeTipoServicio(body?.tipo_servicio);
+    const requestedTipoServicio = body?.tipo_servicio;
+    const tipoServicio = normalizeTipoServicio(
+      requestedTipoServicio,
+      inferTipoServicioFromBusinessMode(businessMode)
+    );
     const origen = normalizeOrigen(body?.origen, tipoServicio);
+    const identityKind = getIdentityKind(tipoServicio);
     const rawItems = Array.isArray(body?.items) ? body.items : [];
 
     if (!Number.isFinite(total) || total < 0) {
@@ -326,6 +392,13 @@ export async function POST(request: NextRequest) {
     if (tipoServicio === 'takeaway' && !clienteNombre) {
       return NextResponse.json(
         { error: 'cliente_nombre es obligatorio para take away.' },
+        { status: 400 }
+      );
+    }
+
+    if (tipoServicio === 'delivery' && !direccionEntrega) {
+      return NextResponse.json(
+        { error: 'direccion_entrega es obligatoria para delivery.' },
         { status: 400 }
       );
     }
@@ -360,9 +433,6 @@ export async function POST(request: NextRequest) {
     }
 
     const mesaIdResolved = mesaResolution.mesaId;
-
-    const restaurant = await resolveRestaurantContext(sb);
-    const plan = normalizePlan(restaurant?.plan);
 
     const estadoInicial = getInitialPedidoEstado({
       plan,
@@ -446,6 +516,10 @@ export async function POST(request: NextRequest) {
         pedido,
         meta: {
           plan,
+          business_mode_resuelto: businessMode,
+          identidad_principal:
+            businessMode === 'takeaway' ? 'persona' : 'mesa',
+          identity_kind: identityKind,
           estado_inicial: estadoInicial,
           mesa_id_resuelto: mesaIdResolved,
           tipo_servicio: tipoServicio,
