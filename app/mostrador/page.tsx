@@ -1711,7 +1711,7 @@ export default function MostradorPage() {
                           </button>
                         ) : null}
 
-                        {hasKitchenPending ? (
+                        {hasPendingKitchen ? (
                           <span className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600">
                             Hay ítems en cocina pendientes de resolución
                           </span>
