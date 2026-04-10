@@ -13,6 +13,23 @@ import {
 
 const DELIVERY_MESA_ID = 0;
 
+type KitchenPrepState = 'pendiente' | 'en_preparacion' | 'listo';
+type PrepTarget = 'mostrador' | 'cocina';
+
+type ItemPedido = {
+  id: number;
+  cantidad: number;
+  comentarios: string | null;
+  comentarioVisible: string | null;
+  prepTarget: PrepTarget;
+  kitchenState: KitchenPrepState | null;
+  producto: {
+    id?: number | null;
+    nombre: string;
+    precio?: number | null;
+  } | null;
+};
+
 type Pedido = {
   id: number;
   mesa_id: number;
@@ -28,6 +45,7 @@ type Pedido = {
   forma_pago?: 'efectivo' | 'virtual' | null;
   paga_efectivo?: boolean | null;
   efectivo_aprobado?: boolean | null;
+  items: ItemPedido[];
 };
 
 type MesaRef = {
@@ -50,6 +68,7 @@ type ItemCarrito = {
   producto: Producto;
   cantidad: number;
   comentarios: string;
+  prepTarget: PrepTarget;
 };
 
 type PedidoKind = 'salon' | 'takeaway' | 'delivery';
@@ -111,6 +130,51 @@ function formatTime(value: string) {
 
 function normalizeText(value: unknown) {
   return String(value ?? '').trim().toLowerCase();
+}
+
+function normalizeOptionalText(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text.length ? text : null;
+}
+
+function parseKitchenMeta(comment: string | null | undefined) {
+  const raw = String(comment ?? '').trim();
+
+  if (!raw) {
+    return {
+      prepTarget: 'mostrador' as PrepTarget,
+      kitchenState: null as KitchenPrepState | null,
+      comentarioVisible: null as string | null,
+    };
+  }
+
+  const match = raw.match(
+    /^\[\[COCINA:(pendiente|en_preparacion|listo)\]\]\s*(.*)$/i
+  );
+
+  if (!match) {
+    return {
+      prepTarget: 'mostrador' as PrepTarget,
+      kitchenState: null,
+      comentarioVisible: raw,
+    };
+  }
+
+  const visible = String(match[2] ?? '').trim();
+
+  return {
+    prepTarget: 'cocina' as PrepTarget,
+    kitchenState: match[1].toLowerCase() as KitchenPrepState,
+    comentarioVisible: visible || null,
+  };
+}
+
+function buildKitchenComment(
+  comment: string | null | undefined,
+  kitchenState: KitchenPrepState
+) {
+  const visible = String(comment ?? '').trim();
+  return `[[COCINA:${kitchenState}]]${visible ? ` ${visible}` : ''}`;
 }
 
 function isDeliveryPedido(pedido: Pedido) {
@@ -289,6 +353,17 @@ function sortMesas(a: MesaRef, b: MesaRef) {
   return a.id - b.id;
 }
 
+function getKitchenItems(pedido: Pedido) {
+  return pedido.items.filter((item) => item.prepTarget === 'cocina');
+}
+
+function hasKitchenPendingItems(pedido: Pedido) {
+  return pedido.items.some(
+    (item) =>
+      item.prepTarget === 'cocina' && item.kitchenState !== 'listo'
+  );
+}
+
 export default function MostradorPage() {
   const router = useRouter();
 
@@ -307,13 +382,20 @@ export default function MostradorPage() {
   const [manualMesaId, setManualMesaId] = useState<string>('');
   const [manualClienteNombre, setManualClienteNombre] = useState('');
   const [manualFormaPago, setManualFormaPago] = useState<FormaPago>('efectivo');
-  const [resolverEnMostrador, setResolverEnMostrador] = useState(false);
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
 
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
-  const [actualizandoPedidoId, setActualizandoPedidoId] = useState<number | null>(null);
+  const [actualizandoPedidoId, setActualizandoPedidoId] = useState<number | null>(
+    null
+  );
+  const [actualizandoItemId, setActualizandoItemId] = useState<number | null>(
+    null
+  );
+  const [enviandoPedidoACocinaId, setEnviandoPedidoACocinaId] = useState<
+    number | null
+  >(null);
   const [cerrandoMesaId, setCerrandoMesaId] = useState<number | null>(null);
   const [creandoPedido, setCreandoPedido] = useState(false);
 
@@ -399,7 +481,13 @@ export default function MostradorPage() {
             estado_pago,
             forma_pago,
             paga_efectivo,
-            efectivo_aprobado
+            efectivo_aprobado,
+            items_pedido (
+              id,
+              cantidad,
+              comentarios,
+              producto:productos ( id, nombre, precio )
+            )
           `
         )
         .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
@@ -433,6 +521,19 @@ export default function MostradorPage() {
         forma_pago: p.forma_pago ?? null,
         paga_efectivo: p.paga_efectivo ?? null,
         efectivo_aprobado: p.efectivo_aprobado ?? null,
+        items: ((p.items_pedido ?? []) as any[]).map((item) => {
+          const parsed = parseKitchenMeta(item.comentarios);
+
+          return {
+            id: item.id,
+            cantidad: item.cantidad,
+            comentarios: item.comentarios ?? null,
+            comentarioVisible: parsed.comentarioVisible,
+            prepTarget: parsed.prepTarget,
+            kitchenState: parsed.kitchenState,
+            producto: item.producto ?? null,
+          };
+        }),
       }));
 
       setPedidos(formateados);
@@ -523,7 +624,15 @@ export default function MostradorPage() {
         );
       }
 
-      return [...prev, { producto, cantidad: 1, comentarios: '' }];
+      return [
+        ...prev,
+        {
+          producto,
+          cantidad: 1,
+          comentarios: '',
+          prepTarget: 'mostrador',
+        },
+      ];
     });
   }
 
@@ -544,6 +653,14 @@ export default function MostradorPage() {
     setCarrito((prev) =>
       prev.map((i) =>
         i.producto.id === productoId ? { ...i, comentarios: texto } : i
+      )
+    );
+  }
+
+  function cambiarPrepTargetCarrito(productoId: number, prepTarget: PrepTarget) {
+    setCarrito((prev) =>
+      prev.map((i) =>
+        i.producto.id === productoId ? { ...i, prepTarget } : i
       )
     );
   }
@@ -663,6 +780,90 @@ export default function MostradorPage() {
     await cargarDatos();
   }
 
+  async function enviarItemACocina(pedidoId: number, item: ItemPedido) {
+    setActualizandoItemId(item.id);
+    setMensaje(null);
+    setError(null);
+
+    const { error: updateError } = await supabase
+      .from('items_pedido')
+      .update({
+        comentarios: buildKitchenComment(item.comentarioVisible, 'pendiente'),
+      })
+      .eq('id', item.id);
+
+    if (updateError) {
+      console.error('No se pudo enviar el ítem a cocina:', updateError);
+      setError('No se pudo enviar el ítem a cocina.');
+      setActualizandoItemId(null);
+      return;
+    }
+
+    const { error: pedidoError } = await supabase
+      .from('pedidos')
+      .update({ estado: 'en_preparacion' })
+      .eq('id', pedidoId);
+
+    if (pedidoError) {
+      console.error('No se pudo actualizar el pedido al enviar ítem a cocina:', pedidoError);
+      setError('No se pudo actualizar el pedido al enviar ítem a cocina.');
+      setActualizandoItemId(null);
+      return;
+    }
+
+    setMensaje(`Ítem enviado a cocina en el pedido #${pedidoId}.`);
+    setActualizandoItemId(null);
+    await cargarDatos();
+  }
+
+  async function enviarTodoACocina(pedido: Pedido) {
+    const itemsMostrador = pedido.items.filter(
+      (item) => item.prepTarget === 'mostrador'
+    );
+
+    if (itemsMostrador.length === 0) return;
+
+    setEnviandoPedidoACocinaId(pedido.id);
+    setMensaje(null);
+    setError(null);
+
+    const updates = await Promise.all(
+      itemsMostrador.map((item) =>
+        supabase
+          .from('items_pedido')
+          .update({
+            comentarios: buildKitchenComment(item.comentarioVisible, 'pendiente'),
+          })
+          .eq('id', item.id)
+      )
+    );
+
+    const failed = updates.find((result) => result.error);
+
+    if (failed?.error) {
+      console.error('No se pudo enviar todo el pedido a cocina:', failed.error);
+      setError('No se pudo enviar todo el pedido a cocina.');
+      setEnviandoPedidoACocinaId(null);
+      return;
+    }
+
+    const { error: pedidoError } = await supabase
+      .from('pedidos')
+      .update({ estado: 'en_preparacion' })
+      .eq('id', pedido.id);
+
+    if (pedidoError) {
+      console.error('No se pudo actualizar el pedido al enviarlo a cocina:', pedidoError);
+      setError('No se pudo actualizar el pedido al enviarlo a cocina.');
+      setEnviandoPedidoACocinaId(null);
+      return;
+    }
+
+    setMensaje(`Pedido #${pedido.id} enviado a cocina.`);
+    setEnviandoPedidoACocinaId(null);
+    await cargarDatos();
+  }
+
   async function cerrarCuentaMesa(mesaId: number) {
     const mesa = mesasSalonActivas.find((item) => item.id === mesaId);
     if (!mesa) return;
@@ -727,12 +928,8 @@ export default function MostradorPage() {
         forma_pago: manualFormaPago,
         origen:
           primaryMode === 'salon'
-            ? resolverEnMostrador
-              ? 'salon_manual_mostrador'
-              : 'salon_manual'
-            : resolverEnMostrador
-            ? 'takeaway_manual_mostrador'
-            : 'takeaway_manual',
+            ? 'salon_manual_mostrador'
+            : 'takeaway_manual_mostrador',
         tipo_servicio: primaryMode === 'salon' ? 'mesa' : 'takeaway',
         medio_pago: manualFormaPago,
         estado_pago: manualFormaPago === 'efectivo' ? 'aprobado' : 'pendiente',
@@ -744,6 +941,7 @@ export default function MostradorPage() {
           producto_id: item.producto.id,
           cantidad: item.cantidad,
           comentarios: item.comentarios.trim() || null,
+          prep_target: item.prepTarget,
         })),
       };
 
@@ -765,12 +963,9 @@ export default function MostradorPage() {
 
       setCarrito([]);
       setManualClienteNombre('');
-      setResolverEnMostrador(false);
 
       setMensaje(
-        resolverEnMostrador
-          ? `Pedido #${pedidoId} creado en mostrador. Ya podés tomarlo y resolverlo desde esta misma pantalla.`
-          : `Pedido #${pedidoId} creado correctamente. Si querés, podés apoyarte en cocina, pero no es obligatorio para operar.`
+        `Pedido #${pedidoId} creado correctamente desde mostrador. Podés resolverlo acá mismo y, si querés, enviar a cocina solo los ítems necesarios.`
       );
 
       await cargarDatos();
@@ -791,8 +986,8 @@ export default function MostradorPage() {
     : 'Alta manual por cliente';
 
   const manualDescription = isRestaurantMode
-    ? 'En modo restaurante la identificación principal es la mesa. Mostrador puede cargar, resolver y cerrar sin depender de mozo.'
-    : 'En modo take away la identificación principal es la persona. Mostrador puede cargar, preparar, entregar y cobrar desde una sola pantalla.';
+    ? 'En modo restaurante la identificación principal es la mesa. Todo pedido creado acá nace para resolverse en mostrador y podés enviar a cocina solo los ítems necesarios.'
+    : 'En modo take away la identificación principal es la persona. Todo pedido creado acá nace para resolverse en mostrador y podés enviar a cocina solo los ítems necesarios.';
 
   const manualIdentifierLabel = isRestaurantMode
     ? 'Identificación principal: Mesa'
@@ -848,12 +1043,12 @@ export default function MostradorPage() {
 
               <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
                 {isRestaurantMode
-                  ? 'Esta pantalla puede operar el salón completo en Esencial: crear pedidos por mesa, resolver salidas rápidas, cobrar y liberar mesas.'
-                  : 'Esta pantalla puede operar el take away completo en Esencial: crear pedidos por cliente, resolverlos acá mismo, entregarlos y cobrarlos.'}
+                  ? 'Mostrador puede operar todo el flujo: crear pedidos, resolverlos, enviarlos a cocina por ítem, cobrar y cerrar mesas.'
+                  : 'Mostrador puede operar todo el flujo: crear pedidos, resolverlos, enviar a cocina solo lo necesario, entregar y cobrar.'}
               </p>
 
               <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
-                Cocina y pantalla de retiro siguen disponibles como apoyo opcional.
+                Cocina sigue disponible como apoyo opcional y solo recibe los ítems que le mandes.
               </p>
             </div>
 
@@ -990,23 +1185,15 @@ export default function MostradorPage() {
                 </select>
               </label>
 
-              <label className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <input
-                  type="checkbox"
-                  checked={resolverEnMostrador}
-                  onChange={(e) => setResolverEnMostrador(e.target.checked)}
-                  className="mt-1"
-                />
-                <div>
-                  <p className="text-sm font-semibold text-amber-900">
-                    Resolver en mostrador (sin cocina)
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-amber-800">
-                    Usalo para café, bebida, sandwich ya listo u otras salidas
-                    rápidas que no necesiten pasar por cocina.
-                  </p>
-                </div>
-              </label>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-900">
+                  Preparación por ítem
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                  Todo pedido nace para resolverse en mostrador. Desde el carrito podés
+                  marcar ítems puntuales para cocina.
+                </p>
+              </div>
 
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-semibold text-slate-900">
@@ -1184,6 +1371,45 @@ export default function MostradorPage() {
                         }
                       />
 
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                            item.prepTarget === 'cocina'
+                              ? 'bg-sky-100 text-sky-800'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {item.prepTarget === 'cocina'
+                            ? 'Se envía a cocina'
+                            : 'Se resuelve en mostrador'}
+                        </span>
+
+                        {item.prepTarget === 'mostrador' ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              cambiarPrepTargetCarrito(item.producto.id, 'cocina')
+                            }
+                            className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
+                          >
+                            Enviar a cocina
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              cambiarPrepTargetCarrito(
+                                item.producto.id,
+                                'mostrador'
+                              )
+                            }
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Resolver en mostrador
+                          </button>
+                        )}
+                      </div>
+
                       <p className="mt-2 text-right text-sm text-slate-700">
                         Subtotal: {formatMoney(item.producto.precio * item.cantidad)}
                       </p>
@@ -1207,8 +1433,6 @@ export default function MostradorPage() {
                 >
                   {creandoPedido
                     ? 'Creando pedido...'
-                    : resolverEnMostrador
-                    ? 'Crear pedido y resolver en mostrador'
                     : isRestaurantMode
                     ? 'Crear pedido para mesa'
                     : 'Crear pedido para cliente'}
@@ -1242,8 +1466,8 @@ export default function MostradorPage() {
                 </h2>
                 <p className="mt-2 text-sm text-slate-600">
                   {isTakeawayMode
-                    ? 'En este local la referencia principal es la persona. Desde acá preparás, entregás y cerrás el flujo del retiro.'
-                    : 'Aunque el modo principal del local sea restaurante, esta pantalla puede seguir mostrando retiros si el negocio decide usarlos.'}
+                    ? 'Mostrador puede tomar cualquier pedido, resolverlo acá o mandar a cocina solo los ítems necesarios.'
+                    : 'Aunque el modo principal sea restaurante, esta pantalla también puede resolver retiros y derivar ítems a cocina si hace falta.'}
                 </p>
               </div>
 
@@ -1277,13 +1501,27 @@ export default function MostradorPage() {
               <div className="mt-6 space-y-3">
                 {takeawayPedidos.map((pedido) => {
                   const paymentBadge = getPaymentBadge(pedido);
-                  const ready = normalizeText(pedido.estado) === 'listo';
-                  const inPreparation =
-                    normalizeText(pedido.estado) === 'en_preparacion';
+                  const normalizedEstado = normalizeText(pedido.estado);
+                  const ready = normalizedEstado === 'listo';
+                  const inPreparation = normalizedEstado === 'en_preparacion';
                   const pending =
-                    normalizeText(pedido.estado) === 'pendiente' ||
-                    normalizeText(pedido.estado) === 'solicitado';
+                    normalizedEstado === 'pendiente' ||
+                    normalizedEstado === 'solicitado';
                   const handledHere = isMostradorManagedPedido(pedido);
+
+                  const kitchenItems = getKitchenItems(pedido);
+                  const hasKitchenItems = kitchenItems.length > 0;
+                  const hasPendingKitchen = hasKitchenPendingItems(pedido);
+                  const canMarkReady =
+                    !ready &&
+                    !hasPendingKitchen &&
+                    normalizedEstado !== 'entregado' &&
+                    normalizedEstado !== 'cerrado';
+                  const canTakeHere =
+                    !ready && !hasKitchenItems && (pending || normalizedEstado === 'solicitado');
+                  const canSendAnyToKitchen =
+                    !ready &&
+                    pedido.items.some((item) => item.prepTarget === 'mostrador');
 
                   return (
                     <article
@@ -1303,7 +1541,7 @@ export default function MostradorPage() {
 
                             {handledHere ? (
                               <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-medium text-white">
-                                RESUELVE MOSTRADOR
+                                CREADO EN MOSTRADOR
                               </span>
                             ) : null}
 
@@ -1349,8 +1587,68 @@ export default function MostradorPage() {
                         </div>
                       </div>
 
+                      <div className="mt-4 space-y-2">
+                        {pedido.items.map((item) => (
+                          <div
+                            key={item.id}
+                            className="rounded-xl border border-slate-200 bg-white/80 px-3 py-3"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-sm font-semibold text-slate-900">
+                                    {item.cantidad} × {item.producto?.nombre ?? '—'}
+                                  </span>
+
+                                  <span
+                                    className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                      item.prepTarget === 'cocina'
+                                        ? item.kitchenState === 'listo'
+                                          ? 'bg-emerald-100 text-emerald-800'
+                                          : item.kitchenState === 'en_preparacion'
+                                          ? 'bg-sky-100 text-sky-800'
+                                          : 'bg-amber-100 text-amber-800'
+                                        : 'bg-slate-100 text-slate-700'
+                                    }`}
+                                  >
+                                    {item.prepTarget === 'cocina'
+                                      ? item.kitchenState === 'listo'
+                                        ? 'Listo en cocina'
+                                        : item.kitchenState === 'en_preparacion'
+                                        ? 'Preparando en cocina'
+                                        : 'Enviado a cocina'
+                                      : 'Mostrador'}
+                                  </span>
+                                </div>
+
+                                {item.comentarioVisible ? (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    Nota: {item.comentarioVisible}
+                                  </p>
+                                ) : null}
+                              </div>
+
+                              {item.prepTarget === 'mostrador' && !ready ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void enviarItemACocina(pedido.id, item);
+                                  }}
+                                  disabled={actualizandoItemId === item.id}
+                                  className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                                >
+                                  {actualizandoItemId === item.id
+                                    ? 'Enviando...'
+                                    : 'Enviar a cocina'}
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
                       <div className="mt-4 flex flex-wrap gap-2">
-                        {handledHere && pending ? (
+                        {canTakeHere ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -1364,11 +1662,26 @@ export default function MostradorPage() {
                           >
                             {actualizandoPedidoId === pedido.id
                               ? 'Actualizando...'
-                              : 'Tomar y preparar'}
+                              : 'Tomar en mostrador'}
                           </button>
                         ) : null}
 
-                        {handledHere && inPreparation ? (
+                        {canSendAnyToKitchen ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void enviarTodoACocina(pedido);
+                            }}
+                            disabled={enviandoPedidoACocinaId === pedido.id}
+                            className="rounded-xl border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+                          >
+                            {enviandoPedidoACocinaId === pedido.id
+                              ? 'Enviando...'
+                              : 'Enviar todo a cocina'}
+                          </button>
+                        ) : null}
+
+                        {canMarkReady ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -1398,9 +1711,9 @@ export default function MostradorPage() {
                           </button>
                         ) : null}
 
-                        {!handledHere && !ready ? (
+                        {hasKitchenPending ? (
                           <span className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600">
-                            Esperando que cocina lo marque como listo
+                            Hay ítems en cocina pendientes de resolución
                           </span>
                         ) : null}
                       </div>
@@ -1428,8 +1741,8 @@ export default function MostradorPage() {
                 </h2>
                 <p className="mt-2 text-sm text-slate-600">
                   {isRestaurantMode
-                    ? 'En modo restaurante la unidad principal es la mesa. Desde acá podés seguir todo el salón, cobrar y liberar la mesa.'
-                    : 'El local está configurado en take away. Si esta sección aparece con datos, sirve solo como referencia secundaria.'}
+                    ? 'Mostrador también puede resolver pedidos de salón, mandar ítems a cocina y cerrar la cuenta final.'
+                    : 'El local está configurado en take away. Si aparece información de salón, esta vista funciona como referencia secundaria.'}
                 </p>
               </div>
 
@@ -1496,11 +1809,26 @@ export default function MostradorPage() {
                         {mesa.pedidos.map((pedido) => {
                           const paymentBadge = getPaymentBadge(pedido);
                           const handledHere = isMostradorManagedPedido(pedido);
+                          const normalizedEstado = normalizeText(pedido.estado);
                           const pending =
-                            normalizeText(pedido.estado) === 'pendiente' ||
-                            normalizeText(pedido.estado) === 'solicitado';
-                          const inPreparation =
-                            normalizeText(pedido.estado) === 'en_preparacion';
+                            normalizedEstado === 'pendiente' ||
+                            normalizedEstado === 'solicitado';
+                          const ready = normalizedEstado === 'listo';
+                          const kitchenItems = getKitchenItems(pedido);
+                          const hasKitchenItems = kitchenItems.length > 0;
+                          const hasKitchenPending = hasKitchenPendingItems(pedido);
+                          const canTakeHere =
+                            !ready && !hasKitchenItems && pending;
+                          const canMarkReady =
+                            !ready &&
+                            !hasKitchenPending &&
+                            normalizedEstado !== 'entregado' &&
+                            normalizedEstado !== 'cerrado';
+                          const canSendAnyToKitchen =
+                            !ready &&
+                            pedido.items.some(
+                              (item) => item.prepTarget === 'mostrador'
+                            );
 
                           return (
                             <div
@@ -1517,7 +1845,7 @@ export default function MostradorPage() {
 
                                     {handledHere ? (
                                       <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-medium text-white">
-                                        RESUELVE MOSTRADOR
+                                        CREADO EN MOSTRADOR
                                       </span>
                                     ) : null}
 
@@ -1549,49 +1877,124 @@ export default function MostradorPage() {
                                 </div>
                               </div>
 
-                              {handledHere ? (
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  {pending ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        void actualizarEstadoPedido(
-                                          pedido.id,
-                                          'en_preparacion'
-                                        );
-                                      }}
-                                      disabled={
-                                        actualizandoPedidoId === pedido.id
-                                      }
-                                      className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
-                                    >
-                                      {actualizandoPedidoId === pedido.id
-                                        ? 'Actualizando...'
-                                        : 'Tomar y preparar'}
-                                    </button>
-                                  ) : null}
+                              <div className="mt-3 space-y-2">
+                                {pedido.items.map((item) => (
+                                  <div
+                                    key={item.id}
+                                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                      <div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="text-sm font-medium text-slate-900">
+                                            {item.cantidad} × {item.producto?.nombre ?? '—'}
+                                          </span>
 
-                                  {inPreparation ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        void actualizarEstadoPedido(
-                                          pedido.id,
-                                          'listo'
-                                        );
-                                      }}
-                                      disabled={
-                                        actualizandoPedidoId === pedido.id
-                                      }
-                                      className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                                    >
-                                      {actualizandoPedidoId === pedido.id
-                                        ? 'Actualizando...'
-                                        : 'Marcar listo'}
-                                    </button>
-                                  ) : null}
-                                </div>
-                              ) : null}
+                                          <span
+                                            className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                              item.prepTarget === 'cocina'
+                                                ? item.kitchenState === 'listo'
+                                                  ? 'bg-emerald-100 text-emerald-800'
+                                                  : item.kitchenState === 'en_preparacion'
+                                                  ? 'bg-sky-100 text-sky-800'
+                                                  : 'bg-amber-100 text-amber-800'
+                                                : 'bg-slate-100 text-slate-700'
+                                            }`}
+                                          >
+                                            {item.prepTarget === 'cocina'
+                                              ? item.kitchenState === 'listo'
+                                                ? 'Listo en cocina'
+                                                : item.kitchenState === 'en_preparacion'
+                                                ? 'Preparando en cocina'
+                                                : 'Enviado a cocina'
+                                              : 'Mostrador'}
+                                          </span>
+                                        </div>
+
+                                        {item.comentarioVisible ? (
+                                          <p className="mt-1 text-xs text-slate-500">
+                                            Nota: {item.comentarioVisible}
+                                          </p>
+                                        ) : null}
+                                      </div>
+
+                                      {item.prepTarget === 'mostrador' && !ready ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            void enviarItemACocina(pedido.id, item);
+                                          }}
+                                          disabled={actualizandoItemId === item.id}
+                                          className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                                        >
+                                          {actualizandoItemId === item.id
+                                            ? 'Enviando...'
+                                            : 'Enviar a cocina'}
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {canTakeHere ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void actualizarEstadoPedido(
+                                        pedido.id,
+                                        'en_preparacion'
+                                      );
+                                    }}
+                                    disabled={actualizandoPedidoId === pedido.id}
+                                    className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                                  >
+                                    {actualizandoPedidoId === pedido.id
+                                      ? 'Actualizando...'
+                                      : 'Tomar en mostrador'}
+                                  </button>
+                                ) : null}
+
+                                {canSendAnyToKitchen ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void enviarTodoACocina(pedido);
+                                    }}
+                                    disabled={enviandoPedidoACocinaId === pedido.id}
+                                    className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+                                  >
+                                    {enviandoPedidoACocinaId === pedido.id
+                                      ? 'Enviando...'
+                                      : 'Enviar todo a cocina'}
+                                  </button>
+                                ) : null}
+
+                                {canMarkReady ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void actualizarEstadoPedido(
+                                        pedido.id,
+                                        'listo'
+                                      );
+                                    }}
+                                    disabled={actualizandoPedidoId === pedido.id}
+                                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                                  >
+                                    {actualizandoPedidoId === pedido.id
+                                      ? 'Actualizando...'
+                                      : 'Marcar listo'}
+                                  </button>
+                                ) : null}
+
+                                {hasKitchenPending ? (
+                                  <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                    Hay ítems en cocina pendientes
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
                           );
                         })}

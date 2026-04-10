@@ -10,10 +10,16 @@ import {
 
 const DELIVERY_MESA_ID = 0;
 
+type KitchenPrepState = 'pendiente' | 'en_preparacion' | 'listo';
+type PrepTarget = 'mostrador' | 'cocina';
+
 type ItemPedido = {
   id: number;
   cantidad: number;
   comentarios: string | null;
+  comentarioVisible: string | null;
+  prepTarget: PrepTarget;
+  kitchenState: KitchenPrepState | null;
   producto: { nombre: string } | null;
 };
 
@@ -148,6 +154,50 @@ function getPedidoKindBadge(pedido: Pedido) {
   };
 }
 
+function parseKitchenMeta(comment: string | null | undefined) {
+  const raw = String(comment ?? '').trim();
+
+  if (!raw) {
+    return {
+      prepTarget: 'mostrador' as PrepTarget,
+      kitchenState: null as KitchenPrepState | null,
+      comentarioVisible: null as string | null,
+    };
+  }
+
+  const match = raw.match(
+    /^\[\[COCINA:(pendiente|en_preparacion|listo)\]\]\s*(.*)$/i
+  );
+
+  if (!match) {
+    return {
+      prepTarget: 'mostrador' as PrepTarget,
+      kitchenState: null,
+      comentarioVisible: raw,
+    };
+  }
+
+  const visible = String(match[2] ?? '').trim();
+
+  return {
+    prepTarget: 'cocina' as PrepTarget,
+    kitchenState: match[1].toLowerCase() as KitchenPrepState,
+    comentarioVisible: visible || null,
+  };
+}
+
+function buildKitchenComment(
+  comment: string | null | undefined,
+  kitchenState: KitchenPrepState
+) {
+  const visible = String(comment ?? '').trim();
+  return `[[COCINA:${kitchenState}]]${visible ? ` ${visible}` : ''}`;
+}
+
+function getKitchenItems(pedido: Pedido) {
+  return pedido.items.filter((item) => item.prepTarget === 'cocina');
+}
+
 function getReadyMessage(params: {
   pedido: Pedido;
   businessMode: BusinessMode;
@@ -157,18 +207,18 @@ function getReadyMessage(params: {
   const kind = getPedidoKind(pedido);
 
   if (kind === 'takeaway') {
-    return 'El pedido quedó listo. Ahora Mostrador / Caja debe entregarlo y marcarlo como retirado.';
+    return 'Los ítems de cocina ya están listos. Ahora Mostrador / Caja debe entregarlo y marcarlo como entregado.';
   }
 
   if (kind === 'delivery') {
-    return 'El pedido quedó listo. Ahora la operación del local debe despacharlo o entregarlo.';
+    return 'Los ítems de cocina ya están listos. Ahora la operación del local debe despacharlo o entregarlo.';
   }
 
   if (businessMode === 'restaurant' && canUseWaiterMode) {
-    return 'El pedido quedó listo. El mozo ya puede verlo en su pantalla para retirarlo y llevarlo a la mesa.';
+    return 'Los ítems de cocina ya están listos. El mozo ya puede verlo en su pantalla para retirarlo y llevarlo a la mesa.';
   }
 
-  return 'El pedido quedó listo. Ahora Caja / Salón debe verlo desde Mostrador para entregarlo y luego cerrar la cuenta cuando corresponda.';
+  return 'Los ítems de cocina ya están listos. Ahora Caja / Salón debe verlo desde Mostrador para entregarlo o cerrar la cuenta cuando corresponda.';
 }
 
 export default function CocinaPage() {
@@ -185,6 +235,9 @@ export default function CocinaPage() {
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos');
   const [error, setError] = useState<string | null>(null);
   const [audioReady, setAudioReady] = useState(false);
+  const [actualizandoPedidoId, setActualizandoPedidoId] = useState<number | null>(
+    null
+  );
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioReadyRef = useRef(false);
@@ -297,49 +350,70 @@ export default function CocinaPage() {
     setCargando(true);
     setError(null);
 
-    const [{ data: pedidosData, error: pedidosError }, { data: mesasData, error: mesasError }] =
-      await Promise.all([
-        supabase
-          .from('pedidos')
-          .select(`
+    const [
+      { data: pedidosData, error: pedidosError },
+      { data: mesasData, error: mesasError },
+    ] = await Promise.all([
+      supabase
+        .from('pedidos')
+        .select(`
+          id,
+          mesa_id,
+          creado_en,
+          estado,
+          origen,
+          tipo_servicio,
+          codigo_publico,
+          cliente_nombre,
+          items_pedido (
             id,
-            mesa_id,
-            creado_en,
-            estado,
-            origen,
-            tipo_servicio,
-            codigo_publico,
-            cliente_nombre,
-            items_pedido (
-              id,
-              cantidad,
-              comentarios,
-              producto:productos ( nombre )
-            )
-          `)
-          .in('estado', ['pendiente', 'en_preparacion', 'listo'])
-          .order('creado_en', { ascending: false }),
-        supabase
-          .from('mesas')
-          .select('id, numero, nombre'),
-      ]);
+            cantidad,
+            comentarios,
+            producto:productos ( nombre )
+          )
+        `)
+        .in('estado', ['pendiente', 'en_preparacion', 'listo'])
+        .order('creado_en', { ascending: false }),
+      supabase.from('mesas').select('id, numero, nombre'),
+    ]);
 
     if (pedidosError) {
       console.error('Error cargando pedidos en cocina:', pedidosError);
       setError('No se pudieron cargar los pedidos de cocina.');
       setPedidos([]);
     } else if (pedidosData) {
-      const formateados: Pedido[] = pedidosData.map((p: any) => ({
-        id: p.id,
-        mesa_id: p.mesa_id,
-        creado_en: p.creado_en,
-        estado: p.estado,
-        items: p.items_pedido ?? [],
-        origen: p.origen ?? null,
-        tipo_servicio: p.tipo_servicio ?? null,
-        codigo_publico: p.codigo_publico ?? null,
-        cliente_nombre: p.cliente_nombre ?? null,
-      }));
+      const formateados: Pedido[] = (pedidosData as any[])
+        .map((p) => {
+          const items: ItemPedido[] = ((p.items_pedido ?? []) as any[]).map(
+            (item) => {
+              const parsed = parseKitchenMeta(item.comentarios);
+
+              return {
+                id: item.id,
+                cantidad: item.cantidad,
+                comentarios: item.comentarios ?? null,
+                comentarioVisible: parsed.comentarioVisible,
+                prepTarget: parsed.prepTarget,
+                kitchenState: parsed.kitchenState,
+                producto: item.producto ?? null,
+              };
+            }
+          );
+
+          return {
+            id: p.id,
+            mesa_id: p.mesa_id,
+            creado_en: p.creado_en,
+            estado: p.estado,
+            items,
+            origen: p.origen ?? null,
+            tipo_servicio: p.tipo_servicio ?? null,
+            codigo_publico: p.codigo_publico ?? null,
+            cliente_nombre: p.cliente_nombre ?? null,
+          };
+        })
+        .filter((pedido) => getKitchenItems(pedido).length > 0);
+
       setPedidos(formateados);
     }
 
@@ -362,49 +436,45 @@ export default function CocinaPage() {
     void cargarPedidos();
 
     const canalPedidos = supabase
-      .channel('realtime-pedidos')
+      .channel('realtime-pedidos-cocina')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'pedidos' },
-        (payload) => {
-          const nuevo: any = payload.new;
-          const viejo: any = payload.old;
-
-          const estadosCocina = ['pendiente', 'en_preparacion', 'listo'];
-
-          if (payload.eventType === 'INSERT') {
-            if (estadosCocina.includes(nuevo.estado)) {
-              setDestacados((prev) =>
-                prev.includes(nuevo.id) ? prev : [nuevo.id, ...prev]
-              );
-              reproducirSonido();
-            }
-          }
-
-          if (payload.eventType === 'UPDATE') {
-            if (
-              estadosCocina.includes(nuevo.estado) &&
-              viejo?.estado !== nuevo.estado &&
-              nuevo.estado === 'pendiente'
-            ) {
-              setDestacados((prev) =>
-                prev.includes(nuevo.id) ? prev : [nuevo.id, ...prev]
-              );
-              reproducirSonido();
-            }
-          }
-
+        () => {
           void cargarPedidos();
         }
       )
       .subscribe();
 
     const canalItems = supabase
-      .channel('realtime-items')
+      .channel('realtime-items-cocina')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'items_pedido' },
-        () => {
+        (payload) => {
+          const nuevo = payload.new as any;
+          const viejo = payload.old as any;
+
+          const parsedNuevo = parseKitchenMeta(nuevo?.comentarios ?? null);
+          const parsedViejo = parseKitchenMeta(viejo?.comentarios ?? null);
+
+          const ingresoNuevoAPendiente =
+            parsedNuevo.prepTarget === 'cocina' &&
+            parsedNuevo.kitchenState === 'pendiente' &&
+            !(
+              parsedViejo.prepTarget === 'cocina' &&
+              parsedViejo.kitchenState === 'pendiente'
+            );
+
+          if (ingresoNuevoAPendiente && Number.isFinite(Number(nuevo?.pedido_id))) {
+            const pedidoId = Number(nuevo.pedido_id);
+
+            setDestacados((prev) =>
+              prev.includes(pedidoId) ? prev : [pedidoId, ...prev]
+            );
+            reproducirSonido();
+          }
+
           void cargarPedidos();
         }
       )
@@ -416,22 +486,71 @@ export default function CocinaPage() {
     };
   }, [checkingAccess, cargarPedidos, reproducirSonido]);
 
-  const cambiarEstado = async (pedidoId: number, nuevoEstado: string) => {
+  const actualizarEstadoItemsCocina = async (
+    pedido: Pedido,
+    nuevoEstado: 'en_preparacion' | 'listo'
+  ) => {
+    setActualizandoPedidoId(pedido.id);
     setError(null);
 
-    const { error: updateError } = await supabase
-      .from('pedidos')
-      .update({ estado: nuevoEstado })
-      .eq('id', pedidoId);
+    try {
+      const kitchenItems = getKitchenItems(pedido);
 
-    if (updateError) {
-      console.error('No se pudo actualizar el estado del pedido:', updateError);
-      setError('No se pudo actualizar el estado del pedido.');
-      return;
+      const itemsAActualizar = kitchenItems.filter((item) => {
+        if (nuevoEstado === 'en_preparacion') {
+          return item.kitchenState === 'pendiente';
+        }
+
+        return (
+          item.kitchenState === 'pendiente' ||
+          item.kitchenState === 'en_preparacion'
+        );
+      });
+
+      if (itemsAActualizar.length === 0) {
+        setActualizandoPedidoId(null);
+        return;
+      }
+
+      const updates = await Promise.all(
+        itemsAActualizar.map((item) =>
+          supabase
+            .from('items_pedido')
+            .update({
+              comentarios: buildKitchenComment(
+                item.comentarioVisible,
+                nuevoEstado
+              ),
+            })
+            .eq('id', item.id)
+        )
+      );
+
+      const failed = updates.find((result) => result.error);
+
+      if (failed?.error) {
+        throw failed.error;
+      }
+
+      const { error: pedidoError } = await supabase
+        .from('pedidos')
+        .update({
+          estado: nuevoEstado === 'listo' ? 'listo' : 'en_preparacion',
+        })
+        .eq('id', pedido.id);
+
+      if (pedidoError) {
+        throw pedidoError;
+      }
+
+      setDestacados((prev) => prev.filter((id) => id !== pedido.id));
+      await cargarPedidos();
+    } catch (err) {
+      console.error('No se pudo actualizar el estado del pedido en cocina:', err);
+      setError('No se pudo actualizar el estado del pedido en cocina.');
+    } finally {
+      setActualizandoPedidoId(null);
     }
-
-    setDestacados((prev) => prev.filter((id) => id !== pedidoId));
-    await cargarPedidos();
   };
 
   const pedidosFiltrados = [...pedidos]
@@ -467,11 +586,11 @@ export default function CocinaPage() {
           <div>
             <h1 className="text-2xl font-bold">Cocina (tiempo real)</h1>
             <p className="text-sm text-slate-300">
-              Pedidos de salón, take away y delivery en una sola vista.
+              Cocina ve solo los ítems que Mostrador le envía.
             </p>
             <p className="text-sm text-slate-400">
-              Cocina toma el pedido y lo deja en <strong>listo</strong>. La entrega y el
-              cierre final se resuelven fuera de esta pantalla.
+              Cuando cocina deja esos ítems en <strong>listo</strong>, Mostrador /
+              Caja se encarga de la entrega final.
             </p>
           </div>
 
@@ -532,9 +651,8 @@ export default function CocinaPage() {
 
         {!audioReady ? (
           <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-            Para volver a escuchar el aviso de ingreso de pedido, hacé click en{' '}
-            <strong>“Activar sonido”</strong>. Algunos navegadores bloquean el audio
-            automático hasta la primera interacción.
+            Para volver a escuchar el aviso de ingreso de ítems a cocina, hacé click
+            en <strong> “Activar sonido”</strong>.
           </div>
         ) : null}
 
@@ -566,7 +684,7 @@ export default function CocinaPage() {
         </div>
 
         {pedidosFiltrados.length === 0 && (
-          <p className="text-slate-400">No hay pedidos para mostrar.</p>
+          <p className="text-slate-400">No hay ítems de cocina para mostrar.</p>
         )}
 
         <section className="space-y-3">
@@ -576,6 +694,17 @@ export default function CocinaPage() {
             const pedidoLabel = getPedidoLabel(p, mesasMap);
             const kind = getPedidoKind(p);
             const clienteNombre = getClienteNombre(p);
+
+            const kitchenItems = getKitchenItems(p);
+            const hasPendingKitchen = kitchenItems.some(
+              (item) => item.kitchenState === 'pendiente'
+            );
+            const hasPreparingKitchen = kitchenItems.some(
+              (item) => item.kitchenState === 'en_preparacion'
+            );
+            const allKitchenReady =
+              kitchenItems.length > 0 &&
+              kitchenItems.every((item) => item.kitchenState === 'listo');
 
             return (
               <article
@@ -621,46 +750,76 @@ export default function CocinaPage() {
                   </p>
                 ) : null}
 
-                <ul className="mt-2 space-y-1 text-sm">
-                  {p.items.map((item) => (
-                    <li key={item.id}>
-                      <span className="font-medium">
-                        {item.cantidad} × {item.producto?.nombre ?? '—'}
-                      </span>
-                      {item.comentarios && (
-                        <p className="text-xs text-amber-200 ml-4">
-                          Nota: {item.comentarios}
-                        </p>
-                      )}
+                <ul className="mt-2 space-y-2 text-sm">
+                  {kitchenItems.map((item) => (
+                    <li
+                      key={item.id}
+                      className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <span className="font-medium">
+                            {item.cantidad} × {item.producto?.nombre ?? '—'}
+                          </span>
+
+                          {item.comentarioVisible ? (
+                            <p className="text-xs text-amber-200 mt-1">
+                              Nota: {item.comentarioVisible}
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                            item.kitchenState === 'listo'
+                              ? 'bg-emerald-500/20 border border-emerald-400/40 text-emerald-100'
+                              : item.kitchenState === 'en_preparacion'
+                              ? 'bg-sky-500/20 border border-sky-400/40 text-sky-100'
+                              : 'bg-amber-500/20 border border-amber-400/40 text-amber-100'
+                          }`}
+                        >
+                          {item.kitchenState === 'listo'
+                            ? 'Listo en cocina'
+                            : item.kitchenState === 'en_preparacion'
+                            ? 'En preparación'
+                            : 'Pendiente'}
+                        </span>
+                      </div>
                     </li>
                   ))}
                 </ul>
 
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {p.estado === 'pendiente' && (
+                  {hasPendingKitchen ? (
                     <button
                       onClick={() => {
-                        void cambiarEstado(p.id, 'en_preparacion');
+                        void actualizarEstadoItemsCocina(p, 'en_preparacion');
                       }}
-                      className="px-3 py-1 rounded-lg bg-sky-500 text-slate-900 text-sm font-semibold hover:bg-sky-400"
+                      disabled={actualizandoPedidoId === p.id}
+                      className="px-3 py-1 rounded-lg bg-sky-500 text-slate-900 text-sm font-semibold hover:bg-sky-400 disabled:opacity-60"
                     >
-                      Tomar pedido
+                      {actualizandoPedidoId === p.id
+                        ? 'Actualizando...'
+                        : 'Tomar pedido'}
                     </button>
-                  )}
+                  ) : null}
 
-                  {p.estado === 'en_preparacion' && (
+                  {(hasPendingKitchen || hasPreparingKitchen) && !allKitchenReady ? (
                     <button
                       onClick={() => {
-                        void cambiarEstado(p.id, 'listo');
+                        void actualizarEstadoItemsCocina(p, 'listo');
                       }}
-                      className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-900 text-sm font-semibold hover:bg-emerald-400"
+                      disabled={actualizandoPedidoId === p.id}
+                      className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-900 text-sm font-semibold hover:bg-emerald-400 disabled:opacity-60"
                     >
-                      Marcar listo
+                      {actualizandoPedidoId === p.id
+                        ? 'Actualizando...'
+                        : 'Marcar listo'}
                     </button>
-                  )}
+                  ) : null}
                 </div>
 
-                {p.estado === 'listo' ? (
+                {allKitchenReady ? (
                   <p className="mt-3 text-xs text-slate-400">
                     {getReadyMessage({
                       pedido: p,

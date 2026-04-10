@@ -22,6 +22,8 @@ type RestaurantContext = {
 type BusinessMode = 'restaurant' | 'takeaway';
 type TipoServicio = 'mesa' | 'delivery' | 'takeaway';
 type IdentityKind = 'mesa' | 'persona' | 'delivery';
+type PrepTarget = 'mostrador' | 'cocina';
+type KitchenPrepState = 'pendiente' | 'en_preparacion' | 'listo';
 
 type LocalConfigRow = {
   business_mode?: string | null;
@@ -31,6 +33,14 @@ type PedidoItemInput = {
   producto_id: number;
   cantidad: number;
   comentarios?: string | null;
+  prep_target?: PrepTarget | null;
+};
+
+type SanitizedPedidoItemInput = {
+  producto_id: number;
+  cantidad: number;
+  comentarios?: string | null;
+  prep_target: PrepTarget;
 };
 
 type CreatePedidoBody = {
@@ -107,6 +117,55 @@ function normalizeOrigen(value: unknown, tipoServicio: TipoServicio) {
 function normalizeOptionalText(value: unknown) {
   const text = String(value ?? '').trim();
   return text.length ? text : null;
+}
+
+function normalizePrepTarget(value: unknown): PrepTarget {
+  return String(value ?? '').trim().toLowerCase() === 'cocina'
+    ? 'cocina'
+    : 'mostrador';
+}
+
+function parseKitchenMeta(comment: string | null | undefined) {
+  const raw = String(comment ?? '').trim();
+
+  if (!raw) {
+    return {
+      viaKitchen: false,
+      kitchenState: null as KitchenPrepState | null,
+      cleanComment: null as string | null,
+    };
+  }
+
+  const match = raw.match(
+    /^\[\[COCINA:(pendiente|en_preparacion|listo)\]\]\s*(.*)$/i
+  );
+
+  if (!match) {
+    return {
+      viaKitchen: false,
+      kitchenState: null,
+      cleanComment: raw,
+    };
+  }
+
+  return {
+    viaKitchen: true,
+    kitchenState: match[1].toLowerCase() as KitchenPrepState,
+    cleanComment: normalizeOptionalText(match[2]),
+  };
+}
+
+function buildKitchenComment(
+  comment: string | null | undefined,
+  kitchenState: KitchenPrepState | null
+) {
+  const clean = normalizeOptionalText(comment);
+
+  if (!kitchenState) {
+    return clean;
+  }
+
+  return `[[COCINA:${kitchenState}]]${clean ? ` ${clean}` : ''}`;
 }
 
 function getIdentityKind(tipoServicio: TipoServicio): IdentityKind {
@@ -242,7 +301,8 @@ async function resolveMesaIdForPedido(
 }
 
 function parseTakeawayMarker(comment: string | null | undefined) {
-  const raw = String(comment ?? '').trim();
+  const kitchenMeta = parseKitchenMeta(comment);
+  const raw = String(kitchenMeta.cleanComment ?? '').trim();
 
   if (!raw) {
     return {
@@ -272,15 +332,19 @@ function parseTakeawayMarker(comment: string | null | undefined) {
 function extractTakeawayDataFromItems(items: PedidoItemInput[]) {
   let clienteNombre: string | null = null;
 
-  const sanitizedItems = items.map((item, index) => {
+  const sanitizedItems: SanitizedPedidoItemInput[] = items.map((item, index) => {
     const comentarioOriginal =
       typeof item?.comentarios === 'string' ? item.comentarios : null;
+    const prepTarget = normalizePrepTarget(item?.prep_target);
 
     if (index !== 0) {
+      const kitchenMeta = parseKitchenMeta(comentarioOriginal);
+
       return {
         producto_id: Number(item.producto_id),
         cantidad: Number(item.cantidad),
-        comentarios: normalizeOptionalText(comentarioOriginal),
+        comentarios: normalizeOptionalText(kitchenMeta.cleanComment),
+        prep_target: prepTarget,
       };
     }
 
@@ -294,6 +358,7 @@ function extractTakeawayDataFromItems(items: PedidoItemInput[]) {
       producto_id: Number(item.producto_id),
       cantidad: Number(item.cantidad),
       comentarios: parsed.comentarioLimpio,
+      prep_target: prepTarget,
     };
   });
 
@@ -330,8 +395,7 @@ export async function GET() {
         : null,
       meta: {
         business_mode: businessMode,
-        default_identity:
-          businessMode === 'takeaway' ? 'persona' : 'mesa',
+        default_identity: businessMode === 'takeaway' ? 'persona' : 'mesa',
       },
     });
   } catch (error) {
@@ -379,7 +443,19 @@ export async function POST(request: NextRequest) {
     const extractedTakeawayData =
       tipoServicio === 'takeaway'
         ? extractTakeawayDataFromItems(rawItems)
-        : { clienteNombre: null as string | null, sanitizedItems: rawItems };
+        : {
+            clienteNombre: null as string | null,
+            sanitizedItems: rawItems.map((item) => {
+              const kitchenMeta = parseKitchenMeta(item?.comentarios ?? null);
+
+              return {
+                producto_id: Number(item.producto_id),
+                cantidad: Number(item.cantidad),
+                comentarios: normalizeOptionalText(kitchenMeta.cleanComment),
+                prep_target: normalizePrepTarget(item?.prep_target),
+              };
+            }) as SanitizedPedidoItemInput[],
+          };
 
     const items = extractedTakeawayData.sanitizedItems;
     const clienteNombre =
@@ -434,11 +510,15 @@ export async function POST(request: NextRequest) {
 
     const mesaIdResolved = mesaResolution.mesaId;
 
-    const estadoInicial = getInitialPedidoEstado({
+    const estadoBase = getInitialPedidoEstado({
       plan,
       origen,
       tipo_servicio: tipoServicio,
     });
+
+    const hasKitchenItems = items.some((item) => item.prep_target === 'cocina');
+
+    const estadoInicial = hasKitchenItems ? 'en_preparacion' : estadoBase;
 
     const payloadPedido = {
       mesa_id: mesaIdResolved,
@@ -461,8 +541,7 @@ export async function POST(request: NextRequest) {
           : formaPago === 'efectivo',
       cliente_nombre: clienteNombre,
       cliente_telefono: clienteTelefono,
-      direccion_entrega:
-        tipoServicio === 'delivery' ? direccionEntrega : null,
+      direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
     };
 
     const { data: pedido, error: pedidoError } = await sb
@@ -487,9 +566,9 @@ export async function POST(request: NextRequest) {
       producto_id: Number(item.producto_id),
       cantidad: Number(item.cantidad),
       comentarios:
-        typeof item.comentarios === 'string' && item.comentarios.trim()
-          ? item.comentarios.trim()
-          : null,
+        item.prep_target === 'cocina'
+          ? buildKitchenComment(item.comentarios, 'pendiente')
+          : normalizeOptionalText(item.comentarios),
     }));
 
     const { error: itemsError } = await sb
@@ -531,6 +610,7 @@ export async function POST(request: NextRequest) {
               : tipoServicio === 'delivery'
               ? 'delivery'
               : 'restaurant',
+          has_kitchen_items: hasKitchenItems,
         },
       },
       { status: 201 }
