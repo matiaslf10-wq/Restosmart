@@ -554,14 +554,14 @@ export default function CocinaPage() {
   };
 
   const pedidosFiltrados = [...pedidos]
-    .filter((p) => (filtroEstado === 'todos' ? true : p.estado === filtroEstado))
-    .sort((a, b) => {
-      const timeA = new Date(a.creado_en).getTime();
-      const timeB = new Date(b.creado_en).getTime();
+  .filter((p) => (filtroEstado === 'todos' ? true : p.estado === filtroEstado))
+  .sort((a, b) => {
+    const timeA = new Date(a.creado_en).getTime();
+    const timeB = new Date(b.creado_en).getTime();
 
-      if (timeA !== timeB) return timeB - timeA;
-      return b.id - a.id;
-    });
+    if (timeA !== timeB) return timeB - timeA; // más nuevos primero
+    return b.id - a.id; // si empatan en fecha, mayor id arriba
+  });
 
   if (checkingAccess) {
     return (
