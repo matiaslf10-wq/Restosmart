@@ -290,7 +290,7 @@ function formatEstadoLabel(estado: string) {
   if (normalized === 'en_preparacion') return 'En preparación';
   if (normalized === 'listo') return 'Listo';
   if (normalized === 'entregado') return 'Entregado';
-  if (normalized === 'cerrado') return 'Cerrado';
+  if (normalized === 'cerrado') return 'Entregado';
 
   return estado || 'Sin estado';
 }
@@ -1697,19 +1697,19 @@ export default function MostradorPage() {
                         ) : null}
 
                         {ready ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void actualizarEstadoPedido(pedido.id, 'entregado');
-                            }}
-                            disabled={actualizandoPedidoId === pedido.id}
-                            className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
-                          >
-                            {actualizandoPedidoId === pedido.id
-                              ? 'Actualizando...'
-                              : 'Marcar entregado'}
-                          </button>
-                        ) : null}
+  <button
+    type="button"
+    onClick={() => {
+      void actualizarEstadoPedido(pedido.id, 'cerrado');
+    }}
+    disabled={actualizandoPedidoId === pedido.id}
+    className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
+  >
+    {actualizandoPedidoId === pedido.id
+      ? 'Actualizando...'
+      : 'Marcar entregado'}
+  </button>
+) : null}
 
                         {hasPendingKitchen ? (
                           <span className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600">
