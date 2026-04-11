@@ -95,6 +95,8 @@ type MesaActiva = {
   totalMesa: number;
 };
 
+type FiltroEstado = 'todos' | 'pendiente' | 'en_preparacion' | 'listo';
+
 function formatMoney(value: number | string | null | undefined) {
   const num = Number(value ?? 0);
 
@@ -387,9 +389,10 @@ function getPedidoWorkflowState(pedido: Pedido) {
 
   return 'listo';
 }
+function matchesWorkflowFilter(pedido: Pedido, filtroEstado: FiltroEstado) {
+  if (filtroEstado === 'todos') return true;
 
-function isPedidoReadyForDisplay(pedido: Pedido) {
-  return getPedidoWorkflowState(pedido) === 'listo';
+  return normalizeText(getPedidoWorkflowState(pedido)) === filtroEstado;
 }
 
 export default function MostradorPage() {
@@ -426,6 +429,7 @@ export default function MostradorPage() {
   >(null);
   const [cerrandoMesaId, setCerrandoMesaId] = useState<number | null>(null);
   const [creandoPedido, setCreandoPedido] = useState(false);
+  const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos');
 
   useEffect(() => {
     let active = true;
@@ -783,6 +787,22 @@ export default function MostradorPage() {
       { enCurso: 0, listas: 0 }
     );
   }, [mesasSalonActivas]);
+
+  const takeawayPedidosFiltrados = useMemo(
+  () =>
+    takeawayPedidos.filter((pedido) =>
+      matchesWorkflowFilter(pedido, filtroEstado)
+    ),
+  [takeawayPedidos, filtroEstado]
+);
+
+const mesasSalonFiltradas = useMemo(() => {
+  if (filtroEstado === 'todos') return mesasSalonActivas;
+
+  return mesasSalonActivas.filter((mesa) =>
+    mesa.pedidos.some((pedido) => matchesWorkflowFilter(pedido, filtroEstado))
+  );
+}, [mesasSalonActivas, filtroEstado]);
 
   async function actualizarEstadoPedido(pedidoId: number, nuevoEstado: string) {
     setActualizandoPedidoId(pedidoId);
@@ -1476,6 +1496,30 @@ export default function MostradorPage() {
           </div>
         ) : null}
 
+<div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+  <div className="flex flex-wrap gap-2">
+    {[
+      { value: 'todos', label: 'Todos' },
+      { value: 'pendiente', label: 'Pendientes' },
+      { value: 'en_preparacion', label: 'En preparación' },
+      { value: 'listo', label: 'Listos' },
+    ].map((f) => (
+      <button
+        key={f.value}
+        type="button"
+        onClick={() => setFiltroEstado(f.value as FiltroEstado)}
+        className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+          filtroEstado === f.value
+            ? 'border-slate-900 bg-slate-900 text-white'
+            : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+        }`}
+      >
+        {f.label}
+      </button>
+    ))}
+  </div>
+</div>
+
         <section className="grid gap-6 xl:grid-cols-2">
           <article
             className={`rounded-3xl border bg-white p-5 shadow-sm ${
@@ -1521,23 +1565,22 @@ export default function MostradorPage() {
               </div>
             </div>
 
-            {takeawayPedidos.length === 0 ? (
+            {takeawayPedidosFiltrados.length === 0 ? (
               <div className="mt-6 rounded-2xl border border-dashed border-amber-300 px-4 py-8 text-center text-sm text-slate-600">
-                No hay pedidos take away activos.
+                No hay pedidos take away activos para este filtro.
               </div>
             ) : (
               <div className="mt-6 space-y-3">
-                {takeawayPedidos.map((pedido) => {
-                  const paymentBadge = getPaymentBadge(pedido);
+                {takeawayPedidosFiltrados.map((pedido) => {
                   const workflowState = getPedidoWorkflowState(pedido);
+const paymentBadge = getPaymentBadge(pedido);
 const normalizedEstado = normalizeText(pedido.estado);
 const normalizedWorkflowState = normalizeText(workflowState);
-
 const ready = normalizedWorkflowState === 'listo';
 const pending =
   normalizedWorkflowState === 'pendiente' ||
   normalizedWorkflowState === 'solicitado';
-                  const handledHere = isMostradorManagedPedido(pedido);
+const handledHere = isMostradorManagedPedido(pedido);
 
                   const kitchenItems = getKitchenItems(pedido);
                   const hasKitchenItems = kitchenItems.length > 0;
@@ -1792,13 +1835,13 @@ const pending =
               </div>
             </div>
 
-            {mesasSalonActivas.length === 0 ? (
+            {mesasSalonFiltradas.length === 0 ? (
               <div className="mt-6 rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600">
-                No hay mesas con pedidos activos.
+                No hay mesas con pedidos activos para este filtro.
               </div>
             ) : (
               <div className="mt-6 space-y-4">
-                {mesasSalonActivas.map((mesa) => {
+                {mesasSalonFiltradas.map((mesa) => {
                   const estadoMesa = calcularEstadoMesa(mesa);
 
                   return (
@@ -1837,12 +1880,11 @@ const pending =
 
                       <div className="mt-4 space-y-2">
                         {mesa.pedidos.map((pedido) => {
-                          const paymentBadge = getPaymentBadge(pedido);
-                          const handledHere = isMostradorManagedPedido(pedido);
                           const workflowState = getPedidoWorkflowState(pedido);
+const paymentBadge = getPaymentBadge(pedido);
+const handledHere = isMostradorManagedPedido(pedido);
 const normalizedEstado = normalizeText(pedido.estado);
 const normalizedWorkflowState = normalizeText(workflowState);
-
 const pending =
   normalizedWorkflowState === 'pendiente' ||
   normalizedWorkflowState === 'solicitado';
