@@ -362,13 +362,25 @@ function dedupeMesasForSelector(mesas: MesaRef[]) {
 
   return mesas.filter((mesa) => {
     const nombre = normalizeText(mesa.nombre);
+    const numero =
+      typeof mesa.numero === 'number' && mesa.numero > 0 ? mesa.numero : null;
 
-    const key =
-      typeof mesa.numero === 'number' && mesa.numero > 0
-        ? `numero:${mesa.numero}`
-        : nombre
-        ? `nombre:${nombre}`
-        : `id:${mesa.id}`;
+    let key = '';
+
+    if (mesa.id === DELIVERY_MESA_ID || nombre === 'delivery') {
+      key = 'delivery';
+    } else if (numero != null) {
+      key = `mesa:${numero}`;
+    } else {
+      const mesaDesdeNombre = nombre.match(/^mesa\s+(\d+)$/i);
+      if (mesaDesdeNombre) {
+        key = `mesa:${mesaDesdeNombre[1]}`;
+      } else if (nombre) {
+        key = `nombre:${nombre}`;
+      } else {
+        key = `id:${mesa.id}`;
+      }
+    }
 
     if (seen.has(key)) return false;
     seen.add(key);
@@ -600,7 +612,7 @@ const isTakeawayMode = primaryMode === 'takeaway';
       console.error('Error cargando mesas en mostrador:', mesasError);
     } else {
       const mesasTodas = ((mesasData ?? []) as MesaRef[])
-  .filter((mesa) => mesa.id > DELIVERY_MESA_ID)
+  .filter((mesa) => mesa.id >= DELIVERY_MESA_ID)
   .sort(sortMesas);
 
 const mesasParaSelector = dedupeMesasForSelector(mesasTodas);
