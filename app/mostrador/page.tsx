@@ -363,10 +363,6 @@ function dedupeMesasForSelector(mesas: MesaRef[]) {
   return mesas.filter((mesa) => {
     const nombre = normalizeText(mesa.nombre);
 
-    if (nombre === 'delivery') {
-      return false;
-    }
-
     const key =
       typeof mesa.numero === 'number' && mesa.numero > 0
         ? `numero:${mesa.numero}`
