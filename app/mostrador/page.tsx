@@ -299,7 +299,7 @@ function calcularEstadoMesa(mesa: MesaActiva) {
   if (mesa.pedidos.length === 0) return 'libre';
 
   const hayEnCurso = mesa.pedidos.some((p) => {
-    const estado = normalizeText(p.estado);
+    const estado = getPedidoWorkflowState(p);
     return (
       estado === 'solicitado' ||
       estado === 'pendiente' ||
@@ -362,6 +362,34 @@ function hasKitchenPendingItems(pedido: Pedido) {
     (item) =>
       item.prepTarget === 'cocina' && item.kitchenState !== 'listo'
   );
+}
+
+function getPedidoWorkflowState(pedido: Pedido) {
+  const pedidoEstado = normalizeText(pedido.estado);
+
+  if (pedidoEstado === 'entregado' || pedidoEstado === 'cerrado') {
+    return pedidoEstado;
+  }
+
+  const kitchenItems = getKitchenItems(pedido);
+
+  if (kitchenItems.length === 0) {
+    return pedidoEstado;
+  }
+
+  const hasKitchenPending = kitchenItems.some(
+    (item) => item.kitchenState !== 'listo'
+  );
+
+  if (hasKitchenPending) {
+    return 'en_preparacion';
+  }
+
+  return 'listo';
+}
+
+function isPedidoReadyForDisplay(pedido: Pedido) {
+  return getPedidoWorkflowState(pedido) === 'listo';
 }
 
 export default function MostradorPage() {
@@ -721,23 +749,23 @@ export default function MostradorPage() {
   }, [mesasMap, pedidosLocal]);
 
   const takeawayResumen = useMemo(() => {
-    return takeawayPedidos.reduce(
-      (acc, pedido) => {
-        const estado = normalizeText(pedido.estado);
+  return takeawayPedidos.reduce(
+    (acc, pedido) => {
+      const estado = getPedidoWorkflowState(pedido);
 
-        if (estado === 'listo') {
-          acc.listos += 1;
-        } else if (estado === 'en_preparacion') {
-          acc.preparando += 1;
-        } else {
-          acc.pendientes += 1;
-        }
+      if (estado === 'listo') {
+        acc.listos += 1;
+      } else if (estado === 'en_preparacion') {
+        acc.preparando += 1;
+      } else {
+        acc.pendientes += 1;
+      }
 
-        return acc;
-      },
-      { pendientes: 0, preparando: 0, listos: 0 }
-    );
-  }, [takeawayPedidos]);
+      return acc;
+    },
+    { pendientes: 0, preparando: 0, listos: 0 }
+  );
+}, [takeawayPedidos]);
 
   const salonResumen = useMemo(() => {
     return mesasSalonActivas.reduce(
@@ -1501,12 +1529,14 @@ export default function MostradorPage() {
               <div className="mt-6 space-y-3">
                 {takeawayPedidos.map((pedido) => {
                   const paymentBadge = getPaymentBadge(pedido);
-                  const normalizedEstado = normalizeText(pedido.estado);
-                  const ready = normalizedEstado === 'listo';
-                  const inPreparation = normalizedEstado === 'en_preparacion';
-                  const pending =
-                    normalizedEstado === 'pendiente' ||
-                    normalizedEstado === 'solicitado';
+                  const workflowState = getPedidoWorkflowState(pedido);
+const normalizedEstado = normalizeText(pedido.estado);
+const normalizedWorkflowState = normalizeText(workflowState);
+
+const ready = normalizedWorkflowState === 'listo';
+const pending =
+  normalizedWorkflowState === 'pendiente' ||
+  normalizedWorkflowState === 'solicitado';
                   const handledHere = isMostradorManagedPedido(pedido);
 
                   const kitchenItems = getKitchenItems(pedido);
@@ -1546,12 +1576,12 @@ export default function MostradorPage() {
                             ) : null}
 
                             <span
-                              className={`rounded-full border px-2.5 py-1 text-xs font-medium ${getEstadoBadgeClass(
-                                pedido.estado
-                              )}`}
-                            >
-                              {formatEstadoLabel(pedido.estado)}
-                            </span>
+  className={`rounded-full border px-2.5 py-1 text-xs font-medium ${getEstadoBadgeClass(
+    workflowState
+  )}`}
+>
+  {formatEstadoLabel(workflowState)}
+</span>
 
                             <span
                               className={`rounded-full border px-2.5 py-1 text-xs font-medium ${paymentBadge.className}`}
@@ -1809,11 +1839,14 @@ export default function MostradorPage() {
                         {mesa.pedidos.map((pedido) => {
                           const paymentBadge = getPaymentBadge(pedido);
                           const handledHere = isMostradorManagedPedido(pedido);
-                          const normalizedEstado = normalizeText(pedido.estado);
-                          const pending =
-                            normalizedEstado === 'pendiente' ||
-                            normalizedEstado === 'solicitado';
-                          const ready = normalizedEstado === 'listo';
+                          const workflowState = getPedidoWorkflowState(pedido);
+const normalizedEstado = normalizeText(pedido.estado);
+const normalizedWorkflowState = normalizeText(workflowState);
+
+const pending =
+  normalizedWorkflowState === 'pendiente' ||
+  normalizedWorkflowState === 'solicitado';
+const ready = normalizedWorkflowState === 'listo';
                           const kitchenItems = getKitchenItems(pedido);
                           const hasKitchenItems = kitchenItems.length > 0;
                           const hasKitchenPending = hasKitchenPendingItems(pedido);
@@ -1850,12 +1883,12 @@ export default function MostradorPage() {
                                     ) : null}
 
                                     <span
-                                      className={`rounded-full border px-2.5 py-1 text-xs font-medium ${getEstadoBadgeClass(
-                                        pedido.estado
-                                      )}`}
-                                    >
-                                      {formatEstadoLabel(pedido.estado)}
-                                    </span>
+  className={`rounded-full border px-2.5 py-1 text-xs font-medium ${getEstadoBadgeClass(
+    workflowState
+  )}`}
+>
+  {formatEstadoLabel(workflowState)}
+</span>
 
                                     <span
                                       className={`rounded-full border px-2.5 py-1 text-xs font-medium ${paymentBadge.className}`}
