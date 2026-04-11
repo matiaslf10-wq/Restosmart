@@ -361,21 +361,25 @@ function dedupeMesasForSelector(mesas: MesaRef[]) {
   const seen = new Set<string>();
 
   return mesas.filter((mesa) => {
-    const numeroKey =
+    const nombre = normalizeText(mesa.nombre);
+
+    if (nombre === 'delivery') {
+      return false;
+    }
+
+    const key =
       typeof mesa.numero === 'number' && mesa.numero > 0
         ? `numero:${mesa.numero}`
-        : null;
-
-    const nombreNormalizado = normalizeText(mesa.nombre);
-    const key =
-      numeroKey ??
-      (nombreNormalizado ? `nombre:${nombreNormalizado}` : `id:${mesa.id}`);
+        : nombre
+        ? `nombre:${nombre}`
+        : `id:${mesa.id}`;
 
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
+
 
 function getKitchenItems(pedido: Pedido) {
   return pedido.items.filter((item) => item.prepTarget === 'cocina');
@@ -1104,10 +1108,10 @@ const manualIdentifierLabel =
 
                 <span
                   className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                    isRestaurantMode
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}
+  manualOrderMode === 'salon'
+    ? 'bg-emerald-100 text-emerald-800'
+    : 'bg-amber-100 text-amber-800'
+}`}
                 >
                   {manualIdentifierLabel}
                 </span>
@@ -1308,9 +1312,9 @@ const manualIdentifierLabel =
                   Criterio de identificación
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                  {isRestaurantMode
-                    ? 'En este local el pedido manual nace asociado a una mesa. La mesa es la unidad principal para cobrar y liberar el salón.'
-                    : 'En este local el pedido manual nace asociado a una persona. El nombre del cliente es la referencia principal para preparar y entregar.'}
+                  {manualOrderMode === 'salon'
+  ? 'Este pedido manual nace asociado a una mesa. La mesa es la referencia principal para cobrar y liberar el salón.'
+  : 'Este pedido manual nace asociado a una persona. El nombre del cliente es la referencia principal para preparar y entregar.'}
                 </p>
               </div>
             </div>
@@ -1540,10 +1544,10 @@ const manualIdentifierLabel =
                   className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
                 >
                   {creandoPedido
-                    ? 'Creando pedido...'
-                    : isRestaurantMode
-                    ? 'Crear pedido para mesa'
-                    : 'Crear pedido take away'}
+  ? 'Creando pedido...'
+  : manualOrderMode === 'salon'
+  ? 'Crear pedido para mesa'
+  : 'Crear pedido take away'}
                 </button>
               </div>
             </aside>
