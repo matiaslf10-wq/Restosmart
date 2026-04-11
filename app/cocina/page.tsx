@@ -198,6 +198,61 @@ function getKitchenItems(pedido: Pedido) {
   return pedido.items.filter((item) => item.prepTarget === 'cocina');
 }
 
+function getKitchenStatusSummary(pedido: Pedido) {
+  const kitchenItems = getKitchenItems(pedido);
+
+  const hasPendingKitchen = kitchenItems.some(
+    (item) => item.kitchenState === 'pendiente'
+  );
+
+  const hasPreparingKitchen = kitchenItems.some(
+    (item) => item.kitchenState === 'en_preparacion'
+  );
+
+  const allKitchenReady =
+    kitchenItems.length > 0 &&
+    kitchenItems.every((item) => item.kitchenState === 'listo');
+
+  return {
+    kitchenItems,
+    hasPendingKitchen,
+    hasPreparingKitchen,
+    allKitchenReady,
+  };
+}
+
+function matchesKitchenFilter(pedido: Pedido, filtroEstado: FiltroEstado) {
+  if (filtroEstado === 'todos') return true;
+
+  const { hasPendingKitchen, hasPreparingKitchen, allKitchenReady } =
+    getKitchenStatusSummary(pedido);
+
+  if (filtroEstado === 'pendiente') {
+    return hasPendingKitchen;
+  }
+
+  if (filtroEstado === 'en_preparacion') {
+    return hasPreparingKitchen;
+  }
+
+  if (filtroEstado === 'listo') {
+    return allKitchenReady;
+  }
+
+  return true;
+}
+
+function getKitchenDisplayState(pedido: Pedido): FiltroEstado {
+  const { hasPendingKitchen, hasPreparingKitchen, allKitchenReady } =
+    getKitchenStatusSummary(pedido);
+
+  if (hasPendingKitchen) return 'pendiente';
+  if (hasPreparingKitchen) return 'en_preparacion';
+  if (allKitchenReady) return 'listo';
+
+  return 'pendiente';
+}
+
 function getReadyMessage(params: {
   pedido: Pedido;
   businessMode: BusinessMode;
@@ -554,8 +609,8 @@ export default function CocinaPage() {
   };
 
   const pedidosFiltrados = [...pedidos]
-  .filter((p) => (filtroEstado === 'todos' ? true : p.estado === filtroEstado))
-  .sort((a, b) => b.id - a.id); // pedido más alto arriba
+    .filter((p) => matchesKitchenFilter(p, filtroEstado))
+    .sort((a, b) => b.id - a.id);
 
   if (checkingAccess) {
     return (
@@ -689,16 +744,14 @@ export default function CocinaPage() {
             const kind = getPedidoKind(p);
             const clienteNombre = getClienteNombre(p);
 
-            const kitchenItems = getKitchenItems(p);
-            const hasPendingKitchen = kitchenItems.some(
-              (item) => item.kitchenState === 'pendiente'
-            );
-            const hasPreparingKitchen = kitchenItems.some(
-              (item) => item.kitchenState === 'en_preparacion'
-            );
-            const allKitchenReady =
-              kitchenItems.length > 0 &&
-              kitchenItems.every((item) => item.kitchenState === 'listo');
+            const {
+              kitchenItems,
+              hasPendingKitchen,
+              hasPreparingKitchen,
+              allKitchenReady,
+            } = getKitchenStatusSummary(p);
+
+            const kitchenDisplayState = getKitchenDisplayState(p);
 
             return (
               <article
@@ -727,9 +780,9 @@ export default function CocinaPage() {
                     {' · '}
                     Estado:{' '}
                     <span className="font-semibold">
-                      {p.estado === 'pendiente'
+                      {kitchenDisplayState === 'pendiente'
                         ? 'Pendiente'
-                        : p.estado === 'en_preparacion'
+                        : kitchenDisplayState === 'en_preparacion'
                         ? 'En preparación'
                         : 'Listo'}
                     </span>
