@@ -97,6 +97,8 @@ type MesaActiva = {
 
 type FiltroEstado = 'todos' | 'pendiente' | 'en_preparacion' | 'listo';
 
+type ManualOrderMode = 'salon' | 'takeaway';
+
 function formatMoney(value: number | string | null | undefined) {
   const num = Number(value ?? 0);
 
@@ -355,6 +357,26 @@ function sortMesas(a: MesaRef, b: MesaRef) {
   return a.id - b.id;
 }
 
+function dedupeMesasForSelector(mesas: MesaRef[]) {
+  const seen = new Set<string>();
+
+  return mesas.filter((mesa) => {
+    const numeroKey =
+      typeof mesa.numero === 'number' && mesa.numero > 0
+        ? `numero:${mesa.numero}`
+        : null;
+
+    const nombreNormalizado = normalizeText(mesa.nombre);
+    const key =
+      numeroKey ??
+      (nombreNormalizado ? `nombre:${nombreNormalizado}` : `id:${mesa.id}`);
+
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function getKitchenItems(pedido: Pedido) {
   return pedido.items.filter((item) => item.prepTarget === 'cocina');
 }
@@ -430,6 +452,9 @@ export default function MostradorPage() {
   const [cerrandoMesaId, setCerrandoMesaId] = useState<number | null>(null);
   const [creandoPedido, setCreandoPedido] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos');
+  const [manualOrderMode, setManualOrderMode] = useState<ManualOrderMode>(
+  businessMode === 'takeaway' ? 'takeaway' : 'salon'
+);
 
   useEffect(() => {
     let active = true;
@@ -482,10 +507,10 @@ export default function MostradorPage() {
   }, [router]);
 
   const primaryMode: PrimaryMode =
-    businessMode === 'takeaway' ? 'takeaway' : 'salon';
+  businessMode === 'takeaway' ? 'takeaway' : 'salon';
 
-  const isRestaurantMode = primaryMode === 'salon';
-  const isTakeawayMode = primaryMode === 'takeaway';
+const isRestaurantMode = primaryMode === 'salon';
+const isTakeawayMode = primaryMode === 'takeaway';
 
   const cargarDatos = useCallback(async () => {
     setCargando(true);
@@ -574,21 +599,23 @@ export default function MostradorPage() {
     if (mesasError) {
       console.error('Error cargando mesas en mostrador:', mesasError);
     } else {
-      const mesas = ((mesasData ?? []) as MesaRef[])
-        .filter((mesa) => mesa.id > DELIVERY_MESA_ID)
-        .sort(sortMesas);
+      const mesasTodas = ((mesasData ?? []) as MesaRef[])
+  .filter((mesa) => mesa.id > DELIVERY_MESA_ID)
+  .sort(sortMesas);
 
-      const map: Record<number, MesaRef> = {};
-      for (const mesa of mesas) {
-        map[mesa.id] = mesa;
-      }
+const mesasParaSelector = dedupeMesasForSelector(mesasTodas);
 
-      setMesasMap(map);
-      setMesasList(mesas);
+const map: Record<number, MesaRef> = {};
+for (const mesa of mesasTodas) {
+  map[mesa.id] = mesa;
+}
 
-      if (mesas.length > 0 && !manualMesaId) {
-        setManualMesaId(String(mesas[0].id));
-      }
+setMesasMap(map);
+setMesasList(mesasParaSelector);
+
+if (mesasParaSelector.length > 0 && !manualMesaId) {
+  setManualMesaId(String(mesasParaSelector[0].id));
+}
     }
 
     if (productosError) {
@@ -629,6 +656,10 @@ export default function MostradorPage() {
       setManualMesaId(String(mesasList[0].id));
     }
   }, [isRestaurantMode, manualMesaId, mesasList]);
+
+useEffect(() => {
+  setManualOrderMode(businessMode === 'takeaway' ? 'takeaway' : 'salon');
+}, [businessMode]);
 
   const productosFiltrados =
     categoriaSeleccionada == null
@@ -952,18 +983,18 @@ const mesasSalonFiltradas = useMemo(() => {
       return;
     }
 
-    if (primaryMode === 'salon') {
-      const mesaId = Number(manualMesaId);
-      if (!Number.isFinite(mesaId) || mesaId <= DELIVERY_MESA_ID) {
-        setError('Seleccioná una mesa válida.');
-        return;
-      }
-    }
+    if (manualOrderMode === 'salon') {
+  const mesaId = Number(manualMesaId);
+  if (!Number.isFinite(mesaId) || mesaId <= DELIVERY_MESA_ID) {
+    setError('Seleccioná una mesa válida.');
+    return;
+  }
+}
 
-    if (primaryMode === 'takeaway' && !manualClienteNombre.trim()) {
-      setError('Ingresá el nombre del cliente para retirar.');
-      return;
-    }
+if (manualOrderMode === 'takeaway' && !manualClienteNombre.trim()) {
+  setError('Ingresá el nombre del cliente para retirar.');
+  return;
+}
 
     setCreandoPedido(true);
     setMensaje(null);
@@ -971,27 +1002,27 @@ const mesasSalonFiltradas = useMemo(() => {
 
     try {
       const payload = {
-        mesa_id: primaryMode === 'salon' ? Number(manualMesaId) : undefined,
-        total: totalCarrito,
-        forma_pago: manualFormaPago,
-        origen:
-          primaryMode === 'salon'
-            ? 'salon_manual_mostrador'
-            : 'takeaway_manual_mostrador',
-        tipo_servicio: primaryMode === 'salon' ? 'mesa' : 'takeaway',
-        medio_pago: manualFormaPago,
-        estado_pago: manualFormaPago === 'efectivo' ? 'aprobado' : 'pendiente',
-        efectivo_aprobado: manualFormaPago === 'efectivo',
-        paga_efectivo: manualFormaPago === 'efectivo',
-        cliente_nombre:
-          primaryMode === 'takeaway' ? manualClienteNombre.trim() : undefined,
-        items: carrito.map((item) => ({
-          producto_id: item.producto.id,
-          cantidad: item.cantidad,
-          comentarios: item.comentarios.trim() || null,
-          prep_target: item.prepTarget,
-        })),
-      };
+  mesa_id: manualOrderMode === 'salon' ? Number(manualMesaId) : undefined,
+  total: totalCarrito,
+  forma_pago: manualFormaPago,
+  origen:
+    manualOrderMode === 'salon'
+      ? 'salon_manual_mostrador'
+      : 'takeaway_manual_mostrador',
+  tipo_servicio: manualOrderMode === 'salon' ? 'mesa' : 'takeaway',
+  medio_pago: manualFormaPago,
+  estado_pago: manualFormaPago === 'efectivo' ? 'aprobado' : 'pendiente',
+  efectivo_aprobado: manualFormaPago === 'efectivo',
+  paga_efectivo: manualFormaPago === 'efectivo',
+  cliente_nombre:
+    manualOrderMode === 'takeaway' ? manualClienteNombre.trim() : undefined,
+  items: carrito.map((item) => ({
+    producto_id: item.producto.id,
+    cantidad: item.cantidad,
+    comentarios: item.comentarios.trim() || null,
+    prep_target: item.prepTarget,
+  })),
+};
 
       const res = await fetch('/api/pedidos', {
         method: 'POST',
@@ -1029,15 +1060,18 @@ const mesasSalonFiltradas = useMemo(() => {
     }
   }
 
-  const manualTitle = isRestaurantMode
+  const manualTitle =
+  manualOrderMode === 'salon'
     ? 'Alta manual por mesa'
     : 'Alta manual por cliente';
 
-  const manualDescription = isRestaurantMode
-    ? 'En modo restaurante la identificación principal es la mesa. Todo pedido creado acá nace para resolverse en mostrador y podés enviar a cocina solo los ítems necesarios.'
-    : 'En modo take away la identificación principal es la persona. Todo pedido creado acá nace para resolverse en mostrador y podés enviar a cocina solo los ítems necesarios.';
+const manualDescription =
+  manualOrderMode === 'salon'
+    ? 'Este pedido manual nace asociado a una mesa. Mostrador puede resolverlo acá o enviar a cocina solo los ítems necesarios.'
+    : 'Este pedido manual nace asociado a una persona para retirar. Mostrador puede resolverlo acá o enviar a cocina solo los ítems necesarios.';
 
-  const manualIdentifierLabel = isRestaurantMode
+const manualIdentifierLabel =
+  manualOrderMode === 'salon'
     ? 'Identificación principal: Mesa'
     : 'Identificación principal: Persona';
 
@@ -1172,7 +1206,33 @@ const mesasSalonFiltradas = useMemo(() => {
                 {manualIdentifierLabel}
               </span>
             </div>
+{isRestaurantMode ? (
+  <div className="flex flex-wrap gap-2">
+    <button
+      type="button"
+      onClick={() => setManualOrderMode('salon')}
+      className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+        manualOrderMode === 'salon'
+          ? 'border-emerald-700 bg-emerald-700 text-white'
+          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+      }`}
+    >
+      Pedido para salón
+    </button>
 
+    <button
+      type="button"
+      onClick={() => setManualOrderMode('takeaway')}
+      className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+        manualOrderMode === 'takeaway'
+          ? 'border-amber-600 bg-amber-500 text-white'
+          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+      }`}
+    >
+      Pedido take away
+    </button>
+  </div>
+) : null}
             <div>
               <h2 className="text-lg font-semibold text-slate-900">
                 Datos del pedido manual
@@ -1183,41 +1243,41 @@ const mesasSalonFiltradas = useMemo(() => {
 
           <div className="mt-4 grid gap-6 xl:grid-cols-[1fr_1.1fr_0.9fr]">
             <div className="space-y-4">
-              {isRestaurantMode ? (
-                <label className="grid gap-2">
-                  <span className="text-sm font-medium text-slate-700">Mesa</span>
-                  <select
-                    value={manualMesaId}
-                    onChange={(e) => setManualMesaId(e.target.value)}
-                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                  >
-                    {mesasList.length === 0 ? (
-                      <option value="">No hay mesas disponibles</option>
-                    ) : null}
+              {manualOrderMode === 'salon' ? (
+  <label className="grid gap-2">
+    <span className="text-sm font-medium text-slate-700">Mesa</span>
+    <select
+      value={manualMesaId}
+      onChange={(e) => setManualMesaId(e.target.value)}
+      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+    >
+      {mesasList.length === 0 ? (
+        <option value="">No hay mesas disponibles</option>
+      ) : null}
 
-                    {mesasList.map((mesa) => (
-                      <option key={mesa.id} value={mesa.id}>
-                        {mesa.numero != null && mesa.numero > 0
-                          ? `Mesa ${mesa.numero}`
-                          : mesa.nombre || `Mesa ID ${mesa.id}`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <label className="grid gap-2">
-                  <span className="text-sm font-medium text-slate-700">
-                    Nombre del cliente
-                  </span>
-                  <input
-                    type="text"
-                    value={manualClienteNombre}
-                    onChange={(e) => setManualClienteNombre(e.target.value)}
-                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                    placeholder="Ej: Lucía"
-                  />
-                </label>
-              )}
+      {mesasList.map((mesa) => (
+        <option key={mesa.id} value={mesa.id}>
+          {mesa.numero != null && mesa.numero > 0
+            ? `Mesa ${mesa.numero}`
+            : mesa.nombre || `Mesa ID ${mesa.id}`}
+        </option>
+      ))}
+    </select>
+  </label>
+) : (
+  <label className="grid gap-2">
+    <span className="text-sm font-medium text-slate-700">
+      Nombre del cliente
+    </span>
+    <input
+      type="text"
+      value={manualClienteNombre}
+      onChange={(e) => setManualClienteNombre(e.target.value)}
+      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+      placeholder="Ej: Lucía"
+    />
+  </label>
+)}
 
               <label className="grid gap-2">
                 <span className="text-sm font-medium text-slate-700">
@@ -1483,7 +1543,7 @@ const mesasSalonFiltradas = useMemo(() => {
                     ? 'Creando pedido...'
                     : isRestaurantMode
                     ? 'Crear pedido para mesa'
-                    : 'Crear pedido para cliente'}
+                    : 'Crear pedido take away'}
                 </button>
               </div>
             </aside>
