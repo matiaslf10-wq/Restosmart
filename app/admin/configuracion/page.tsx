@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import TakeAwayQrCard from '@/components/TakeAwayQrCard';
 import {
   formatBusinessModeLabel,
   formatPlanLabel,
@@ -214,6 +215,19 @@ export default function AdminConfiguracionPage() {
 
     return 'Podés dejar cargados estos datos ahora, pero los analytics avanzados se aprovechan en Intelligence.';
   }, [analyticsEnabled]);
+
+  const takeawayQrTitle =
+    localForm.business_mode === 'takeaway'
+      ? 'QR principal de take away'
+      : 'QR opcional de take away';
+
+  const takeawayQrDescription =
+    localForm.business_mode === 'takeaway'
+      ? 'Este es el QR principal del local para que el cliente entre directamente a /pedir y haga su orden de retiro.'
+      : 'Aunque el local esté configurado como restaurante, este QR también puede usarse para pedidos de retiro por mostrador desde /pedir.';
+
+  const takeawayQrBadge =
+    localForm.business_mode === 'takeaway' ? 'QR PRINCIPAL' : 'QR OPCIONAL';
 
   useEffect(() => {
     let activo = true;
@@ -493,7 +507,7 @@ export default function AdminConfiguracionPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6">
       <div>
         <h1 className="text-2xl font-semibold">Configuración del local</h1>
         <p className="mt-1 text-sm text-neutral-600">
@@ -732,23 +746,23 @@ export default function AdminConfiguracionPage() {
               </p>
 
               <div className="mt-4 space-y-2 text-sm text-slate-700">
-  <p>
-    <span className="font-medium">Ingreso principal del cliente:</span>{' '}
-    {publicOrdering.current_customer_entry_path ?? 'Todavía no creada'}
-  </p>
+                <p>
+                  <span className="font-medium">Ingreso principal del cliente:</span>{' '}
+                  {publicOrdering.current_customer_entry_path ?? 'Todavía no creada'}
+                </p>
 
-  {publicOrdering.planned_customer_entry_path ? (
-    <p>
-      <span className="font-medium">Ruta adicional de take away:</span>{' '}
-      {publicOrdering.planned_customer_entry_path}
-    </p>
-  ) : null}
+                {publicOrdering.planned_customer_entry_path ? (
+                  <p>
+                    <span className="font-medium">Ruta adicional de take away:</span>{' '}
+                    {publicOrdering.planned_customer_entry_path}
+                  </p>
+                ) : null}
 
-  <p>
-    <span className="font-medium">Pantalla de retiro:</span>{' '}
-    {publicOrdering.takeaway_ready_screen_path ?? 'No aplica'}
-  </p>
-</div>
+                <p>
+                  <span className="font-medium">Pantalla de retiro:</span>{' '}
+                  {publicOrdering.takeaway_ready_screen_path ?? 'No aplica'}
+                </p>
+              </div>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -786,11 +800,11 @@ export default function AdminConfiguracionPage() {
               <p className="text-sm font-medium text-emerald-900">
                 El acceso público actual del cliente funciona por mesa
               </p>
-              <p className="mt-2 text-sm text-emerald-900 leading-relaxed">
-  Hoy el ingreso principal del cliente funciona por <code>/mesa/[id]</code>.
-  Además, el flujo opcional de retiro sigue disponible por <code>/pedir</code> y
-  la pantalla pública de retiro por <code>/retiro</code>.
-</p>
+              <p className="mt-2 text-sm leading-relaxed text-emerald-900">
+                Hoy el ingreso principal del cliente funciona por <code>/mesa/[id]</code>.
+                Además, el flujo opcional de retiro sigue disponible por <code>/pedir</code>{' '}
+                y la pantalla pública de retiro por <code>/retiro</code>.
+              </p>
 
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
@@ -813,7 +827,7 @@ export default function AdminConfiguracionPage() {
               <p className="text-sm font-medium text-amber-900">
                 El flujo público de take away ya está disponible
               </p>
-              <p className="mt-2 text-sm text-amber-900 leading-relaxed">
+              <p className="mt-2 text-sm leading-relaxed text-amber-900">
                 El cliente puede pedir desde <code>/pedir</code> y la pantalla
                 pública para avisar que el pedido está listo queda disponible en{' '}
                 <code>/retiro</code>. Esto sirve para un monitor, televisor o tablet
@@ -845,6 +859,81 @@ export default function AdminConfiguracionPage() {
             </div>
           )}
         </section>
+
+        {publicOrdering.takeaway_enabled ? (
+          <section className="rounded-2xl border bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-medium">QR público de take away</h2>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Este QR apunta a <code>/pedir</code>. En modo take away es el QR
+                  principal del local; en modo restaurante puede usarse como canal
+                  opcional de retiro por mostrador.
+                </p>
+              </div>
+
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
+                {localForm.business_mode === 'takeaway'
+                  ? 'Take away principal'
+                  : 'Take away opcional'}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <TakeAwayQrCard
+                localName={localForm.nombre_local || 'RestoSmart'}
+                routePath="/pedir"
+                title={takeawayQrTitle}
+                description={takeawayQrDescription}
+                badgeLabel={takeawayQrBadge}
+              />
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Uso recomendado
+                </p>
+
+                <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-700">
+                  <p>
+                    <span className="font-medium">Ubicación:</span> pegado en el
+                    mostrador, vidriera, caja o mesa de retiro.
+                  </p>
+
+                  <p>
+                    <span className="font-medium">Ruta del QR:</span> <code>/pedir</code>
+                  </p>
+
+                  <p>
+                    <span className="font-medium">Pantalla pública complementaria:</span>{' '}
+                    <code>/retiro</code>
+                  </p>
+
+                  <p>
+                    <span className="font-medium">Lógica del pedido:</span> la orden
+                    se identifica por nombre de la persona y luego se anuncia en la
+                    pantalla de retiro cuando queda lista.
+                  </p>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Link
+                    href="/pedir"
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    Abrir /pedir
+                  </Link>
+
+                  <Link
+                    href="/retiro"
+                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
+                  >
+                    Abrir /retiro
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -994,7 +1083,7 @@ export default function AdminConfiguracionPage() {
               <p className="font-medium text-blue-900">
                 WhatsApp Delivery no está activo
               </p>
-              <p className="mt-2 text-sm text-blue-900 leading-relaxed">
+              <p className="mt-2 text-sm leading-relaxed text-blue-900">
                 Este módulo se contrata aparte por restaurante. No forma parte de
                 las funcionalidades comunes de Esencial, Pro ni Intelligence.
               </p>
