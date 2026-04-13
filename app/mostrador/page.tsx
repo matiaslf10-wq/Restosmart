@@ -462,6 +462,7 @@ export default function MostradorPage() {
   const [manualOrderMode, setManualOrderMode] = useState<ManualOrderMode>(
     businessMode === 'takeaway' ? 'takeaway' : 'salon'
   );
+  const newOrderAudioRef = useRef<HTMLAudioElement | null>(null);
   const [recentlyArrivedPedidoIds, setRecentlyArrivedPedidoIds] = useState<number[]>(
     []
   );
@@ -472,6 +473,7 @@ export default function MostradorPage() {
     {}
   );
   const audioContextRef = useRef<AudioContext | null>(null);
+
 
   const marcarPedidosComoNuevos = useCallback((ids: number[]) => {
     if (ids.length === 0) return;
@@ -496,54 +498,16 @@ export default function MostradorPage() {
   }, []);
 
   const reproducirSonidoNuevoPedido = useCallback(async () => {
-    if (typeof window === 'undefined') return;
+  const audio = newOrderAudioRef.current;
+  if (!audio) return;
 
-    const AudioContextConstructor =
-      window.AudioContext ||
-      (
-        window as Window & {
-          webkitAudioContext?: typeof AudioContext;
-        }
-      ).webkitAudioContext;
-
-    if (!AudioContextConstructor) return;
-
-    try {
-      const context = audioContextRef.current ?? new AudioContextConstructor();
-      audioContextRef.current = context;
-
-      if (context.state === 'suspended') {
-        await context.resume().catch(() => undefined);
-      }
-
-      const crearBeep = (startAt: number, frequency: number, duration: number) => {
-        const oscillator = context.createOscillator();
-        const gainNode = context.createGain();
-
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(frequency, startAt);
-
-        gainNode.gain.setValueAtTime(0.0001, startAt);
-        gainNode.gain.exponentialRampToValueAtTime(0.12, startAt + 0.01);
-        gainNode.gain.exponentialRampToValueAtTime(
-          0.0001,
-          startAt + duration
-        );
-
-        oscillator.connect(gainNode);
-        gainNode.connect(context.destination);
-
-        oscillator.start(startAt);
-        oscillator.stop(startAt + duration + 0.03);
-      };
-
-      const startAt = context.currentTime + 0.02;
-      crearBeep(startAt, 880, 0.11);
-      crearBeep(startAt + 0.17, 1175, 0.15);
-    } catch (err) {
-      console.error('No se pudo reproducir el sonido de nuevo pedido:', err);
-    }
-  }, []);
+  try {
+    audio.currentTime = 0;
+    await audio.play();
+  } catch (err) {
+    console.error('No se pudo reproducir el sonido de nuevo pedido:', err);
+  }
+}, []);
 
   useEffect(() => {
     return () => {
@@ -784,6 +748,12 @@ export default function MostradorPage() {
     setManualOrderMode(businessMode === 'takeaway' ? 'takeaway' : 'salon');
   }, [businessMode]);
 
+  useEffect(() => {
+  const audio = new Audio('/sounds/new-order.mp3');
+  audio.preload = 'auto';
+  newOrderAudioRef.current = audio;
+}, []);
+
   const productosFiltrados =
     categoriaSeleccionada == null
       ? []
@@ -986,6 +956,8 @@ export default function MostradorPage() {
     setActualizandoPedidoId(null);
     await cargarDatos();
   }
+
+  
 
   async function enviarItemACocina(pedidoId: number, item: ItemPedido) {
     setActualizandoItemId(item.id);
@@ -1733,7 +1705,7 @@ export default function MostradorPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
                   Take away
                 </p>
-                <h2 className="mt-2 text-xl font-bold text-slate-900">
+                <h2 className="mt-2 text-lg font-bold text-slate-900">
                   {isTakeawayMode
                     ? 'Pedidos por cliente'
                     : 'Retiros activos (opcional)'}
@@ -1804,7 +1776,7 @@ export default function MostradorPage() {
                   return (
                     <article
                       key={pedido.id}
-                      className={`rounded-xl border px-3 py-3 shadow-sm ${
+                      className={`rounded-lg border px-2 py-1.5 shadow-sm ${
                         isNewPedido
                           ? 'border-violet-300 bg-violet-50 ring-2 ring-violet-200'
                           : ready
@@ -1846,11 +1818,11 @@ export default function MostradorPage() {
                             </span>
                           </div>
 
-                          <h3 className="mt-2 text-lg font-bold leading-tight text-slate-900">
+                          <h3 className="mt-1.5 text-base font-bold leading-tight text-slate-900">
                             {getTakeawayLabel(pedido)}
                           </h3>
 
-                          <p className="mt-0.5 text-xs text-slate-600">
+                          <p className="mt-0.5 text-[11px] text-slate-600">
                             {pedido.codigo_publico || `Pedido #${pedido.id}`}
                           </p>
 
@@ -1873,7 +1845,7 @@ export default function MostradorPage() {
                         </div>
                       </div>
 
-                      <div className="mt-3 space-y-1.5">
+                      <div className="mt-2 space-y-1">
                         {pedido.items.map((item) => (
                           <div
                             key={item.id}
@@ -1944,7 +1916,7 @@ export default function MostradorPage() {
                               );
                             }}
                             disabled={actualizandoPedidoId === pedido.id}
-                            className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                            className="rounded-lg bg-sky-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                           >
                             {actualizandoPedidoId === pedido.id
                               ? 'Actualizando...'
@@ -2020,7 +1992,7 @@ export default function MostradorPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
                   Salón
                 </p>
-                <h2 className="mt-2 text-xl font-bold text-slate-900">
+                <h2 className="mt-2 text-lg font-bold text-slate-900">
                   {isRestaurantMode
                     ? 'Mesas activas'
                     : 'Mesas activas (fuera del modo principal)'}
@@ -2063,7 +2035,7 @@ export default function MostradorPage() {
                   return (
                     <article
                       key={mesa.id}
-                      className={`rounded-xl border px-3 py-3 shadow-sm ${
+                      className={`rounded-lg border px-2 py-1.5 shadow-sm  ${
                         mesaTienePedidoNuevo
                           ? 'border-violet-300 bg-violet-50 ring-2 ring-violet-200'
                           : estadoMesa === 'lista'
@@ -2083,11 +2055,11 @@ export default function MostradorPage() {
                             ) : null}
                           </div>
 
-                          <h3 className="mt-2 text-lg font-bold text-slate-900">
+                          <h3 className="mt-2 text-lg font-bold leading-tight text-slate-90">
                             {getMesaDisplayName(mesa)}
                           </h3>
 
-                          <p className="mt-0.5 text-xs text-slate-600">
+                          <p className="mt-0.5 text-[11px] text-slate-600">
                             {mesa.pedidos.length} pedido
                             {mesa.pedidos.length !== 1 ? 's' : ''} activo
                             {mesa.pedidos.length !== 1 ? 's' : ''}
@@ -2134,7 +2106,7 @@ export default function MostradorPage() {
                           return (
                             <div
                               key={pedido.id}
-                              className={`rounded-lg border px-2.5 py-2 ${
+                              className={`rounded-lg border px-2 py-1.5 ${
                                 isNewPedido
                                   ? 'border-violet-300 bg-violet-50'
                                   : 'border-slate-200 bg-white/80'
@@ -2258,7 +2230,7 @@ export default function MostradorPage() {
                                       );
                                     }}
                                     disabled={actualizandoPedidoId === pedido.id}
-                                    className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                                    className="rounded-lg bg-sky-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                                   >
                                     {actualizandoPedidoId === pedido.id
                                       ? 'Actualizando...'
