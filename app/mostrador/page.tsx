@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import {
@@ -12,6 +12,7 @@ import {
 } from '@/lib/plans';
 
 const DELIVERY_MESA_ID = 0;
+const NEW_PEDIDO_HIGHLIGHT_MS = 45000;
 
 type KitchenPrepState = 'pendiente' | 'en_preparacion' | 'listo';
 type PrepTarget = 'mostrador' | 'cocina';
@@ -134,11 +135,6 @@ function formatTime(value: string) {
 
 function normalizeText(value: unknown) {
   return String(value ?? '').trim().toLowerCase();
-}
-
-function normalizeOptionalText(value: unknown) {
-  const text = String(value ?? '').trim();
-  return text.length ? text : null;
 }
 
 function parseKitchenMeta(comment: string | null | undefined) {
@@ -319,16 +315,16 @@ function calcularEstadoMesa(mesa: MesaActiva) {
 function getMesaEstadoBadge(estado: 'libre' | 'en_curso' | 'lista') {
   if (estado === 'lista') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-800">
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-800">
         <span className="h-2 w-2 rounded-full bg-emerald-500" />
-        Lista para cobrar / liberar
+        Lista
       </span>
     );
   }
 
   if (estado === 'en_curso') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800">
         <span className="h-2 w-2 rounded-full bg-amber-500" />
         En curso
       </span>
@@ -336,7 +332,7 @@ function getMesaEstadoBadge(estado: 'libre' | 'en_curso' | 'lista') {
   }
 
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700">
       <span className="h-2 w-2 rounded-full bg-slate-400" />
       Libre
     </span>
@@ -388,15 +384,13 @@ function dedupeMesasForSelector(mesas: MesaRef[]) {
   });
 }
 
-
 function getKitchenItems(pedido: Pedido) {
   return pedido.items.filter((item) => item.prepTarget === 'cocina');
 }
 
 function hasKitchenPendingItems(pedido: Pedido) {
   return pedido.items.some(
-    (item) =>
-      item.prepTarget === 'cocina' && item.kitchenState !== 'listo'
+    (item) => item.prepTarget === 'cocina' && item.kitchenState !== 'listo'
   );
 }
 
@@ -423,6 +417,7 @@ function getPedidoWorkflowState(pedido: Pedido) {
 
   return 'listo';
 }
+
 function matchesWorkflowFilter(pedido: Pedido, filtroEstado: FiltroEstado) {
   if (filtroEstado === 'todos') return true;
 
@@ -465,8 +460,102 @@ export default function MostradorPage() {
   const [creandoPedido, setCreandoPedido] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos');
   const [manualOrderMode, setManualOrderMode] = useState<ManualOrderMode>(
-  businessMode === 'takeaway' ? 'takeaway' : 'salon'
-);
+    businessMode === 'takeaway' ? 'takeaway' : 'salon'
+  );
+  const [recentlyArrivedPedidoIds, setRecentlyArrivedPedidoIds] = useState<number[]>(
+    []
+  );
+
+  const knownPedidoIdsRef = useRef<Set<number>>(new Set());
+  const didInitialPedidosLoadRef = useRef(false);
+  const newPedidoTimeoutsRef = useRef<Record<number, ReturnType<typeof setTimeout>>>(
+    {}
+  );
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  const marcarPedidosComoNuevos = useCallback((ids: number[]) => {
+    if (ids.length === 0) return;
+
+    setRecentlyArrivedPedidoIds((prev) =>
+      Array.from(new Set([...ids, ...prev]))
+    );
+
+    ids.forEach((id) => {
+      const previousTimeout = newPedidoTimeoutsRef.current[id];
+      if (previousTimeout) {
+        clearTimeout(previousTimeout);
+      }
+
+      newPedidoTimeoutsRef.current[id] = setTimeout(() => {
+        setRecentlyArrivedPedidoIds((prev) =>
+          prev.filter((currentId) => currentId !== id)
+        );
+        delete newPedidoTimeoutsRef.current[id];
+      }, NEW_PEDIDO_HIGHLIGHT_MS);
+    });
+  }, []);
+
+  const reproducirSonidoNuevoPedido = useCallback(async () => {
+    if (typeof window === 'undefined') return;
+
+    const AudioContextConstructor =
+      window.AudioContext ||
+      (
+        window as Window & {
+          webkitAudioContext?: typeof AudioContext;
+        }
+      ).webkitAudioContext;
+
+    if (!AudioContextConstructor) return;
+
+    try {
+      const context = audioContextRef.current ?? new AudioContextConstructor();
+      audioContextRef.current = context;
+
+      if (context.state === 'suspended') {
+        await context.resume().catch(() => undefined);
+      }
+
+      const crearBeep = (startAt: number, frequency: number, duration: number) => {
+        const oscillator = context.createOscillator();
+        const gainNode = context.createGain();
+
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(frequency, startAt);
+
+        gainNode.gain.setValueAtTime(0.0001, startAt);
+        gainNode.gain.exponentialRampToValueAtTime(0.12, startAt + 0.01);
+        gainNode.gain.exponentialRampToValueAtTime(
+          0.0001,
+          startAt + duration
+        );
+
+        oscillator.connect(gainNode);
+        gainNode.connect(context.destination);
+
+        oscillator.start(startAt);
+        oscillator.stop(startAt + duration + 0.03);
+      };
+
+      const startAt = context.currentTime + 0.02;
+      crearBeep(startAt, 880, 0.11);
+      crearBeep(startAt + 0.17, 1175, 0.15);
+    } catch (err) {
+      console.error('No se pudo reproducir el sonido de nuevo pedido:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(newPedidoTimeoutsRef.current).forEach((timeoutId) => {
+        clearTimeout(timeoutId);
+      });
+
+      if (audioContextRef.current) {
+        void audioContextRef.current.close().catch(() => undefined);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -511,7 +600,7 @@ export default function MostradorPage() {
       }
     }
 
-    verifyAccess();
+    void verifyAccess();
 
     return () => {
       active = false;
@@ -519,10 +608,10 @@ export default function MostradorPage() {
   }, [router]);
 
   const primaryMode: PrimaryMode =
-  businessMode === 'takeaway' ? 'takeaway' : 'salon';
+    businessMode === 'takeaway' ? 'takeaway' : 'salon';
 
-const isRestaurantMode = primaryMode === 'salon';
-const isTakeawayMode = primaryMode === 'takeaway';
+  const isRestaurantMode = primaryMode === 'salon';
+  const isTakeawayMode = primaryMode === 'takeaway';
 
   const cargarDatos = useCallback(async () => {
     setCargando(true);
@@ -606,28 +695,46 @@ const isTakeawayMode = primaryMode === 'takeaway';
       }));
 
       setPedidos(formateados);
+
+      const currentIds = new Set(formateados.map((pedido) => pedido.id));
+
+      if (!didInitialPedidosLoadRef.current) {
+        knownPedidoIdsRef.current = currentIds;
+        didInitialPedidosLoadRef.current = true;
+      } else {
+        const newIds = formateados
+          .map((pedido) => pedido.id)
+          .filter((id) => !knownPedidoIdsRef.current.has(id));
+
+        if (newIds.length > 0) {
+          marcarPedidosComoNuevos(newIds);
+          void reproducirSonidoNuevoPedido();
+        }
+
+        knownPedidoIdsRef.current = currentIds;
+      }
     }
 
     if (mesasError) {
       console.error('Error cargando mesas en mostrador:', mesasError);
     } else {
       const mesasTodas = ((mesasData ?? []) as MesaRef[])
-  .filter((mesa) => mesa.id >= DELIVERY_MESA_ID)
-  .sort(sortMesas);
+        .filter((mesa) => mesa.id >= DELIVERY_MESA_ID)
+        .sort(sortMesas);
 
-const mesasParaSelector = dedupeMesasForSelector(mesasTodas);
+      const mesasParaSelector = dedupeMesasForSelector(mesasTodas);
 
-const map: Record<number, MesaRef> = {};
-for (const mesa of mesasTodas) {
-  map[mesa.id] = mesa;
-}
+      const map: Record<number, MesaRef> = {};
+      for (const mesa of mesasTodas) {
+        map[mesa.id] = mesa;
+      }
 
-setMesasMap(map);
-setMesasList(mesasParaSelector);
+      setMesasMap(map);
+      setMesasList(mesasParaSelector);
 
-if (mesasParaSelector.length > 0 && !manualMesaId) {
-  setManualMesaId(String(mesasParaSelector[0].id));
-}
+      if (mesasParaSelector.length > 0 && !manualMesaId) {
+        setManualMesaId(String(mesasParaSelector[0].id));
+      }
     }
 
     if (productosError) {
@@ -649,7 +756,11 @@ if (mesasParaSelector.length > 0 && !manualMesaId) {
     }
 
     setCargando(false);
-  }, [manualMesaId]);
+  }, [
+    manualMesaId,
+    marcarPedidosComoNuevos,
+    reproducirSonidoNuevoPedido,
+  ]);
 
   useEffect(() => {
     if (checkingAccess) return;
@@ -669,9 +780,9 @@ if (mesasParaSelector.length > 0 && !manualMesaId) {
     }
   }, [isRestaurantMode, manualMesaId, mesasList]);
 
-useEffect(() => {
-  setManualOrderMode(businessMode === 'takeaway' ? 'takeaway' : 'salon');
-}, [businessMode]);
+  useEffect(() => {
+    setManualOrderMode(businessMode === 'takeaway' ? 'takeaway' : 'salon');
+  }, [businessMode]);
 
   const productosFiltrados =
     categoriaSeleccionada == null
@@ -685,6 +796,11 @@ useEffect(() => {
         0
       ),
     [carrito]
+  );
+
+  const recentPedidoIdsSet = useMemo(
+    () => new Set(recentlyArrivedPedidoIds),
+    [recentlyArrivedPedidoIds]
   );
 
   function agregarAlCarrito(producto: Producto) {
@@ -796,23 +912,23 @@ useEffect(() => {
   }, [mesasMap, pedidosLocal]);
 
   const takeawayResumen = useMemo(() => {
-  return takeawayPedidos.reduce(
-    (acc, pedido) => {
-      const estado = getPedidoWorkflowState(pedido);
+    return takeawayPedidos.reduce(
+      (acc, pedido) => {
+        const estado = getPedidoWorkflowState(pedido);
 
-      if (estado === 'listo') {
-        acc.listos += 1;
-      } else if (estado === 'en_preparacion') {
-        acc.preparando += 1;
-      } else {
-        acc.pendientes += 1;
-      }
+        if (estado === 'listo') {
+          acc.listos += 1;
+        } else if (estado === 'en_preparacion') {
+          acc.preparando += 1;
+        } else {
+          acc.pendientes += 1;
+        }
 
-      return acc;
-    },
-    { pendientes: 0, preparando: 0, listos: 0 }
-  );
-}, [takeawayPedidos]);
+        return acc;
+      },
+      { pendientes: 0, preparando: 0, listos: 0 }
+    );
+  }, [takeawayPedidos]);
 
   const salonResumen = useMemo(() => {
     return mesasSalonActivas.reduce(
@@ -832,20 +948,20 @@ useEffect(() => {
   }, [mesasSalonActivas]);
 
   const takeawayPedidosFiltrados = useMemo(
-  () =>
-    takeawayPedidos.filter((pedido) =>
-      matchesWorkflowFilter(pedido, filtroEstado)
-    ),
-  [takeawayPedidos, filtroEstado]
-);
-
-const mesasSalonFiltradas = useMemo(() => {
-  if (filtroEstado === 'todos') return mesasSalonActivas;
-
-  return mesasSalonActivas.filter((mesa) =>
-    mesa.pedidos.some((pedido) => matchesWorkflowFilter(pedido, filtroEstado))
+    () =>
+      takeawayPedidos.filter((pedido) =>
+        matchesWorkflowFilter(pedido, filtroEstado)
+      ),
+    [takeawayPedidos, filtroEstado]
   );
-}, [mesasSalonActivas, filtroEstado]);
+
+  const mesasSalonFiltradas = useMemo(() => {
+    if (filtroEstado === 'todos') return mesasSalonActivas;
+
+    return mesasSalonActivas.filter((mesa) =>
+      mesa.pedidos.some((pedido) => matchesWorkflowFilter(pedido, filtroEstado))
+    );
+  }, [mesasSalonActivas, filtroEstado]);
 
   async function actualizarEstadoPedido(pedidoId: number, nuevoEstado: string) {
     setActualizandoPedidoId(pedidoId);
@@ -896,7 +1012,10 @@ const mesasSalonFiltradas = useMemo(() => {
       .eq('id', pedidoId);
 
     if (pedidoError) {
-      console.error('No se pudo actualizar el pedido al enviar ítem a cocina:', pedidoError);
+      console.error(
+        'No se pudo actualizar el pedido al enviar ítem a cocina:',
+        pedidoError
+      );
       setError('No se pudo actualizar el pedido al enviar ítem a cocina.');
       setActualizandoItemId(null);
       return;
@@ -944,7 +1063,10 @@ const mesasSalonFiltradas = useMemo(() => {
       .eq('id', pedido.id);
 
     if (pedidoError) {
-      console.error('No se pudo actualizar el pedido al enviarlo a cocina:', pedidoError);
+      console.error(
+        'No se pudo actualizar el pedido al enviarlo a cocina:',
+        pedidoError
+      );
       setError('No se pudo actualizar el pedido al enviarlo a cocina.');
       setEnviandoPedidoACocinaId(null);
       return;
@@ -996,17 +1118,17 @@ const mesasSalonFiltradas = useMemo(() => {
     }
 
     if (manualOrderMode === 'salon') {
-  const mesaId = Number(manualMesaId);
-  if (!Number.isFinite(mesaId) || mesaId <= DELIVERY_MESA_ID) {
-    setError('Seleccioná una mesa válida.');
-    return;
-  }
-}
+      const mesaId = Number(manualMesaId);
+      if (!Number.isFinite(mesaId) || mesaId <= DELIVERY_MESA_ID) {
+        setError('Seleccioná una mesa válida.');
+        return;
+      }
+    }
 
-if (manualOrderMode === 'takeaway' && !manualClienteNombre.trim()) {
-  setError('Ingresá el nombre del cliente para retirar.');
-  return;
-}
+    if (manualOrderMode === 'takeaway' && !manualClienteNombre.trim()) {
+      setError('Ingresá el nombre del cliente para retirar.');
+      return;
+    }
 
     setCreandoPedido(true);
     setMensaje(null);
@@ -1014,27 +1136,29 @@ if (manualOrderMode === 'takeaway' && !manualClienteNombre.trim()) {
 
     try {
       const payload = {
-  mesa_id: manualOrderMode === 'salon' ? Number(manualMesaId) : undefined,
-  total: totalCarrito,
-  forma_pago: manualFormaPago,
-  origen:
-    manualOrderMode === 'salon'
-      ? 'salon_manual_mostrador'
-      : 'takeaway_manual_mostrador',
-  tipo_servicio: manualOrderMode === 'salon' ? 'mesa' : 'takeaway',
-  medio_pago: manualFormaPago,
-  estado_pago: manualFormaPago === 'efectivo' ? 'aprobado' : 'pendiente',
-  efectivo_aprobado: manualFormaPago === 'efectivo',
-  paga_efectivo: manualFormaPago === 'efectivo',
-  cliente_nombre:
-    manualOrderMode === 'takeaway' ? manualClienteNombre.trim() : undefined,
-  items: carrito.map((item) => ({
-    producto_id: item.producto.id,
-    cantidad: item.cantidad,
-    comentarios: item.comentarios.trim() || null,
-    prep_target: item.prepTarget,
-  })),
-};
+        mesa_id: manualOrderMode === 'salon' ? Number(manualMesaId) : undefined,
+        total: totalCarrito,
+        forma_pago: manualFormaPago,
+        origen:
+          manualOrderMode === 'salon'
+            ? 'salon_manual_mostrador'
+            : 'takeaway_manual_mostrador',
+        tipo_servicio: manualOrderMode === 'salon' ? 'mesa' : 'takeaway',
+        medio_pago: manualFormaPago,
+        estado_pago: manualFormaPago === 'efectivo' ? 'aprobado' : 'pendiente',
+        efectivo_aprobado: manualFormaPago === 'efectivo',
+        paga_efectivo: manualFormaPago === 'efectivo',
+        cliente_nombre:
+          manualOrderMode === 'takeaway'
+            ? manualClienteNombre.trim()
+            : undefined,
+        items: carrito.map((item) => ({
+          producto_id: item.producto.id,
+          cantidad: item.cantidad,
+          comentarios: item.comentarios.trim() || null,
+          prep_target: item.prepTarget,
+        })),
+      };
 
       const res = await fetch('/api/pedidos', {
         method: 'POST',
@@ -1073,19 +1197,19 @@ if (manualOrderMode === 'takeaway' && !manualClienteNombre.trim()) {
   }
 
   const manualTitle =
-  manualOrderMode === 'salon'
-    ? 'Alta manual por mesa'
-    : 'Alta manual por cliente';
+    manualOrderMode === 'salon'
+      ? 'Alta manual por mesa'
+      : 'Alta manual por cliente';
 
-const manualDescription =
-  manualOrderMode === 'salon'
-    ? 'Este pedido manual nace asociado a una mesa. Mostrador puede resolverlo acá o enviar a cocina solo los ítems necesarios.'
-    : 'Este pedido manual nace asociado a una persona para retirar. Mostrador puede resolverlo acá o enviar a cocina solo los ítems necesarios.';
+  const manualDescription =
+    manualOrderMode === 'salon'
+      ? 'Este pedido manual nace asociado a una mesa. Mostrador puede resolverlo acá o enviar a cocina solo los ítems necesarios.'
+      : 'Este pedido manual nace asociado a una persona para retirar. Mostrador puede resolverlo acá o enviar a cocina solo los ítems necesarios.';
 
-const manualIdentifierLabel =
-  manualOrderMode === 'salon'
-    ? 'Identificación principal: Mesa'
-    : 'Identificación principal: Persona';
+  const manualIdentifierLabel =
+    manualOrderMode === 'salon'
+      ? 'Identificación principal: Mesa'
+      : 'Identificación principal: Persona';
 
   if (checkingAccess) {
     return (
@@ -1097,8 +1221,8 @@ const manualIdentifierLabel =
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6">
-      <div className="mx-auto max-w-6xl space-y-4">
-        <header className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="mx-auto max-w-7xl space-y-4">
+        <header className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -1116,12 +1240,16 @@ const manualIdentifierLabel =
 
                 <span
                   className={`rounded-full px-3 py-1 text-xs font-semibold ${
-  manualOrderMode === 'salon'
-    ? 'bg-emerald-100 text-emerald-800'
-    : 'bg-amber-100 text-amber-800'
-}`}
+                    manualOrderMode === 'salon'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}
                 >
                   {manualIdentifierLabel}
+                </span>
+
+                <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-800">
+                  🔔 Sonido en nuevos pedidos
                 </span>
 
                 {businessMode === 'restaurant' && canUseWaiterMode ? (
@@ -1218,33 +1346,35 @@ const manualIdentifierLabel =
                 {manualIdentifierLabel}
               </span>
             </div>
-{isRestaurantMode ? (
-  <div className="flex flex-wrap gap-2">
-    <button
-      type="button"
-      onClick={() => setManualOrderMode('salon')}
-      className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
-        manualOrderMode === 'salon'
-          ? 'border-emerald-700 bg-emerald-700 text-white'
-          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-      }`}
-    >
-      Pedido para salón
-    </button>
 
-    <button
-      type="button"
-      onClick={() => setManualOrderMode('takeaway')}
-      className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
-        manualOrderMode === 'takeaway'
-          ? 'border-amber-600 bg-amber-500 text-white'
-          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-      }`}
-    >
-      Pedido take away
-    </button>
-  </div>
-) : null}
+            {isRestaurantMode ? (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setManualOrderMode('salon')}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+                    manualOrderMode === 'salon'
+                      ? 'border-emerald-700 bg-emerald-700 text-white'
+                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  Pedido para salón
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setManualOrderMode('takeaway')}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+                    manualOrderMode === 'takeaway'
+                      ? 'border-amber-600 bg-amber-500 text-white'
+                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  Pedido take away
+                </button>
+              </div>
+            ) : null}
+
             <div>
               <h2 className="text-lg font-semibold text-slate-900">
                 Datos del pedido manual
@@ -1253,43 +1383,43 @@ const manualIdentifierLabel =
             </div>
           </div>
 
-          <div className="mt-4 grid gap-6 xl:grid-cols-[1fr_1.1fr_0.9fr]">
+          <div className="mt-4 grid gap-6 xl:grid-cols-[0.95fr_1.05fr_0.9fr]">
             <div className="space-y-4">
               {manualOrderMode === 'salon' ? (
-  <label className="grid gap-2">
-    <span className="text-sm font-medium text-slate-700">Mesa</span>
-    <select
-      value={manualMesaId}
-      onChange={(e) => setManualMesaId(e.target.value)}
-      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-    >
-      {mesasList.length === 0 ? (
-        <option value="">No hay mesas disponibles</option>
-      ) : null}
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium text-slate-700">Mesa</span>
+                  <select
+                    value={manualMesaId}
+                    onChange={(e) => setManualMesaId(e.target.value)}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  >
+                    {mesasList.length === 0 ? (
+                      <option value="">No hay mesas disponibles</option>
+                    ) : null}
 
-      {mesasList.map((mesa) => (
-        <option key={mesa.id} value={mesa.id}>
-          {mesa.numero != null && mesa.numero > 0
-            ? `Mesa ${mesa.numero}`
-            : mesa.nombre || `Mesa ID ${mesa.id}`}
-        </option>
-      ))}
-    </select>
-  </label>
-) : (
-  <label className="grid gap-2">
-    <span className="text-sm font-medium text-slate-700">
-      Nombre del cliente
-    </span>
-    <input
-      type="text"
-      value={manualClienteNombre}
-      onChange={(e) => setManualClienteNombre(e.target.value)}
-      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-      placeholder="Ej: Lucía"
-    />
-  </label>
-)}
+                    {mesasList.map((mesa) => (
+                      <option key={mesa.id} value={mesa.id}>
+                        {mesa.numero != null && mesa.numero > 0
+                          ? `Mesa ${mesa.numero}`
+                          : mesa.nombre || `Mesa ID ${mesa.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <label className="grid gap-2">
+                  <span className="text-sm font-medium text-slate-700">
+                    Nombre del cliente
+                  </span>
+                  <input
+                    type="text"
+                    value={manualClienteNombre}
+                    onChange={(e) => setManualClienteNombre(e.target.value)}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                    placeholder="Ej: Lucía"
+                  />
+                </label>
+              )}
 
               <label className="grid gap-2">
                 <span className="text-sm font-medium text-slate-700">
@@ -1321,8 +1451,8 @@ const manualIdentifierLabel =
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-slate-600">
                   {manualOrderMode === 'salon'
-  ? 'Este pedido manual nace asociado a una mesa. La mesa es la referencia principal para cobrar y liberar el salón.'
-  : 'Este pedido manual nace asociado a una persona. El nombre del cliente es la referencia principal para preparar y entregar.'}
+                    ? 'Este pedido manual nace asociado a una mesa. La mesa es la referencia principal para cobrar y liberar el salón.'
+                    : 'Este pedido manual nace asociado a una persona. El nombre del cliente es la referencia principal para preparar y entregar.'}
                 </p>
               </div>
             </div>
@@ -1552,10 +1682,10 @@ const manualIdentifierLabel =
                   className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
                 >
                   {creandoPedido
-  ? 'Creando pedido...'
-  : manualOrderMode === 'salon'
-  ? 'Crear pedido para mesa'
-  : 'Crear pedido take away'}
+                    ? 'Creando pedido...'
+                    : manualOrderMode === 'salon'
+                    ? 'Crear pedido para mesa'
+                    : 'Crear pedido take away'}
                 </button>
               </div>
             </aside>
@@ -1568,47 +1698,47 @@ const manualIdentifierLabel =
           </div>
         ) : null}
 
-<div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-  <div className="flex flex-wrap gap-2">
-    {[
-      { value: 'todos', label: 'Todos' },
-      { value: 'pendiente', label: 'Pendientes' },
-      { value: 'en_preparacion', label: 'En preparación' },
-      { value: 'listo', label: 'Listos' },
-    ].map((f) => (
-      <button
-        key={f.value}
-        type="button"
-        onClick={() => setFiltroEstado(f.value as FiltroEstado)}
-        className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
-          filtroEstado === f.value
-            ? 'border-slate-900 bg-slate-900 text-white'
-            : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-        }`}
-      >
-        {f.label}
-      </button>
-    ))}
-  </div>
-</div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { value: 'todos', label: 'Todos' },
+              { value: 'pendiente', label: 'Pendientes' },
+              { value: 'en_preparacion', label: 'En preparación' },
+              { value: 'listo', label: 'Listos' },
+            ].map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                onClick={() => setFiltroEstado(f.value as FiltroEstado)}
+                className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+                  filtroEstado === f.value
+                    ? 'border-slate-900 bg-slate-900 text-white'
+                    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <section className="grid gap-6 xl:grid-cols-2">
           <article
-            className={`rounded-3xl border bg-white p-5 shadow-sm ${
+            className={`rounded-3xl border bg-white p-4 shadow-sm ${
               isTakeawayMode ? 'border-amber-300' : 'border-amber-200'
             }`}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
                   Take away
                 </p>
-                <h2 className="mt-2 text-2xl font-bold text-slate-900">
+                <h2 className="mt-2 text-xl font-bold text-slate-900">
                   {isTakeawayMode
                     ? 'Pedidos por cliente'
                     : 'Retiros activos (opcional)'}
                 </h2>
-                <p className="mt-2 text-sm text-slate-600">
+                <p className="mt-1.5 text-sm text-slate-600">
                   {isTakeawayMode
                     ? 'Mostrador puede tomar cualquier pedido, resolverlo acá o mandar a cocina solo los ítems necesarios.'
                     : 'Aunque el modo principal sea restaurante, esta pantalla también puede resolver retiros y derivar ítems a cocina si hace falta.'}
@@ -1616,21 +1746,21 @@ const manualIdentifierLabel =
               </div>
 
               <div className="grid gap-2 text-right">
-                <div className="rounded-2xl bg-slate-50 px-4 py-2">
-                  <p className="text-xs text-slate-500">Pendientes</p>
-                  <p className="text-2xl font-bold text-slate-900">
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <p className="text-[11px] text-slate-500">Pendientes</p>
+                  <p className="text-xl font-bold text-slate-900">
                     {takeawayResumen.pendientes}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-sky-50 px-4 py-2">
-                  <p className="text-xs text-sky-700">Preparando</p>
-                  <p className="text-2xl font-bold text-sky-900">
+                <div className="rounded-xl bg-sky-50 px-3 py-2">
+                  <p className="text-[11px] text-sky-700">Preparando</p>
+                  <p className="text-xl font-bold text-sky-900">
                     {takeawayResumen.preparando}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-emerald-50 px-4 py-2">
-                  <p className="text-xs text-emerald-700">Listos</p>
-                  <p className="text-2xl font-bold text-emerald-900">
+                <div className="rounded-xl bg-emerald-50 px-3 py-2">
+                  <p className="text-[11px] text-emerald-700">Listos</p>
+                  <p className="text-xl font-bold text-emerald-900">
                     {takeawayResumen.listos}
                   </p>
                 </div>
@@ -1638,21 +1768,22 @@ const manualIdentifierLabel =
             </div>
 
             {takeawayPedidosFiltrados.length === 0 ? (
-              <div className="mt-6 rounded-2xl border border-dashed border-amber-300 px-4 py-8 text-center text-sm text-slate-600">
+              <div className="mt-5 rounded-2xl border border-dashed border-amber-300 px-4 py-8 text-center text-sm text-slate-600">
                 No hay pedidos take away activos para este filtro.
               </div>
             ) : (
-              <div className="mt-6 space-y-3">
+              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                 {takeawayPedidosFiltrados.map((pedido) => {
                   const workflowState = getPedidoWorkflowState(pedido);
-const paymentBadge = getPaymentBadge(pedido);
-const normalizedEstado = normalizeText(pedido.estado);
-const normalizedWorkflowState = normalizeText(workflowState);
-const ready = normalizedWorkflowState === 'listo';
-const pending =
-  normalizedWorkflowState === 'pendiente' ||
-  normalizedWorkflowState === 'solicitado';
-const handledHere = isMostradorManagedPedido(pedido);
+                  const paymentBadge = getPaymentBadge(pedido);
+                  const normalizedEstado = normalizeText(pedido.estado);
+                  const normalizedWorkflowState = normalizeText(workflowState);
+                  const ready = normalizedWorkflowState === 'listo';
+                  const pending =
+                    normalizedWorkflowState === 'pendiente' ||
+                    normalizedWorkflowState === 'solicitado';
+                  const handledHere = isMostradorManagedPedido(pedido);
+                  const isNewPedido = recentPedidoIdsSet.has(pedido.id);
 
                   const kitchenItems = getKitchenItems(pedido);
                   const hasKitchenItems = kitchenItems.length > 0;
@@ -1663,7 +1794,9 @@ const handledHere = isMostradorManagedPedido(pedido);
                     normalizedEstado !== 'entregado' &&
                     normalizedEstado !== 'cerrado';
                   const canTakeHere =
-                    !ready && !hasKitchenItems && (pending || normalizedEstado === 'solicitado');
+                    !ready &&
+                    !hasKitchenItems &&
+                    (pending || normalizedEstado === 'solicitado');
                   const canSendAnyToKitchen =
                     !ready &&
                     pedido.items.some((item) => item.prepTarget === 'mostrador');
@@ -1671,82 +1804,90 @@ const handledHere = isMostradorManagedPedido(pedido);
                   return (
                     <article
                       key={pedido.id}
-                      className={`rounded-2xl border px-4 py-4 ${
-                        ready
+                      className={`rounded-xl border px-3 py-3 shadow-sm ${
+                        isNewPedido
+                          ? 'border-violet-300 bg-violet-50 ring-2 ring-violet-200'
+                          : ready
                           ? 'border-emerald-300 bg-emerald-50'
                           : 'border-slate-200 bg-white'
                       }`}
                     >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800">
                               TAKE AWAY
                             </span>
 
+                            {isNewPedido ? (
+                              <span className="rounded-full bg-violet-700 px-2 py-1 text-[11px] font-semibold text-white">
+                                NUEVO
+                              </span>
+                            ) : null}
+
                             {handledHere ? (
-                              <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-medium text-white">
-                                CREADO EN MOSTRADOR
+                              <span className="rounded-full bg-slate-900 px-2 py-1 text-[11px] font-medium text-white">
+                                MOSTRADOR
                               </span>
                             ) : null}
 
                             <span
-  className={`rounded-full border px-2.5 py-1 text-xs font-medium ${getEstadoBadgeClass(
-    workflowState
-  )}`}
->
-  {formatEstadoLabel(workflowState)}
-</span>
+                              className={`rounded-full border px-2 py-1 text-[11px] font-medium ${getEstadoBadgeClass(
+                                workflowState
+                              )}`}
+                            >
+                              {formatEstadoLabel(workflowState)}
+                            </span>
 
                             <span
-                              className={`rounded-full border px-2.5 py-1 text-xs font-medium ${paymentBadge.className}`}
+                              className={`rounded-full border px-2 py-1 text-[11px] font-medium ${paymentBadge.className}`}
                             >
                               {paymentBadge.label}
                             </span>
                           </div>
 
-                          <h3 className="mt-3 text-xl font-bold text-slate-900">
+                          <h3 className="mt-2 text-lg font-bold leading-tight text-slate-900">
                             {getTakeawayLabel(pedido)}
                           </h3>
 
-                          <p className="mt-1 text-sm text-slate-600">
+                          <p className="mt-0.5 text-xs text-slate-600">
                             {pedido.codigo_publico || `Pedido #${pedido.id}`}
                           </p>
 
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-0.5 text-[11px] text-slate-500">
                             Creado: {formatDateTime(pedido.creado_en)}
                           </p>
 
                           {pedido.estado_pago ? (
-                            <p className="mt-1 text-xs text-slate-500">
-                              Estado de pago: {pedido.estado_pago}
+                            <p className="mt-0.5 text-[11px] text-slate-500">
+                              Pago: {pedido.estado_pago}
                             </p>
                           ) : null}
                         </div>
 
                         <div className="text-right">
-                          <p className="text-xs text-slate-500">Total</p>
-                          <p className="text-xl font-bold text-slate-900">
+                          <p className="text-[11px] text-slate-500">Total</p>
+                          <p className="text-lg font-bold text-slate-900">
                             {formatMoney(pedido.total)}
                           </p>
                         </div>
                       </div>
 
-                      <div className="mt-4 space-y-2">
+                      <div className="mt-3 space-y-1.5">
                         {pedido.items.map((item) => (
                           <div
                             key={item.id}
-                            className="rounded-xl border border-slate-200 bg-white/80 px-3 py-3"
+                            className="rounded-lg border border-slate-200 bg-white/80 px-2.5 py-2"
                           >
                             <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-sm font-semibold text-slate-900">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="text-xs font-semibold text-slate-900">
                                     {item.cantidad} × {item.producto?.nombre ?? '—'}
                                   </span>
 
                                   <span
-                                    className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                    className={`rounded-full px-2 py-1 text-[11px] font-medium ${
                                       item.prepTarget === 'cocina'
                                         ? item.kitchenState === 'listo'
                                           ? 'bg-emerald-100 text-emerald-800'
@@ -1758,16 +1899,16 @@ const handledHere = isMostradorManagedPedido(pedido);
                                   >
                                     {item.prepTarget === 'cocina'
                                       ? item.kitchenState === 'listo'
-                                        ? 'Listo en cocina'
+                                        ? 'Listo cocina'
                                         : item.kitchenState === 'en_preparacion'
-                                        ? 'Preparando en cocina'
-                                        : 'Enviado a cocina'
+                                        ? 'Preparando'
+                                        : 'Enviado'
                                       : 'Mostrador'}
                                   </span>
                                 </div>
 
                                 {item.comentarioVisible ? (
-                                  <p className="mt-1 text-xs text-slate-500">
+                                  <p className="mt-1 text-[11px] text-slate-500">
                                     Nota: {item.comentarioVisible}
                                   </p>
                                 ) : null}
@@ -1780,11 +1921,11 @@ const handledHere = isMostradorManagedPedido(pedido);
                                     void enviarItemACocina(pedido.id, item);
                                   }}
                                   disabled={actualizandoItemId === item.id}
-                                  className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                                  className="rounded-lg bg-sky-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                                 >
                                   {actualizandoItemId === item.id
                                     ? 'Enviando...'
-                                    : 'Enviar a cocina'}
+                                    : 'A cocina'}
                                 </button>
                               ) : null}
                             </div>
@@ -1792,7 +1933,7 @@ const handledHere = isMostradorManagedPedido(pedido);
                         ))}
                       </div>
 
-                      <div className="mt-4 flex flex-wrap gap-2">
+                      <div className="mt-3 flex flex-wrap gap-1.5">
                         {canTakeHere ? (
                           <button
                             type="button"
@@ -1803,11 +1944,11 @@ const handledHere = isMostradorManagedPedido(pedido);
                               );
                             }}
                             disabled={actualizandoPedidoId === pedido.id}
-                            className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                            className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                           >
                             {actualizandoPedidoId === pedido.id
                               ? 'Actualizando...'
-                              : 'Tomar en mostrador'}
+                              : 'Tomar'}
                           </button>
                         ) : null}
 
@@ -1818,11 +1959,11 @@ const handledHere = isMostradorManagedPedido(pedido);
                               void enviarTodoACocina(pedido);
                             }}
                             disabled={enviandoPedidoACocinaId === pedido.id}
-                            className="rounded-xl border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+                            className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
                           >
                             {enviandoPedidoACocinaId === pedido.id
                               ? 'Enviando...'
-                              : 'Enviar todo a cocina'}
+                              : 'Todo a cocina'}
                           </button>
                         ) : null}
 
@@ -1833,7 +1974,7 @@ const handledHere = isMostradorManagedPedido(pedido);
                               void actualizarEstadoPedido(pedido.id, 'listo');
                             }}
                             disabled={actualizandoPedidoId === pedido.id}
-                            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                           >
                             {actualizandoPedidoId === pedido.id
                               ? 'Actualizando...'
@@ -1842,23 +1983,23 @@ const handledHere = isMostradorManagedPedido(pedido);
                         ) : null}
 
                         {ready ? (
-  <button
-    type="button"
-    onClick={() => {
-      void actualizarEstadoPedido(pedido.id, 'cerrado');
-    }}
-    disabled={actualizandoPedidoId === pedido.id}
-    className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
-  >
-    {actualizandoPedidoId === pedido.id
-      ? 'Actualizando...'
-      : 'Marcar entregado'}
-  </button>
-) : null}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void actualizarEstadoPedido(pedido.id, 'cerrado');
+                            }}
+                            disabled={actualizandoPedidoId === pedido.id}
+                            className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
+                          >
+                            {actualizandoPedidoId === pedido.id
+                              ? 'Actualizando...'
+                              : 'Entregado'}
+                          </button>
+                        ) : null}
 
                         {hasPendingKitchen ? (
-                          <span className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600">
-                            Hay ítems en cocina pendientes de resolución
+                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                            Cocina pendiente
                           </span>
                         ) : null}
                       </div>
@@ -1870,21 +2011,21 @@ const handledHere = isMostradorManagedPedido(pedido);
           </article>
 
           <article
-            className={`rounded-3xl border bg-white p-5 shadow-sm ${
+            className={`rounded-3xl border bg-white p-4 shadow-sm ${
               isRestaurantMode ? 'border-emerald-300' : 'border-slate-200'
             }`}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-600">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
                   Salón
                 </p>
-                <h2 className="mt-2 text-2xl font-bold text-slate-900">
+                <h2 className="mt-2 text-xl font-bold text-slate-900">
                   {isRestaurantMode
                     ? 'Mesas activas'
                     : 'Mesas activas (fuera del modo principal)'}
                 </h2>
-                <p className="mt-2 text-sm text-slate-600">
+                <p className="mt-1.5 text-sm text-slate-600">
                   {isRestaurantMode
                     ? 'Mostrador también puede resolver pedidos de salón, mandar ítems a cocina y cerrar la cuenta final.'
                     : 'El local está configurado en take away. Si aparece información de salón, esta vista funciona como referencia secundaria.'}
@@ -1892,15 +2033,15 @@ const handledHere = isMostradorManagedPedido(pedido);
               </div>
 
               <div className="grid gap-2 text-right">
-                <div className="rounded-2xl bg-amber-50 px-4 py-2">
-                  <p className="text-xs text-amber-700">En curso</p>
-                  <p className="text-2xl font-bold text-amber-900">
+                <div className="rounded-xl bg-amber-50 px-3 py-2">
+                  <p className="text-[11px] text-amber-700">En curso</p>
+                  <p className="text-xl font-bold text-amber-900">
                     {salonResumen.enCurso}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-emerald-50 px-4 py-2">
-                  <p className="text-xs text-emerald-700">Listas</p>
-                  <p className="text-2xl font-bold text-emerald-900">
+                <div className="rounded-xl bg-emerald-50 px-3 py-2">
+                  <p className="text-[11px] text-emerald-700">Listas</p>
+                  <p className="text-xl font-bold text-emerald-900">
                     {salonResumen.listas}
                   </p>
                 </div>
@@ -1908,34 +2049,45 @@ const handledHere = isMostradorManagedPedido(pedido);
             </div>
 
             {mesasSalonFiltradas.length === 0 ? (
-              <div className="mt-6 rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600">
+              <div className="mt-5 rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600">
                 No hay mesas con pedidos activos para este filtro.
               </div>
             ) : (
-              <div className="mt-6 space-y-4">
+              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                 {mesasSalonFiltradas.map((mesa) => {
                   const estadoMesa = calcularEstadoMesa(mesa);
+                  const mesaTienePedidoNuevo = mesa.pedidos.some((pedido) =>
+                    recentPedidoIdsSet.has(pedido.id)
+                  );
 
                   return (
                     <article
                       key={mesa.id}
-                      className={`rounded-2xl border px-4 py-4 ${
-                        estadoMesa === 'lista'
+                      className={`rounded-xl border px-3 py-3 shadow-sm ${
+                        mesaTienePedidoNuevo
+                          ? 'border-violet-300 bg-violet-50 ring-2 ring-violet-200'
+                          : estadoMesa === 'lista'
                           ? 'border-emerald-300 bg-emerald-50'
                           : 'border-slate-200 bg-white'
                       }`}
                     >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             {getMesaEstadoBadge(estadoMesa)}
+
+                            {mesaTienePedidoNuevo ? (
+                              <span className="rounded-full bg-violet-700 px-2 py-1 text-[11px] font-semibold text-white">
+                                PEDIDO NUEVO
+                              </span>
+                            ) : null}
                           </div>
 
-                          <h3 className="mt-3 text-xl font-bold text-slate-900">
+                          <h3 className="mt-2 text-lg font-bold text-slate-900">
                             {getMesaDisplayName(mesa)}
                           </h3>
 
-                          <p className="mt-1 text-sm text-slate-600">
+                          <p className="mt-0.5 text-xs text-slate-600">
                             {mesa.pedidos.length} pedido
                             {mesa.pedidos.length !== 1 ? 's' : ''} activo
                             {mesa.pedidos.length !== 1 ? 's' : ''}
@@ -1943,24 +2095,26 @@ const handledHere = isMostradorManagedPedido(pedido);
                         </div>
 
                         <div className="text-right">
-                          <p className="text-xs text-slate-500">Total mesa</p>
-                          <p className="text-xl font-bold text-slate-900">
+                          <p className="text-[11px] text-slate-500">Total mesa</p>
+                          <p className="text-lg font-bold text-slate-900">
                             {formatMoney(mesa.totalMesa)}
                           </p>
                         </div>
                       </div>
 
-                      <div className="mt-4 space-y-2">
+                      <div className="mt-3 space-y-2">
                         {mesa.pedidos.map((pedido) => {
                           const workflowState = getPedidoWorkflowState(pedido);
-const paymentBadge = getPaymentBadge(pedido);
-const handledHere = isMostradorManagedPedido(pedido);
-const normalizedEstado = normalizeText(pedido.estado);
-const normalizedWorkflowState = normalizeText(workflowState);
-const pending =
-  normalizedWorkflowState === 'pendiente' ||
-  normalizedWorkflowState === 'solicitado';
-const ready = normalizedWorkflowState === 'listo';
+                          const paymentBadge = getPaymentBadge(pedido);
+                          const handledHere = isMostradorManagedPedido(pedido);
+                          const normalizedEstado = normalizeText(pedido.estado);
+                          const normalizedWorkflowState = normalizeText(workflowState);
+                          const pending =
+                            normalizedWorkflowState === 'pendiente' ||
+                            normalizedWorkflowState === 'solicitado';
+                          const ready = normalizedWorkflowState === 'listo';
+                          const isNewPedido = recentPedidoIdsSet.has(pedido.id);
+
                           const kitchenItems = getKitchenItems(pedido);
                           const hasKitchenItems = kitchenItems.length > 0;
                           const hasKitchenPending = hasKitchenPendingItems(pedido);
@@ -1980,38 +2134,47 @@ const ready = normalizedWorkflowState === 'listo';
                           return (
                             <div
                               key={pedido.id}
-                              className="rounded-xl border border-slate-200 bg-white/80 px-3 py-3"
+                              className={`rounded-lg border px-2.5 py-2 ${
+                                isNewPedido
+                                  ? 'border-violet-300 bg-violet-50'
+                                  : 'border-slate-200 bg-white/80'
+                              }`}
                             >
                               <div className="flex flex-wrap items-start justify-between gap-2">
-                                <div>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm font-semibold text-slate-900">
-                                      {pedido.codigo_publico ||
-                                        `Pedido #${pedido.id}`}
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-xs font-semibold text-slate-900">
+                                      {pedido.codigo_publico || `Pedido #${pedido.id}`}
                                     </span>
 
+                                    {isNewPedido ? (
+                                      <span className="rounded-full bg-violet-700 px-2 py-1 text-[11px] font-semibold text-white">
+                                        NUEVO
+                                      </span>
+                                    ) : null}
+
                                     {handledHere ? (
-                                      <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-medium text-white">
-                                        CREADO EN MOSTRADOR
+                                      <span className="rounded-full bg-slate-900 px-2 py-1 text-[11px] font-medium text-white">
+                                        MOSTRADOR
                                       </span>
                                     ) : null}
 
                                     <span
-  className={`rounded-full border px-2.5 py-1 text-xs font-medium ${getEstadoBadgeClass(
-    workflowState
-  )}`}
->
-  {formatEstadoLabel(workflowState)}
-</span>
+                                      className={`rounded-full border px-2 py-1 text-[11px] font-medium ${getEstadoBadgeClass(
+                                        workflowState
+                                      )}`}
+                                    >
+                                      {formatEstadoLabel(workflowState)}
+                                    </span>
 
                                     <span
-                                      className={`rounded-full border px-2.5 py-1 text-xs font-medium ${paymentBadge.className}`}
+                                      className={`rounded-full border px-2 py-1 text-[11px] font-medium ${paymentBadge.className}`}
                                     >
                                       {paymentBadge.label}
                                     </span>
                                   </div>
 
-                                  <p className="mt-1 text-xs text-slate-500">
+                                  <p className="mt-0.5 text-[11px] text-slate-500">
                                     {formatTime(pedido.creado_en)}
                                     {pedido.estado_pago
                                       ? ` · Pago: ${pedido.estado_pago}`
@@ -2019,26 +2182,26 @@ const ready = normalizedWorkflowState === 'listo';
                                   </p>
                                 </div>
 
-                                <div className="text-right text-sm font-semibold text-slate-900">
+                                <div className="text-sm font-semibold text-slate-900">
                                   {formatMoney(pedido.total)}
                                 </div>
                               </div>
 
-                              <div className="mt-3 space-y-2">
+                              <div className="mt-2 space-y-1.5">
                                 {pedido.items.map((item) => (
                                   <div
                                     key={item.id}
-                                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                                    className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2"
                                   >
                                     <div className="flex flex-wrap items-start justify-between gap-2">
-                                      <div>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <span className="text-sm font-medium text-slate-900">
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <span className="text-xs font-medium text-slate-900">
                                             {item.cantidad} × {item.producto?.nombre ?? '—'}
                                           </span>
 
                                           <span
-                                            className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                            className={`rounded-full px-2 py-1 text-[11px] font-medium ${
                                               item.prepTarget === 'cocina'
                                                 ? item.kitchenState === 'listo'
                                                   ? 'bg-emerald-100 text-emerald-800'
@@ -2050,16 +2213,16 @@ const ready = normalizedWorkflowState === 'listo';
                                           >
                                             {item.prepTarget === 'cocina'
                                               ? item.kitchenState === 'listo'
-                                                ? 'Listo en cocina'
+                                                ? 'Listo cocina'
                                                 : item.kitchenState === 'en_preparacion'
-                                                ? 'Preparando en cocina'
-                                                : 'Enviado a cocina'
+                                                ? 'Preparando'
+                                                : 'Enviado'
                                               : 'Mostrador'}
                                           </span>
                                         </div>
 
                                         {item.comentarioVisible ? (
-                                          <p className="mt-1 text-xs text-slate-500">
+                                          <p className="mt-1 text-[11px] text-slate-500">
                                             Nota: {item.comentarioVisible}
                                           </p>
                                         ) : null}
@@ -2072,11 +2235,11 @@ const ready = normalizedWorkflowState === 'listo';
                                             void enviarItemACocina(pedido.id, item);
                                           }}
                                           disabled={actualizandoItemId === item.id}
-                                          className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                                          className="rounded-lg bg-sky-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                                         >
                                           {actualizandoItemId === item.id
                                             ? 'Enviando...'
-                                            : 'Enviar a cocina'}
+                                            : 'A cocina'}
                                         </button>
                                       ) : null}
                                     </div>
@@ -2084,7 +2247,7 @@ const ready = normalizedWorkflowState === 'listo';
                                 ))}
                               </div>
 
-                              <div className="mt-3 flex flex-wrap gap-2">
+                              <div className="mt-2 flex flex-wrap gap-1.5">
                                 {canTakeHere ? (
                                   <button
                                     type="button"
@@ -2095,11 +2258,11 @@ const ready = normalizedWorkflowState === 'listo';
                                       );
                                     }}
                                     disabled={actualizandoPedidoId === pedido.id}
-                                    className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                                    className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                                   >
                                     {actualizandoPedidoId === pedido.id
                                       ? 'Actualizando...'
-                                      : 'Tomar en mostrador'}
+                                      : 'Tomar'}
                                   </button>
                                 ) : null}
 
@@ -2110,11 +2273,11 @@ const ready = normalizedWorkflowState === 'listo';
                                       void enviarTodoACocina(pedido);
                                     }}
                                     disabled={enviandoPedidoACocinaId === pedido.id}
-                                    className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+                                    className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
                                   >
                                     {enviandoPedidoACocinaId === pedido.id
                                       ? 'Enviando...'
-                                      : 'Enviar todo a cocina'}
+                                      : 'Todo a cocina'}
                                   </button>
                                 ) : null}
 
@@ -2128,7 +2291,7 @@ const ready = normalizedWorkflowState === 'listo';
                                       );
                                     }}
                                     disabled={actualizandoPedidoId === pedido.id}
-                                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                                   >
                                     {actualizandoPedidoId === pedido.id
                                       ? 'Actualizando...'
@@ -2137,8 +2300,8 @@ const ready = normalizedWorkflowState === 'listo';
                                 ) : null}
 
                                 {hasKitchenPending ? (
-                                  <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                                    Hay ítems en cocina pendientes
+                                  <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                                    Cocina pendiente
                                   </span>
                                 ) : null}
                               </div>
@@ -2147,14 +2310,14 @@ const ready = normalizedWorkflowState === 'listo';
                         })}
                       </div>
 
-                      <div className="mt-4 flex flex-wrap gap-2">
+                      <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={() => {
                             void cerrarCuentaMesa(mesa.id);
                           }}
                           disabled={cerrandoMesaId === mesa.id}
-                          className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
+                          className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
                         >
                           {cerrandoMesaId === mesa.id
                             ? 'Cerrando...'
@@ -2162,12 +2325,12 @@ const ready = normalizedWorkflowState === 'listo';
                         </button>
 
                         {estadoMesa === 'lista' ? (
-                          <span className="rounded-xl border border-emerald-300 bg-emerald-100 px-4 py-2 text-sm text-emerald-800">
-                            La mesa ya tiene todo listo
+                          <span className="rounded-lg border border-emerald-300 bg-emerald-100 px-3 py-1.5 text-xs text-emerald-800">
+                            Mesa lista
                           </span>
                         ) : (
-                          <span className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600">
-                            Todavía hay pedidos en curso para esta mesa
+                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                            Hay pedidos en curso
                           </span>
                         )}
                       </div>
@@ -2178,7 +2341,7 @@ const ready = normalizedWorkflowState === 'listo';
             )}
 
             {businessMode === 'takeaway' ? (
-              <div className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <div className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 El local está configurado en modo <strong>take away</strong>. En
                 este contexto la referencia principal sigue siendo la persona, no la mesa.
               </div>
