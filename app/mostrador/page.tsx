@@ -462,17 +462,17 @@ export default function MostradorPage() {
   const [manualOrderMode, setManualOrderMode] = useState<ManualOrderMode>(
     businessMode === 'takeaway' ? 'takeaway' : 'salon'
   );
-  const newOrderAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [compactMode, setCompactMode] = useState(true);
   const [recentlyArrivedPedidoIds, setRecentlyArrivedPedidoIds] = useState<number[]>(
     []
   );
 
+  const newOrderAudioRef = useRef<HTMLAudioElement | null>(null);
   const knownPedidoIdsRef = useRef<Set<number>>(new Set());
   const didInitialPedidosLoadRef = useRef(false);
   const newPedidoTimeoutsRef = useRef<Record<number, ReturnType<typeof setTimeout>>>(
     {}
   );
-
 
   const marcarPedidosComoNuevos = useCallback((ids: number[]) => {
     if (ids.length === 0) return;
@@ -497,16 +497,16 @@ export default function MostradorPage() {
   }, []);
 
   const reproducirSonidoNuevoPedido = useCallback(async () => {
-  const audio = newOrderAudioRef.current;
-  if (!audio) return;
+    const audio = newOrderAudioRef.current;
+    if (!audio) return;
 
-  try {
-    audio.currentTime = 0;
-    await audio.play();
-  } catch (err) {
-    console.error('No se pudo reproducir el sonido de nuevo pedido:', err);
-  }
-}, []);
+    try {
+      audio.currentTime = 0;
+      await audio.play();
+    } catch (err) {
+      console.error('No se pudo reproducir el sonido de nuevo pedido:', err);
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -514,6 +514,12 @@ export default function MostradorPage() {
         clearTimeout(timeoutId);
       });
     };
+  }, []);
+
+  useEffect(() => {
+    const audio = new Audio('/sounds/new-order.mp3');
+    audio.preload = 'auto';
+    newOrderAudioRef.current = audio;
   }, []);
 
   useEffect(() => {
@@ -715,11 +721,7 @@ export default function MostradorPage() {
     }
 
     setCargando(false);
-  }, [
-    manualMesaId,
-    marcarPedidosComoNuevos,
-    reproducirSonidoNuevoPedido,
-  ]);
+  }, [manualMesaId, marcarPedidosComoNuevos, reproducirSonidoNuevoPedido]);
 
   useEffect(() => {
     if (checkingAccess) return;
@@ -742,12 +744,6 @@ export default function MostradorPage() {
   useEffect(() => {
     setManualOrderMode(businessMode === 'takeaway' ? 'takeaway' : 'salon');
   }, [businessMode]);
-
-  useEffect(() => {
-  const audio = new Audio('/sounds/new-order.mp3');
-  audio.preload = 'auto';
-  newOrderAudioRef.current = audio;
-}, []);
 
   const productosFiltrados =
     categoriaSeleccionada == null
@@ -951,8 +947,6 @@ export default function MostradorPage() {
     setActualizandoPedidoId(null);
     await cargarDatos();
   }
-
-  
 
   async function enviarItemACocina(pedidoId: number, item: ItemPedido) {
     setActualizandoItemId(item.id);
@@ -1217,6 +1211,10 @@ export default function MostradorPage() {
 
                 <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-800">
                   🔔 Sonido en nuevos pedidos
+                </span>
+
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                  {compactMode ? 'Modo compacto' : 'Modo completo'}
                 </span>
 
                 {businessMode === 'restaurant' && canUseWaiterMode ? (
@@ -1666,26 +1664,36 @@ export default function MostradorPage() {
         ) : null}
 
         <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap gap-2">
-            {[
-              { value: 'todos', label: 'Todos' },
-              { value: 'pendiente', label: 'Pendientes' },
-              { value: 'en_preparacion', label: 'En preparación' },
-              { value: 'listo', label: 'Listos' },
-            ].map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => setFiltroEstado(f.value as FiltroEstado)}
-                className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
-                  filtroEstado === f.value
-                    ? 'border-slate-900 bg-slate-900 text-white'
-                    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              {[
+                { value: 'todos', label: 'Todos' },
+                { value: 'pendiente', label: 'Pendientes' },
+                { value: 'en_preparacion', label: 'En preparación' },
+                { value: 'listo', label: 'Listos' },
+              ].map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setFiltroEstado(f.value as FiltroEstado)}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+                    filtroEstado === f.value
+                      ? 'border-slate-900 bg-slate-900 text-white'
+                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCompactMode((prev) => !prev)}
+              className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              {compactMode ? 'Ver detalle completo' : 'Modo compacto'}
+            </button>
           </div>
         </div>
 
@@ -1705,8 +1713,10 @@ export default function MostradorPage() {
                     ? 'Pedidos por cliente'
                     : 'Retiros activos (opcional)'}
                 </h2>
-                <p className="mt-1.5 text-sm text-slate-600">
-                  {isTakeawayMode
+                <p className="mt-1 text-xs text-slate-600">
+                  {compactMode
+                    ? 'Operación activa de retiros.'
+                    : isTakeawayMode
                     ? 'Mostrador puede tomar cualquier pedido, resolverlo acá o mandar a cocina solo los ítems necesarios.'
                     : 'Aunque el modo principal sea restaurante, esta pantalla también puede resolver retiros y derivar ítems a cocina si hace falta.'}
                 </p>
@@ -1768,6 +1778,14 @@ export default function MostradorPage() {
                     !ready &&
                     pedido.items.some((item) => item.prepTarget === 'mostrador');
 
+                  const visibleItems = compactMode
+                    ? pedido.items.slice(0, 1)
+                    : pedido.items;
+                  const hiddenItemsCount = Math.max(
+                    0,
+                    pedido.items.length - visibleItems.length
+                  );
+
                   return (
                     <article
                       key={pedido.id}
@@ -1781,39 +1799,33 @@ export default function MostradorPage() {
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-medium text-amber-800">
                               TAKE AWAY
                             </span>
 
                             {isNewPedido ? (
-                              <span className="rounded-full bg-violet-700 px-2 py-1 text-[11px] font-semibold text-white">
+                              <span className="rounded-full bg-violet-700 px-2 py-1 text-[10px] font-semibold text-white">
                                 NUEVO
                               </span>
                             ) : null}
 
                             {handledHere ? (
-                              <span className="rounded-full bg-slate-900 px-2 py-1 text-[11px] font-medium text-white">
+                              <span className="rounded-full bg-slate-900 px-2 py-1 text-[10px] font-medium text-white">
                                 MOSTRADOR
                               </span>
                             ) : null}
 
                             <span
-                              className={`rounded-full border px-2 py-1 text-[11px] font-medium ${getEstadoBadgeClass(
+                              className={`rounded-full border px-2 py-1 text-[10px] font-medium ${getEstadoBadgeClass(
                                 workflowState
                               )}`}
                             >
                               {formatEstadoLabel(workflowState)}
                             </span>
-
-                            <span
-                              className={`rounded-full border px-2 py-1 text-[11px] font-medium ${paymentBadge.className}`}
-                            >
-                              {paymentBadge.label}
-                            </span>
                           </div>
 
-                          <h3 className="mt-1.5 text-base font-bold leading-tight text-slate-900">
+                          <h3 className="mt-1 text-sm font-bold leading-tight text-slate-900">
                             {getTakeawayLabel(pedido)}
                           </h3>
 
@@ -1821,40 +1833,49 @@ export default function MostradorPage() {
                             {pedido.codigo_publico || `Pedido #${pedido.id}`}
                           </p>
 
-                          <p className="mt-0.5 text-[11px] text-slate-500">
-                            Creado: {formatDateTime(pedido.creado_en)}
+                          <p className="mt-0.5 text-[10px] text-slate-500">
+                            {compactMode
+                              ? `${formatTime(pedido.creado_en)} · ${pedido.items.length} ítem${
+                                  pedido.items.length !== 1 ? 's' : ''
+                                }`
+                              : `Creado: ${formatDateTime(pedido.creado_en)}`}
                           </p>
 
-                          {pedido.estado_pago ? (
-                            <p className="mt-0.5 text-[11px] text-slate-500">
+                          {!compactMode && pedido.estado_pago ? (
+                            <p className="mt-0.5 text-[10px] text-slate-500">
                               Pago: {pedido.estado_pago}
                             </p>
                           ) : null}
                         </div>
 
                         <div className="text-right">
-                          <p className="text-[11px] text-slate-500">Total</p>
-                          <p className="text-lg font-bold text-slate-900">
+                          <span
+                            className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-medium ${paymentBadge.className}`}
+                          >
+                            {paymentBadge.label}
+                          </span>
+                          <p className="mt-1 text-[10px] text-slate-500">Total</p>
+                          <p className="text-sm font-bold text-slate-900">
                             {formatMoney(pedido.total)}
                           </p>
                         </div>
                       </div>
 
                       <div className="mt-2 space-y-1">
-                        {pedido.items.map((item) => (
+                        {visibleItems.map((item) => (
                           <div
                             key={item.id}
                             className="rounded-lg border border-slate-200 bg-white/80 px-2 py-1.5"
                           >
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="text-xs font-semibold text-slate-900">
+                                <div className="flex flex-wrap items-center gap-1">
+                                  <span className="text-[11px] font-semibold text-slate-900">
                                     {item.cantidad} × {item.producto?.nombre ?? '—'}
                                   </span>
 
                                   <span
-                                    className={`rounded-full px-2 py-1 text-[11px] font-medium ${
+                                    className={`rounded-full px-2 py-1 text-[10px] font-medium ${
                                       item.prepTarget === 'cocina'
                                         ? item.kitchenState === 'listo'
                                           ? 'bg-emerald-100 text-emerald-800'
@@ -1874,8 +1895,8 @@ export default function MostradorPage() {
                                   </span>
                                 </div>
 
-                                {item.comentarioVisible ? (
-                                  <p className="mt-1 text-[11px] text-slate-500">
+                                {!compactMode && item.comentarioVisible ? (
+                                  <p className="mt-1 text-[10px] text-slate-500">
                                     Nota: {item.comentarioVisible}
                                   </p>
                                 ) : null}
@@ -1888,19 +1909,27 @@ export default function MostradorPage() {
                                     void enviarItemACocina(pedido.id, item);
                                   }}
                                   disabled={actualizandoItemId === item.id}
-                                  className="rounded-lg bg-sky-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                                  className="rounded-lg bg-sky-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                                 >
                                   {actualizandoItemId === item.id
-                                    ? 'Enviando...'
+                                    ? '...'
+                                    : compactMode
+                                    ? 'Cocina'
                                     : 'A cocina'}
                                 </button>
                               ) : null}
                             </div>
                           </div>
                         ))}
+
+                        {hiddenItemsCount > 0 ? (
+                          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">
+                            + {hiddenItemsCount} ítem{hiddenItemsCount !== 1 ? 's' : ''} más
+                          </div>
+                        ) : null}
                       </div>
 
-                      <div className="mt-3 flex flex-wrap gap-1.5">
+                      <div className="mt-2 flex flex-wrap gap-1">
                         {canTakeHere ? (
                           <button
                             type="button"
@@ -1911,11 +1940,13 @@ export default function MostradorPage() {
                               );
                             }}
                             disabled={actualizandoPedidoId === pedido.id}
-                            className="rounded-lg bg-sky-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                            className="rounded-lg bg-sky-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                           >
                             {actualizandoPedidoId === pedido.id
-                              ? 'Actualizando...'
-                              : 'Tomar'}
+                              ? '...'
+                              : compactMode
+                              ? 'Tomar'
+                              : 'Tomar en mostrador'}
                           </button>
                         ) : null}
 
@@ -1926,10 +1957,12 @@ export default function MostradorPage() {
                               void enviarTodoACocina(pedido);
                             }}
                             disabled={enviandoPedidoACocinaId === pedido.id}
-                            className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+                            className="rounded-lg border border-sky-300 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
                           >
                             {enviandoPedidoACocinaId === pedido.id
-                              ? 'Enviando...'
+                              ? '...'
+                              : compactMode
+                              ? 'Todo cocina'
                               : 'Todo a cocina'}
                           </button>
                         ) : null}
@@ -1941,10 +1974,12 @@ export default function MostradorPage() {
                               void actualizarEstadoPedido(pedido.id, 'listo');
                             }}
                             disabled={actualizandoPedidoId === pedido.id}
-                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                            className="rounded-lg bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                           >
                             {actualizandoPedidoId === pedido.id
-                              ? 'Actualizando...'
+                              ? '...'
+                              : compactMode
+                              ? 'Listo'
                               : 'Marcar listo'}
                           </button>
                         ) : null}
@@ -1956,16 +1991,18 @@ export default function MostradorPage() {
                               void actualizarEstadoPedido(pedido.id, 'cerrado');
                             }}
                             disabled={actualizandoPedidoId === pedido.id}
-                            className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
+                            className="rounded-lg bg-emerald-700 px-2 py-1 text-[10px] font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
                           >
                             {actualizandoPedidoId === pedido.id
-                              ? 'Actualizando...'
+                              ? '...'
+                              : compactMode
+                              ? 'Entregar'
                               : 'Entregado'}
                           </button>
                         ) : null}
 
                         {hasPendingKitchen ? (
-                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-600">
                             Cocina pendiente
                           </span>
                         ) : null}
@@ -1992,8 +2029,10 @@ export default function MostradorPage() {
                     ? 'Mesas activas'
                     : 'Mesas activas (fuera del modo principal)'}
                 </h2>
-                <p className="mt-1.5 text-sm text-slate-600">
-                  {isRestaurantMode
+                <p className="mt-1 text-xs text-slate-600">
+                  {compactMode
+                    ? 'Operación activa de mesas.'
+                    : isRestaurantMode
                     ? 'Mostrador también puede resolver pedidos de salón, mandar ítems a cocina y cerrar la cuenta final.'
                     : 'El local está configurado en take away. Si aparece información de salón, esta vista funciona como referencia secundaria.'}
                 </p>
@@ -2027,10 +2066,18 @@ export default function MostradorPage() {
                     recentPedidoIdsSet.has(pedido.id)
                   );
 
+                  const visiblePedidos = compactMode
+                    ? mesa.pedidos.slice(0, 2)
+                    : mesa.pedidos;
+                  const hiddenPedidosCount = Math.max(
+                    0,
+                    mesa.pedidos.length - visiblePedidos.length
+                  );
+
                   return (
                     <article
                       key={mesa.id}
-                      className={`rounded-lg border px-2 py-1 shadow-sm  ${
+                      className={`rounded-lg border px-2 py-1 shadow-sm ${
                         mesaTienePedidoNuevo
                           ? 'border-violet-300 bg-violet-50 ring-2 ring-violet-200'
                           : estadoMesa === 'lista'
@@ -2040,21 +2087,21 @@ export default function MostradorPage() {
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="flex flex-wrap items-center gap-1">
                             {getMesaEstadoBadge(estadoMesa)}
 
                             {mesaTienePedidoNuevo ? (
-                              <span className="rounded-full bg-violet-700 px-2 py-1 text-[11px] font-semibold text-white">
+                              <span className="rounded-full bg-violet-700 px-2 py-1 text-[10px] font-semibold text-white">
                                 PEDIDO NUEVO
                               </span>
                             ) : null}
                           </div>
 
-                          <h3 className="mt-2 text-lg font-bold leading-tight text-slate-900">
+                          <h3 className="mt-1 text-sm font-bold leading-tight text-slate-900">
                             {getMesaDisplayName(mesa)}
                           </h3>
 
-                          <p className="mt-0.5 text-[11px] text-slate-600">
+                          <p className="mt-0.5 text-[10px] text-slate-600">
                             {mesa.pedidos.length} pedido
                             {mesa.pedidos.length !== 1 ? 's' : ''} activo
                             {mesa.pedidos.length !== 1 ? 's' : ''}
@@ -2062,15 +2109,15 @@ export default function MostradorPage() {
                         </div>
 
                         <div className="text-right">
-                          <p className="text-[11px] text-slate-500">Total mesa</p>
-                          <p className="text-lg font-bold text-slate-900">
+                          <p className="text-[10px] text-slate-500">Total mesa</p>
+                          <p className="text-sm font-bold text-slate-900">
                             {formatMoney(mesa.totalMesa)}
                           </p>
                         </div>
                       </div>
 
-                      <div className="mt-3 space-y-2">
-                        {mesa.pedidos.map((pedido) => {
+                      <div className="mt-2 space-y-1">
+                        {visiblePedidos.map((pedido) => {
                           const workflowState = getPedidoWorkflowState(pedido);
                           const paymentBadge = getPaymentBadge(pedido);
                           const handledHere = isMostradorManagedPedido(pedido);
@@ -2098,10 +2145,18 @@ export default function MostradorPage() {
                               (item) => item.prepTarget === 'mostrador'
                             );
 
+                          const visibleItems = compactMode
+                            ? pedido.items.slice(0, 1)
+                            : pedido.items;
+                          const hiddenItemsCount = Math.max(
+                            0,
+                            pedido.items.length - visibleItems.length
+                          );
+
                           return (
                             <div
                               key={pedido.id}
-                              className={`rounded-lg border px-2 py-1.5 ${
+                              className={`rounded-lg border px-2 py-1 ${
                                 isNewPedido
                                   ? 'border-violet-300 bg-violet-50'
                                   : 'border-slate-200 bg-white/80'
@@ -2109,66 +2164,72 @@ export default function MostradorPage() {
                             >
                               <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div className="min-w-0">
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-xs font-semibold text-slate-900">
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    <span className="text-[11px] font-semibold text-slate-900">
                                       {pedido.codigo_publico || `Pedido #${pedido.id}`}
                                     </span>
 
                                     {isNewPedido ? (
-                                      <span className="rounded-full bg-violet-700 px-2 py-1 text-[11px] font-semibold text-white">
+                                      <span className="rounded-full bg-violet-700 px-2 py-1 text-[10px] font-semibold text-white">
                                         NUEVO
                                       </span>
                                     ) : null}
 
                                     {handledHere ? (
-                                      <span className="rounded-full bg-slate-900 px-2 py-1 text-[11px] font-medium text-white">
+                                      <span className="rounded-full bg-slate-900 px-2 py-1 text-[10px] font-medium text-white">
                                         MOSTRADOR
                                       </span>
                                     ) : null}
 
                                     <span
-                                      className={`rounded-full border px-2 py-1 text-[11px] font-medium ${getEstadoBadgeClass(
+                                      className={`rounded-full border px-2 py-1 text-[10px] font-medium ${getEstadoBadgeClass(
                                         workflowState
                                       )}`}
                                     >
                                       {formatEstadoLabel(workflowState)}
                                     </span>
-
-                                    <span
-                                      className={`rounded-full border px-2 py-1 text-[11px] font-medium ${paymentBadge.className}`}
-                                    >
-                                      {paymentBadge.label}
-                                    </span>
                                   </div>
 
-                                  <p className="mt-0.5 text-[11px] text-slate-500">
-                                    {formatTime(pedido.creado_en)}
-                                    {pedido.estado_pago
-                                      ? ` · Pago: ${pedido.estado_pago}`
-                                      : ''}
+                                  <p className="mt-0.5 text-[10px] text-slate-500">
+                                    {compactMode
+                                      ? `${formatTime(pedido.creado_en)} · ${pedido.items.length} ítem${
+                                          pedido.items.length !== 1 ? 's' : ''
+                                        }`
+                                      : `${formatTime(pedido.creado_en)}${
+                                          pedido.estado_pago
+                                            ? ` · Pago: ${pedido.estado_pago}`
+                                            : ''
+                                        }`}
                                   </p>
                                 </div>
 
-                                <div className="text-sm font-semibold text-slate-900">
-                                  {formatMoney(pedido.total)}
+                                <div className="text-right">
+                                  <span
+                                    className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-medium ${paymentBadge.className}`}
+                                  >
+                                    {paymentBadge.label}
+                                  </span>
+                                  <div className="mt-1 text-[11px] font-semibold text-slate-900">
+                                    {formatMoney(pedido.total)}
+                                  </div>
                                 </div>
                               </div>
 
-                              <div className="mt-2 space-y-1.5">
-                                {pedido.items.map((item) => (
+                              <div className="mt-1.5 space-y-1">
+                                {visibleItems.map((item) => (
                                   <div
                                     key={item.id}
-                                    className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5"
+                                    className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1"
                                   >
                                     <div className="flex flex-wrap items-start justify-between gap-2">
                                       <div className="min-w-0">
-                                        <div className="flex flex-wrap items-center gap-1.5">
-                                          <span className="text-xs font-medium text-slate-900">
+                                        <div className="flex flex-wrap items-center gap-1">
+                                          <span className="text-[11px] font-medium text-slate-900">
                                             {item.cantidad} × {item.producto?.nombre ?? '—'}
                                           </span>
 
                                           <span
-                                            className={`rounded-full px-2 py-1 text-[11px] font-medium ${
+                                            className={`rounded-full px-2 py-1 text-[10px] font-medium ${
                                               item.prepTarget === 'cocina'
                                                 ? item.kitchenState === 'listo'
                                                   ? 'bg-emerald-100 text-emerald-800'
@@ -2188,8 +2249,8 @@ export default function MostradorPage() {
                                           </span>
                                         </div>
 
-                                        {item.comentarioVisible ? (
-                                          <p className="mt-1 text-[11px] text-slate-500">
+                                        {!compactMode && item.comentarioVisible ? (
+                                          <p className="mt-1 text-[10px] text-slate-500">
                                             Nota: {item.comentarioVisible}
                                           </p>
                                         ) : null}
@@ -2202,19 +2263,27 @@ export default function MostradorPage() {
                                             void enviarItemACocina(pedido.id, item);
                                           }}
                                           disabled={actualizandoItemId === item.id}
-                                          className="rounded-lg bg-sky-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                                          className="rounded-lg bg-sky-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                                         >
                                           {actualizandoItemId === item.id
-                                            ? 'Enviando...'
+                                            ? '...'
+                                            : compactMode
+                                            ? 'Cocina'
                                             : 'A cocina'}
                                         </button>
                                       ) : null}
                                     </div>
                                   </div>
                                 ))}
+
+                                {hiddenItemsCount > 0 ? (
+                                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">
+                                    + {hiddenItemsCount} ítem{hiddenItemsCount !== 1 ? 's' : ''} más
+                                  </div>
+                                ) : null}
                               </div>
 
-                              <div className="mt-2 flex flex-wrap gap-1.5">
+                              <div className="mt-1.5 flex flex-wrap gap-1">
                                 {canTakeHere ? (
                                   <button
                                     type="button"
@@ -2225,11 +2294,13 @@ export default function MostradorPage() {
                                       );
                                     }}
                                     disabled={actualizandoPedidoId === pedido.id}
-                                    className="rounded-lg bg-sky-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                                    className="rounded-lg bg-sky-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
                                   >
                                     {actualizandoPedidoId === pedido.id
-                                      ? 'Actualizando...'
-                                      : 'Tomar'}
+                                      ? '...'
+                                      : compactMode
+                                      ? 'Tomar'
+                                      : 'Tomar en mostrador'}
                                   </button>
                                 ) : null}
 
@@ -2240,10 +2311,12 @@ export default function MostradorPage() {
                                       void enviarTodoACocina(pedido);
                                     }}
                                     disabled={enviandoPedidoACocinaId === pedido.id}
-                                    className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+                                    className="rounded-lg border border-sky-300 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
                                   >
                                     {enviandoPedidoACocinaId === pedido.id
-                                      ? 'Enviando...'
+                                      ? '...'
+                                      : compactMode
+                                      ? 'Todo cocina'
                                       : 'Todo a cocina'}
                                   </button>
                                 ) : null}
@@ -2258,16 +2331,18 @@ export default function MostradorPage() {
                                       );
                                     }}
                                     disabled={actualizandoPedidoId === pedido.id}
-                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                                    className="rounded-lg bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                                   >
                                     {actualizandoPedidoId === pedido.id
-                                      ? 'Actualizando...'
+                                      ? '...'
+                                      : compactMode
+                                      ? 'Listo'
                                       : 'Marcar listo'}
                                   </button>
                                 ) : null}
 
                                 {hasKitchenPending ? (
-                                  <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                                  <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-600">
                                     Cocina pendiente
                                   </span>
                                 ) : null}
@@ -2275,28 +2350,36 @@ export default function MostradorPage() {
                             </div>
                           );
                         })}
+
+                        {hiddenPedidosCount > 0 ? (
+                          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">
+                            + {hiddenPedidosCount} pedido{hiddenPedidosCount !== 1 ? 's' : ''} más en esta mesa
+                          </div>
+                        ) : null}
                       </div>
 
-                      <div className="mt-3 flex flex-wrap gap-2">
+                      <div className="mt-2 flex flex-wrap gap-1">
                         <button
                           type="button"
                           onClick={() => {
                             void cerrarCuentaMesa(mesa.id);
                           }}
                           disabled={cerrandoMesaId === mesa.id}
-                          className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
+                          className="rounded-lg bg-rose-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
                         >
                           {cerrandoMesaId === mesa.id
-                            ? 'Cerrando...'
+                            ? '...'
+                            : compactMode
+                            ? 'Cerrar mesa'
                             : 'Cerrar cuenta / liberar mesa'}
                         </button>
 
                         {estadoMesa === 'lista' ? (
-                          <span className="rounded-lg border border-emerald-300 bg-emerald-100 px-3 py-1.5 text-xs text-emerald-800">
+                          <span className="rounded-lg border border-emerald-300 bg-emerald-100 px-2 py-1 text-[10px] text-emerald-800">
                             Mesa lista
                           </span>
                         ) : (
-                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                          <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-600">
                             Hay pedidos en curso
                           </span>
                         )}
