@@ -472,7 +472,6 @@ export default function MostradorPage() {
   const newPedidoTimeoutsRef = useRef<Record<number, ReturnType<typeof setTimeout>>>(
     {}
   );
-  const audioContextRef = useRef<AudioContext | null>(null);
 
 
   const marcarPedidosComoNuevos = useCallback((ids: number[]) => {
@@ -514,10 +513,6 @@ export default function MostradorPage() {
       Object.values(newPedidoTimeoutsRef.current).forEach((timeoutId) => {
         clearTimeout(timeoutId);
       });
-
-      if (audioContextRef.current) {
-        void audioContextRef.current.close().catch(() => undefined);
-      }
     };
   }, []);
 
@@ -1696,7 +1691,7 @@ export default function MostradorPage() {
 
         <section className="grid gap-6 xl:grid-cols-2">
           <article
-            className={`rounded-3xl border bg-white p-4 shadow-sm ${
+            className={`rounded-2xl border bg-white p-3 shadow-sm ${
               isTakeawayMode ? 'border-amber-300' : 'border-amber-200'
             }`}
           >
@@ -1744,7 +1739,7 @@ export default function MostradorPage() {
                 No hay pedidos take away activos para este filtro.
               </div>
             ) : (
-              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
                 {takeawayPedidosFiltrados.map((pedido) => {
                   const workflowState = getPedidoWorkflowState(pedido);
                   const paymentBadge = getPaymentBadge(pedido);
@@ -1776,7 +1771,7 @@ export default function MostradorPage() {
                   return (
                     <article
                       key={pedido.id}
-                      className={`rounded-lg border px-2 py-1.5 shadow-sm ${
+                      className={`rounded-lg border px-2 py-1 shadow-sm ${
                         isNewPedido
                           ? 'border-violet-300 bg-violet-50 ring-2 ring-violet-200'
                           : ready
@@ -1849,7 +1844,7 @@ export default function MostradorPage() {
                         {pedido.items.map((item) => (
                           <div
                             key={item.id}
-                            className="rounded-lg border border-slate-200 bg-white/80 px-2.5 py-2"
+                            className="rounded-lg border border-slate-200 bg-white/80 px-2 py-1.5"
                           >
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div className="min-w-0">
@@ -1983,7 +1978,7 @@ export default function MostradorPage() {
           </article>
 
           <article
-            className={`rounded-3xl border bg-white p-4 shadow-sm ${
+            className={`rounded-2xl border bg-white p-3 shadow-sm ${
               isRestaurantMode ? 'border-emerald-300' : 'border-slate-200'
             }`}
           >
@@ -2025,7 +2020,7 @@ export default function MostradorPage() {
                 No hay mesas con pedidos activos para este filtro.
               </div>
             ) : (
-              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
                 {mesasSalonFiltradas.map((mesa) => {
                   const estadoMesa = calcularEstadoMesa(mesa);
                   const mesaTienePedidoNuevo = mesa.pedidos.some((pedido) =>
@@ -2035,7 +2030,7 @@ export default function MostradorPage() {
                   return (
                     <article
                       key={mesa.id}
-                      className={`rounded-lg border px-2 py-1.5 shadow-sm  ${
+                      className={`rounded-lg border px-2 py-1 shadow-sm  ${
                         mesaTienePedidoNuevo
                           ? 'border-violet-300 bg-violet-50 ring-2 ring-violet-200'
                           : estadoMesa === 'lista'
@@ -2055,7 +2050,7 @@ export default function MostradorPage() {
                             ) : null}
                           </div>
 
-                          <h3 className="mt-2 text-lg font-bold leading-tight text-slate-90">
+                          <h3 className="mt-2 text-lg font-bold leading-tight text-slate-900">
                             {getMesaDisplayName(mesa)}
                           </h3>
 
@@ -2163,7 +2158,7 @@ export default function MostradorPage() {
                                 {pedido.items.map((item) => (
                                   <div
                                     key={item.id}
-                                    className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2"
+                                    className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5"
                                   >
                                     <div className="flex flex-wrap items-start justify-between gap-2">
                                       <div className="min-w-0">
