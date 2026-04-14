@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
-import { getFallbackAdminAccess, resolveAdminAccess } from '@/lib/adminAccess';
+import {
+  getFallbackAdminAccess,
+  resolveAdminAccess,
+  type AdminAccessResolutionOptions,
+} from '@/lib/adminAccess';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
   formatBusinessModeLabel,
+  getFeaturesForContext,
   normalizeBusinessMode,
   type BusinessMode,
 } from '@/lib/plans';
@@ -22,6 +27,10 @@ type PublicOrderingMeta = {
   takeaway_ready_screen_path: string | null;
   table_qr_enabled: boolean;
   takeaway_enabled: boolean;
+};
+
+type BusinessModeRow = {
+  business_mode?: string | null;
 };
 
 function getPublicOrderingMeta(businessMode: BusinessMode): PublicOrderingMeta {
@@ -50,23 +59,156 @@ function getPublicOrderingMeta(businessMode: BusinessMode): PublicOrderingMeta {
   };
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireAdminAuth(request);
-
-  if (!auth.ok) {
-    return auth.response;
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
   }
 
-  let access = getFallbackAdminAccess();
+  return value as Record<string, unknown>;
+}
+
+function normalizeNonEmptyString(value: unknown): string | null {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
+function pickFirstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = normalizeNonEmptyString(value);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
+function extractRequestedTenantContext(
+  request: NextRequest,
+  session: unknown
+): AdminAccessResolutionOptions {
+  const sessionRecord = asRecord(session);
+  const restaurantRecord = asRecord(sessionRecord?.restaurant);
+
+  const tenantSlug = pickFirstString(
+    request.nextUrl.searchParams.get('tenant'),
+    request.nextUrl.searchParams.get('tenantSlug'),
+    request.nextUrl.searchParams.get('slug'),
+    request.headers.get('x-tenant-id'),
+    request.headers.get('x-tenant-slug'),
+    request.cookies.get('tenant')?.value,
+    request.cookies.get('tenant_slug')?.value,
+    restaurantRecord?.slug,
+    sessionRecord?.tenantId,
+    sessionRecord?.tenant_id,
+    sessionRecord?.slug
+  );
+
+  const restaurantId = pickFirstString(
+    request.nextUrl.searchParams.get('restaurantId'),
+    request.nextUrl.searchParams.get('restaurant_id'),
+    request.headers.get('x-restaurant-id'),
+    request.cookies.get('restaurant_id')?.value,
+    restaurantRecord?.id,
+    sessionRecord?.restaurantId,
+    sessionRecord?.restaurant_id
+  );
+
+  return {
+    tenantSlug,
+    restaurantId,
+  };
+}
+
+async function tryReadBusinessModeByRestaurantId(restaurantId: string | null) {
+  if (!restaurantId) return null;
 
   try {
-    access = await resolveAdminAccess();
+    const { data, error } = await supabaseAdmin
+      .from('configuracion_local')
+      .select('business_mode')
+      .eq('restaurant_id', restaurantId)
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        'GET /api/admin/session business_mode by restaurant_id read error:',
+        error
+      );
+      return null;
+    }
+
+    return normalizeBusinessMode((data as BusinessModeRow | null)?.business_mode);
   } catch (error) {
-    console.error('GET /api/admin/session access resolution error:', error);
+    console.error(
+      'GET /api/admin/session business_mode by restaurant_id unexpected error:',
+      error
+    );
+    return null;
   }
+}
 
-  let businessMode = normalizeBusinessMode(undefined);
+async function tryReadBusinessModeByTenantId(tenantSlug: string | null) {
+  if (!tenantSlug) return null;
 
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('configuracion_local')
+      .select('business_mode')
+      .eq('tenant_id', tenantSlug)
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        'GET /api/admin/session business_mode by tenant_id read error:',
+        error
+      );
+      return null;
+    }
+
+    return normalizeBusinessMode((data as BusinessModeRow | null)?.business_mode);
+  } catch (error) {
+    console.error(
+      'GET /api/admin/session business_mode by tenant_id unexpected error:',
+      error
+    );
+    return null;
+  }
+}
+
+async function tryReadBusinessModeBySlug(tenantSlug: string | null) {
+  if (!tenantSlug) return null;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('configuracion_local')
+      .select('business_mode')
+      .eq('slug', tenantSlug)
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        'GET /api/admin/session business_mode by slug read error:',
+        error
+      );
+      return null;
+    }
+
+    return normalizeBusinessMode((data as BusinessModeRow | null)?.business_mode);
+  } catch (error) {
+    console.error(
+      'GET /api/admin/session business_mode by slug unexpected error:',
+      error
+    );
+    return null;
+  }
+}
+
+async function readFallbackBusinessMode() {
   try {
     const { data, error } = await supabaseAdmin
       .from('configuracion_local')
@@ -76,18 +218,68 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     if (error) {
-      console.error('GET /api/admin/session business_mode read error:', error);
-    } else {
-      businessMode = normalizeBusinessMode(data?.business_mode);
+      console.error('GET /api/admin/session business_mode fallback read error:', error);
+      return normalizeBusinessMode(undefined);
     }
+
+    return normalizeBusinessMode((data as BusinessModeRow | null)?.business_mode);
   } catch (error) {
     console.error(
-      'GET /api/admin/session business_mode unexpected error:',
+      'GET /api/admin/session business_mode fallback unexpected error:',
       error
     );
+    return normalizeBusinessMode(undefined);
+  }
+}
+
+async function resolveBusinessModeContext(
+  options: AdminAccessResolutionOptions
+): Promise<BusinessMode> {
+  const byRestaurantId = await tryReadBusinessModeByRestaurantId(
+    options.restaurantId ?? null
+  );
+  if (byRestaurantId) return byRestaurantId;
+
+  const byTenantId = await tryReadBusinessModeByTenantId(
+    options.tenantSlug ?? null
+  );
+  if (byTenantId) return byTenantId;
+
+  const bySlug = await tryReadBusinessModeBySlug(options.tenantSlug ?? null);
+  if (bySlug) return bySlug;
+
+  return await readFallbackBusinessMode();
+}
+
+export async function GET(request: NextRequest) {
+  const auth = requireAdminAuth(request);
+
+  if (!auth.ok) {
+    return auth.response;
   }
 
+  const requestedContext = extractRequestedTenantContext(request, auth.session);
+
+  let access = getFallbackAdminAccess();
+
+  try {
+    access = await resolveAdminAccess(requestedContext);
+  } catch (error) {
+    console.error('GET /api/admin/session access resolution error:', error);
+  }
+
+  const businessMode = await resolveBusinessModeContext({
+    tenantSlug: access.restaurant?.slug ?? requestedContext.tenantSlug ?? null,
+    restaurantId: access.restaurant?.id ?? requestedContext.restaurantId ?? null,
+  });
+
   const publicOrdering = getPublicOrderingMeta(businessMode);
+  const features = getFeaturesForContext(access.plan, businessMode);
+  const capabilities = {
+    ...access.capabilities,
+    waiter_mode:
+      businessMode === 'restaurant' && !!access.capabilities?.waiter_mode,
+  };
 
   return NextResponse.json(
     {
@@ -103,12 +295,8 @@ export async function GET(request: NextRequest) {
           : access.restaurant,
         plan: access.plan,
         addons: access.addons,
-        features: access.features,
-        capabilities: {
-          ...access.capabilities,
-          waiter_mode:
-            businessMode === 'restaurant' && !!access.capabilities?.waiter_mode,
-        },
+        features,
+        capabilities,
         business_mode: businessMode,
         public_ordering: publicOrdering,
       },

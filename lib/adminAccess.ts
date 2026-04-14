@@ -37,6 +37,16 @@ export type AdminAccessSnapshot = {
   capabilities: CapabilityMap;
 };
 
+export type AdminAccessResolutionOptions = {
+  tenantSlug?: string | null;
+  restaurantId?: string | null;
+};
+
+function normalizeNonEmptyString(value: unknown): string | null {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
 export function getFallbackAdminAccess(): AdminAccessSnapshot {
   const plan: PlanCode = 'esencial';
   const addons: Record<AddonKey, boolean> = {
@@ -53,37 +63,78 @@ export function getFallbackAdminAccess(): AdminAccessSnapshot {
   };
 }
 
-async function getRestaurantByDefaultTenantOrFirst() {
-  const bySlug = await supabaseAdmin
+async function getRestaurantBySlug(slug: string) {
+  const result = await supabaseAdmin
     .from('restaurants')
     .select('id, slug, plan')
-    .eq('slug', DEFAULT_TENANT_ID)
+    .eq('slug', slug)
     .maybeSingle();
 
-  if (bySlug.error) {
+  if (result.error) {
     throw new Error(
-      bySlug.error.message || 'No se pudo leer el restaurant por slug.'
+      result.error.message || `No se pudo leer el restaurant por slug "${slug}".`
     );
   }
 
-  if (bySlug.data) {
-    return bySlug.data as RestaurantRow;
+  return (result.data as RestaurantRow | null) ?? null;
+}
+
+async function getRestaurantById(restaurantId: string) {
+  const result = await supabaseAdmin
+    .from('restaurants')
+    .select('id, slug, plan')
+    .eq('id', restaurantId)
+    .maybeSingle();
+
+  if (result.error) {
+    throw new Error(
+      result.error.message ||
+        `No se pudo leer el restaurant por id "${restaurantId}".`
+    );
   }
 
-  const first = await supabaseAdmin
+  return (result.data as RestaurantRow | null) ?? null;
+}
+
+async function getFirstRestaurant() {
+  const result = await supabaseAdmin
     .from('restaurants')
     .select('id, slug, plan')
     .order('id', { ascending: true })
     .limit(1)
     .maybeSingle();
 
-  if (first.error) {
+  if (result.error) {
     throw new Error(
-      first.error.message || 'No se pudo leer el restaurant por defecto.'
+      result.error.message || 'No se pudo leer el primer restaurant.'
     );
   }
 
-  return (first.data as RestaurantRow | null) ?? null;
+  return (result.data as RestaurantRow | null) ?? null;
+}
+
+async function resolveRestaurant(
+  options: AdminAccessResolutionOptions = {}
+): Promise<RestaurantRow | null> {
+  const requestedRestaurantId = normalizeNonEmptyString(options.restaurantId);
+  const requestedTenantSlug = normalizeNonEmptyString(options.tenantSlug);
+
+  if (requestedRestaurantId) {
+    const byId = await getRestaurantById(requestedRestaurantId);
+    if (byId) return byId;
+  }
+
+  if (requestedTenantSlug) {
+    const bySlug = await getRestaurantBySlug(requestedTenantSlug);
+    if (bySlug) return bySlug;
+  }
+
+  if (DEFAULT_TENANT_ID) {
+    const byDefaultSlug = await getRestaurantBySlug(DEFAULT_TENANT_ID);
+    if (byDefaultSlug) return byDefaultSlug;
+  }
+
+  return await getFirstRestaurant();
 }
 
 async function getWhatsAppConnectionByTenantId(tenantId: string) {
@@ -104,10 +155,15 @@ async function getWhatsAppConnectionByTenantId(tenantId: string) {
   return (result.data as WhatsAppConnectionRow | null) ?? null;
 }
 
-export async function resolveAdminAccess(): Promise<AdminAccessSnapshot> {
-  const restaurant = await getRestaurantByDefaultTenantOrFirst();
+export async function resolveAdminAccess(
+  options: AdminAccessResolutionOptions = {}
+): Promise<AdminAccessSnapshot> {
+  const restaurant = await resolveRestaurant(options);
   const plan = normalizePlan(restaurant?.plan);
-  const tenantId = restaurant?.slug?.trim() || DEFAULT_TENANT_ID;
+
+  const requestedTenantSlug = normalizeNonEmptyString(options.tenantSlug);
+  const tenantId =
+    restaurant?.slug?.trim() || requestedTenantSlug || DEFAULT_TENANT_ID;
 
   const connection = await getWhatsAppConnectionByTenantId(tenantId);
 
@@ -121,7 +177,7 @@ export async function resolveAdminAccess(): Promise<AdminAccessSnapshot> {
     restaurant: restaurant
       ? {
           id: String(restaurant.id),
-          slug: tenantId,
+          slug: restaurant.slug?.trim() || tenantId,
           plan,
         }
       : null,
