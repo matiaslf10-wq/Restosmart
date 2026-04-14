@@ -44,6 +44,7 @@ type WhatsappAlertRow = {
 };
 
 type PedidoCanal = 'restaurant' | 'takeaway' | 'delivery';
+type EstadoMesaSalon = 'en_curso' | 'lista_para_caja';
 
 function normalizeText(value: string | null | undefined) {
   return String(value ?? '').trim().toLowerCase();
@@ -58,7 +59,8 @@ function esDelivery(pedido: PedidoRow) {
     tipoServicio === 'envio' ||
     origen === 'delivery' ||
     origen === 'delivery_whatsapp' ||
-    origen === 'delivery_manual'
+    origen === 'delivery_manual' ||
+    pedido.mesa_id === DELIVERY_MESA_ID
   );
 }
 
@@ -84,11 +86,6 @@ function esTakeaway(pedido: PedidoRow) {
 function getPedidoCanal(pedido: PedidoRow): PedidoCanal {
   if (esDelivery(pedido)) return 'delivery';
   if (esTakeaway(pedido)) return 'takeaway';
-
-  if (pedido.mesa_id === DELIVERY_MESA_ID) {
-    return 'delivery';
-  }
-
   return 'restaurant';
 }
 
@@ -99,10 +96,10 @@ function esOperacionLocal(pedido: PedidoRow) {
 function esPendienteAprobacionEfectivo(pedido: PedidoRow) {
   return (
     getPedidoCanal(pedido) === 'delivery' &&
-    pedido.medio_pago === 'efectivo' &&
+    normalizeText(pedido.medio_pago) === 'efectivo' &&
     !pedido.efectivo_aprobado &&
-    (pedido.estado_pago === 'esperando_aprobacion' ||
-      pedido.estado_pago === 'pendiente')
+    (normalizeText(pedido.estado_pago) === 'esperando_aprobacion' ||
+      normalizeText(pedido.estado_pago) === 'pendiente')
   );
 }
 
@@ -116,6 +113,20 @@ function getMesaDisplay(mesa: MesaRow | undefined, pedido: PedidoRow) {
   if (mesa.id === DELIVERY_MESA_ID) return 'Delivery';
   if (mesa.numero != null && mesa.numero > 0) return `Mesa ${mesa.numero}`;
   return mesa.nombre || 'Mesa';
+}
+
+function getEstadoMesaSalon(pedidosMesa: PedidoRow[]): EstadoMesaSalon {
+  const hayEnCurso = pedidosMesa.some((pedido) => {
+    const estado = normalizeText(pedido.estado);
+    return (
+      estado === 'solicitado' ||
+      estado === 'pendiente' ||
+      estado === 'en_preparacion'
+    );
+  });
+
+  if (hayEnCurso) return 'en_curso';
+  return 'lista_para_caja';
 }
 
 export async function GET(request: NextRequest) {
@@ -200,82 +211,184 @@ export async function GET(request: NextRequest) {
       mesasMap.set(mesa.id, mesa);
     });
 
-    const operacionLocalPedidos = pedidos
-      .filter((pedido) => esOperacionLocal(pedido))
-      .map((pedido) => {
-        const canal = getPedidoCanal(pedido);
+    const pedidosConCanal = pedidos.map((pedido) => {
+      const canal = getPedidoCanal(pedido);
 
-        return {
-          ...pedido,
-          operacion_canal: canal,
-          mesa_nombre:
-            pedido.mesa_id != null
-              ? getMesaDisplay(mesasMap.get(pedido.mesa_id), pedido)
-              : getMesaDisplay(undefined, pedido),
-        };
-      })
+      return {
+        ...pedido,
+        operacion_canal: canal,
+        mesa_nombre:
+          pedido.mesa_id != null
+            ? getMesaDisplay(mesasMap.get(pedido.mesa_id), pedido)
+            : getMesaDisplay(undefined, pedido),
+      };
+    });
+
+    const localPedidos = pedidosConCanal
+      .filter((pedido) => esOperacionLocal(pedido))
       .slice(0, 20);
 
-    const deliveryPedidos = pedidos
-      .filter((pedido) => getPedidoCanal(pedido) === 'delivery')
+    const restaurantPedidos = pedidosConCanal
+      .filter((pedido) => pedido.operacion_canal === 'restaurant')
+      .slice(0, 20);
+
+    const takeawayPedidos = pedidosConCanal
+      .filter((pedido) => pedido.operacion_canal === 'takeaway')
+      .slice(0, 20);
+
+    const deliveryPedidos = pedidosConCanal
+      .filter((pedido) => pedido.operacion_canal === 'delivery')
       .map((pedido) => ({
         ...pedido,
-        operacion_canal: 'delivery' as const,
         mesa_nombre: 'Delivery',
       }))
       .slice(0, 20);
 
-    const localRestaurantPedidos = operacionLocalPedidos.filter(
-      (p) => p.operacion_canal === 'restaurant'
+    const restaurantPedidosFull = pedidosConCanal.filter(
+      (pedido) => pedido.operacion_canal === 'restaurant'
     );
-    const localTakeawayPedidos = operacionLocalPedidos.filter(
-      (p) => p.operacion_canal === 'takeaway'
+    const takeawayPedidosFull = pedidosConCanal.filter(
+      (pedido) => pedido.operacion_canal === 'takeaway'
+    );
+    const deliveryPedidosFull = pedidosConCanal.filter(
+      (pedido) => pedido.operacion_canal === 'delivery'
     );
 
+    const salonMesasMap = new Map<
+      number,
+      {
+        mesa_id: number;
+        mesa_nombre: string;
+        mesa_numero: number | null;
+        pedidos: typeof restaurantPedidosFull;
+        total: number;
+      }
+    >();
+
+    for (const pedido of restaurantPedidosFull) {
+      if (pedido.mesa_id == null) continue;
+
+      const mesaRef = mesasMap.get(pedido.mesa_id);
+      const mesaNombre = getMesaDisplay(mesaRef, pedido);
+
+      if (!salonMesasMap.has(pedido.mesa_id)) {
+        salonMesasMap.set(pedido.mesa_id, {
+          mesa_id: pedido.mesa_id,
+          mesa_nombre: mesaNombre,
+          mesa_numero: mesaRef?.numero ?? null,
+          pedidos: [],
+          total: 0,
+        });
+      }
+
+      const bucket = salonMesasMap.get(pedido.mesa_id)!;
+      bucket.pedidos.push(pedido);
+      bucket.total += Number(pedido.total ?? 0);
+    }
+
+    const salonMesas = Array.from(salonMesasMap.values())
+      .map((mesa) => ({
+        mesa_id: mesa.mesa_id,
+        mesa_nombre: mesa.mesa_nombre,
+        mesa_numero: mesa.mesa_numero,
+        estado_mesa: getEstadoMesaSalon(mesa.pedidos),
+        pedidos_activos: mesa.pedidos.length,
+        total: mesa.total,
+        pedidos: mesa.pedidos,
+      }))
+      .sort((a, b) => {
+        const aNumero =
+          typeof a.mesa_numero === 'number' && a.mesa_numero > 0
+            ? a.mesa_numero
+            : Number.MAX_SAFE_INTEGER;
+        const bNumero =
+          typeof b.mesa_numero === 'number' && b.mesa_numero > 0
+            ? b.mesa_numero
+            : Number.MAX_SAFE_INTEGER;
+
+        if (aNumero !== bNumero) return aNumero - bNumero;
+        return a.mesa_id - b.mesa_id;
+      });
+
     const resumen = {
-      salonSolicitados: operacionLocalPedidos.filter((p) => p.estado === 'solicitado')
-        .length,
-      salonEnCurso: operacionLocalPedidos.filter(
-        (p) => p.estado === 'pendiente' || p.estado === 'en_preparacion'
+      salonSolicitados: restaurantPedidosFull.filter(
+        (p) => normalizeText(p.estado) === 'solicitado'
       ).length,
-      salonListos: operacionLocalPedidos.filter((p) => p.estado === 'listo').length,
-      deliveryPendientesAprobacion: deliveryPedidos.filter((p) =>
+      salonEnCurso: restaurantPedidosFull.filter((p) => {
+        const estado = normalizeText(p.estado);
+        return estado === 'pendiente' || estado === 'en_preparacion';
+      }).length,
+      salonListos: restaurantPedidosFull.filter(
+        (p) => normalizeText(p.estado) === 'listo'
+      ).length,
+
+      localSolicitados: pedidosConCanal.filter((p) => {
+        return esOperacionLocal(p) && normalizeText(p.estado) === 'solicitado';
+      }).length,
+      localEnCurso: pedidosConCanal.filter((p) => {
+        const estado = normalizeText(p.estado);
+        return (
+          esOperacionLocal(p) &&
+          (estado === 'pendiente' || estado === 'en_preparacion')
+        );
+      }).length,
+      localListos: pedidosConCanal.filter((p) => {
+        return esOperacionLocal(p) && normalizeText(p.estado) === 'listo';
+      }).length,
+
+      deliveryPendientesAprobacion: deliveryPedidosFull.filter((p) =>
         esPendienteAprobacionEfectivo(p)
       ).length,
-      deliveryActivos: deliveryPedidos.length,
+      deliveryActivos: deliveryPedidosFull.length,
       alertasWhatsAppAbiertas: alertas.length,
-      localRestaurantActivos: localRestaurantPedidos.length,
-      localTakeawayActivos: localTakeawayPedidos.length,
-      localRestaurantSolicitados: localRestaurantPedidos.filter(
-        (p) => p.estado === 'solicitado'
+
+      localRestaurantActivos: restaurantPedidosFull.length,
+      localTakeawayActivos: takeawayPedidosFull.length,
+
+      localRestaurantSolicitados: restaurantPedidosFull.filter(
+        (p) => normalizeText(p.estado) === 'solicitado'
       ).length,
-      localRestaurantEnCurso: localRestaurantPedidos.filter(
-        (p) => p.estado === 'pendiente' || p.estado === 'en_preparacion'
+      localRestaurantEnCurso: restaurantPedidosFull.filter((p) => {
+        const estado = normalizeText(p.estado);
+        return estado === 'pendiente' || estado === 'en_preparacion';
+      }).length,
+      localRestaurantListos: restaurantPedidosFull.filter(
+        (p) => normalizeText(p.estado) === 'listo'
       ).length,
-      localRestaurantListos: localRestaurantPedidos.filter(
-        (p) => p.estado === 'listo'
+
+      localTakeawaySolicitados: takeawayPedidosFull.filter(
+        (p) => normalizeText(p.estado) === 'solicitado'
       ).length,
-      localTakeawaySolicitados: localTakeawayPedidos.filter(
-        (p) => p.estado === 'solicitado'
+      localTakeawayEnCurso: takeawayPedidosFull.filter((p) => {
+        const estado = normalizeText(p.estado);
+        return estado === 'pendiente' || estado === 'en_preparacion';
+      }).length,
+      localTakeawayListos: takeawayPedidosFull.filter(
+        (p) => normalizeText(p.estado) === 'listo'
       ).length,
-      localTakeawayEnCurso: localTakeawayPedidos.filter(
-        (p) => p.estado === 'pendiente' || p.estado === 'en_preparacion'
+
+      salonMesasActivas: salonMesas.length,
+      salonMesasEnCurso: salonMesas.filter(
+        (mesa) => mesa.estado_mesa === 'en_curso'
       ).length,
-      localTakeawayListos: localTakeawayPedidos.filter(
-        (p) => p.estado === 'listo'
+      salonMesasListasParaCaja: salonMesas.filter(
+        (mesa) => mesa.estado_mesa === 'lista_para_caja'
       ).length,
     };
 
     return NextResponse.json(
       {
         resumen,
-        salonPedidos: operacionLocalPedidos,
+        salonPedidos: restaurantPedidos,
+        takeawayPedidos,
+        localPedidos,
+        salonMesas: salonMesas.slice(0, 20),
         deliveryPedidos,
         whatsappAlertas: alertas,
         meta: {
           alertasDisponibles: !alertasError,
           operation_identity:
-            localTakeawayPedidos.length > 0 && localRestaurantPedidos.length === 0
+            takeawayPedidosFull.length > 0 && restaurantPedidosFull.length === 0
               ? 'persona'
               : 'mesa',
           restaurant: restaurant

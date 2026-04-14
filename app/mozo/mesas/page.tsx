@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import {
@@ -45,7 +45,7 @@ type MesaConCuenta = {
   totalMesa: number;
 };
 
-type EstadoMesa = 'libre' | 'en_curso' | 'lista_para_cobrar';
+type EstadoMesa = 'libre' | 'en_curso' | 'lista_para_caja';
 type FiltroMesas = 'todas' | EstadoMesa;
 type FormaPagoMesa = 'ninguna' | 'efectivo' | 'virtual';
 
@@ -53,7 +53,17 @@ function normalizeText(value: unknown) {
   return String(value ?? '').trim().toLowerCase();
 }
 
-function esPedidoDelivery(pedido: Pick<Pedido, 'mesa_id' | 'origen' | 'tipo_servicio'>) {
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function esPedidoDelivery(
+  pedido: Pick<Pedido, 'mesa_id' | 'origen' | 'tipo_servicio'>
+) {
   const origen = normalizeText(pedido.origen);
   const tipoServicio = normalizeText(pedido.tipo_servicio);
 
@@ -94,21 +104,6 @@ function shouldShowPedidoInMozo(pedido: Pedido) {
 
 function esMesaTecnica(mesa: { id: number; numero: number | null }) {
   return mesa.id === DELIVERY_MESA_ID || mesa.numero == null || mesa.numero <= 0;
-}
-
-function getNextMesaNumero(mesas: Array<{ numero: number | null }>) {
-  const usados = new Set(
-    mesas
-      .map((m) => m.numero)
-      .filter((n): n is number => typeof n === 'number' && n > 0)
-  );
-
-  let candidato = 1;
-  while (usados.has(candidato)) {
-    candidato += 1;
-  }
-
-  return candidato;
 }
 
 function escapeHtml(value: string) {
@@ -214,13 +209,11 @@ export default function MesasMozoPage() {
 
   const [mesas, setMesas] = useState<MesaConCuenta[]>([]);
   const [cargando, setCargando] = useState(true);
-  const [procesandoMesaId, setProcesandoMesaId] = useState<number | null>(null);
-  const [eliminandoMesaId, setEliminandoMesaId] = useState<number | null>(null);
+  const [pasandoACajaMesaId, setPasandoACajaMesaId] = useState<number | null>(null);
   const [actualizandoPedidoId, setActualizandoPedidoId] = useState<number | null>(
     null
   );
   const [mensaje, setMensaje] = useState<string | null>(null);
-  const [agregandoMesa, setAgregandoMesa] = useState(false);
   const [filtroMesas, setFiltroMesas] = useState<FiltroMesas>('todas');
   const [mesaQrActiva, setMesaQrActiva] = useState<MesaConCuenta | null>(null);
 
@@ -273,7 +266,7 @@ export default function MesasMozoPage() {
       }
     }
 
-    verifyAccess();
+    void verifyAccess();
 
     return () => {
       active = false;
@@ -603,7 +596,7 @@ export default function MesasMozoPage() {
     }
   };
 
-  const cargarDatos = async () => {
+  const cargarDatos = useCallback(async () => {
     setCargando(true);
     setMensaje(null);
 
@@ -716,12 +709,12 @@ export default function MesasMozoPage() {
     } finally {
       setCargando(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!canUseWaiterMode || businessMode !== 'restaurant') return;
 
-    cargarDatos();
+    void cargarDatos();
 
     const canalPedidos = supabase
       .channel('mozo-pedidos')
@@ -729,17 +722,25 @@ export default function MesasMozoPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'pedidos' },
         (payload) => {
-          const nuevo: any = payload.new;
-          const viejo: any = payload.old;
+          const nuevo: any = payload.new ?? null;
+          const viejo: any = payload.old ?? null;
+
+          const nuevoPedido = {
+            mesa_id: Number(nuevo?.mesa_id ?? DELIVERY_MESA_ID),
+            origen: nuevo?.origen ?? null,
+            tipo_servicio: nuevo?.tipo_servicio ?? null,
+          };
+
+          const esSalonNuevo =
+            nuevo != null &&
+            !esPedidoDelivery(nuevoPedido) &&
+            !esPedidoTakeaway(nuevoPedido) &&
+            nuevoPedido.mesa_id !== DELIVERY_MESA_ID;
 
           if (
             payload.eventType === 'INSERT' &&
-            nuevo.estado === 'solicitado' &&
-            nuevo.mesa_id !== DELIVERY_MESA_ID &&
-            nuevo.origen !== 'delivery' &&
-            nuevo.origen !== 'delivery_whatsapp' &&
-            nuevo.origen !== 'delivery_manual' &&
-            nuevo.tipo_servicio !== 'delivery'
+            esSalonNuevo &&
+            normalizeText(nuevo?.estado) === 'solicitado'
           ) {
             if (audioRef.current) {
               audioRef.current.currentTime = 0;
@@ -749,13 +750,9 @@ export default function MesasMozoPage() {
 
           if (
             payload.eventType === 'UPDATE' &&
-            viejo?.estado !== 'listo' &&
-            nuevo?.estado === 'listo' &&
-            nuevo?.mesa_id !== DELIVERY_MESA_ID &&
-            nuevo?.origen !== 'delivery' &&
-            nuevo?.origen !== 'delivery_whatsapp' &&
-            nuevo?.origen !== 'delivery_manual' &&
-            nuevo?.tipo_servicio !== 'delivery'
+            esSalonNuevo &&
+            normalizeText(viejo?.estado) !== 'listo' &&
+            normalizeText(nuevo?.estado) === 'listo'
           ) {
             if (audioRef.current) {
               audioRef.current.currentTime = 0;
@@ -763,24 +760,24 @@ export default function MesasMozoPage() {
             }
           }
 
-          const esSalon =
-  !esPedidoDelivery(nuevo as Pick<Pedido, 'mesa_id' | 'origen' | 'tipo_servicio'>) &&
-  !esPedidoTakeaway(nuevo as Pick<Pedido, 'origen' | 'tipo_servicio'>) &&
-  nuevo?.mesa_id !== DELIVERY_MESA_ID;
-
           const pagoAntes =
-            viejo?.paga_efectivo || viejo?.forma_pago === 'efectivo';
-          const pagoDespues =
-            nuevo?.paga_efectivo || nuevo?.forma_pago === 'efectivo';
+            !!viejo?.paga_efectivo ||
+            normalizeText(viejo?.forma_pago) === 'efectivo' ||
+            normalizeText(viejo?.medio_pago) === 'efectivo';
 
-          if (esSalon && !pagoAntes && pagoDespues) {
+          const pagoDespues =
+            !!nuevo?.paga_efectivo ||
+            normalizeText(nuevo?.forma_pago) === 'efectivo' ||
+            normalizeText(nuevo?.medio_pago) === 'efectivo';
+
+          if (esSalonNuevo && !pagoAntes && pagoDespues) {
             if (audioRef.current) {
               audioRef.current.currentTime = 0;
               audioRef.current.play().catch(() => {});
             }
           }
 
-          cargarDatos();
+          void cargarDatos();
         }
       )
       .subscribe();
@@ -791,7 +788,7 @@ export default function MesasMozoPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'items_pedido' },
         () => {
-          cargarDatos();
+          void cargarDatos();
         }
       )
       .subscribe();
@@ -800,7 +797,7 @@ export default function MesasMozoPage() {
       supabase.removeChannel(canalPedidos);
       supabase.removeChannel(canalItems);
     };
-  }, [canUseWaiterMode, businessMode]);
+  }, [canUseWaiterMode, businessMode, cargarDatos]);
 
   const calcularEstadoMesa = (mesa: MesaConCuenta): EstadoMesa => {
     if (mesa.pedidos.length === 0) return 'libre';
@@ -811,9 +808,10 @@ export default function MesasMozoPage() {
         p.estado === 'pendiente' ||
         p.estado === 'en_preparacion'
     );
+
     if (hayEnCurso) return 'en_curso';
 
-    return 'lista_para_cobrar';
+    return 'lista_para_caja';
   };
 
   const formaPagoMesa = (mesa: MesaConCuenta): FormaPagoMesa => {
@@ -827,6 +825,7 @@ export default function MesasMozoPage() {
     ) {
       return 'efectivo';
     }
+
     if (
       mesa.pedidos.some(
         (p) => p.forma_pago === 'virtual' || p.medio_pago === 'virtual'
@@ -834,6 +833,7 @@ export default function MesasMozoPage() {
     ) {
       return 'virtual';
     }
+
     return 'ninguna';
   };
 
@@ -843,7 +843,7 @@ export default function MesasMozoPage() {
         return 'border-slate-200 bg-white';
       case 'en_curso':
         return 'border-amber-400 bg-amber-50';
-      case 'lista_para_cobrar':
+      case 'lista_para_caja':
         return 'border-emerald-500 bg-emerald-50';
     }
   };
@@ -864,11 +864,11 @@ export default function MesasMozoPage() {
             En curso
           </span>
         );
-      case 'lista_para_cobrar':
+      case 'lista_para_caja':
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-200 text-emerald-900 px-2 py-[2px] text-[11px] font-medium">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
-            Lista para cobrar
+            Lista para pasar a caja
           </span>
         );
     }
@@ -876,9 +876,11 @@ export default function MesasMozoPage() {
 
   const tiempoMesa = (mesa: MesaConCuenta): string | null => {
     if (mesa.pedidos.length === 0) return null;
+
     const tiempos = mesa.pedidos.map((p) => new Date(p.creado_en).getTime());
     const primero = Math.min(...tiempos);
     const diffMs = ahora - primero;
+
     if (diffMs <= 0) return null;
 
     const diffMin = Math.floor(diffMs / 60000);
@@ -895,156 +897,20 @@ export default function MesasMozoPage() {
       (acc, p) => acc + p.items.length,
       0
     );
+
     return `${cantidadPedidos} pedido${
       cantidadPedidos !== 1 ? 's' : ''
     } · ${cantidadItems} ítem${cantidadItems !== 1 ? 's' : ''}`;
   };
 
-  const cerrarCuentaMesa = async (mesaId: number) => {
+  const pasarACaja = async (mesaId: number) => {
     const mesa = mesas.find((m) => m.id === mesaId);
     if (!mesa) return;
 
-    const mesaLabel = getMesaDisplayName(mesa);
-
-    if (mesa.pedidos.length === 0) {
-      setMensaje(`${mesaLabel} no tiene pedidos abiertos.`);
-      return;
-    }
-
-    const confirmar = window.confirm(`¿Cerrar la cuenta de ${mesaLabel}?`);
-    if (!confirmar) return;
-
-    setProcesandoMesaId(mesaId);
+    setPasandoACajaMesaId(mesaId);
     setMensaje(null);
 
-    const ids = mesa.pedidos.map((p) => p.id);
-
-    const { error } = await supabase
-      .from('pedidos')
-      .update({ estado: 'cerrado' })
-      .in('id', ids);
-
-    if (error) {
-      console.log('cerrarCuentaMesa error.message:', (error as any)?.message);
-      console.log('cerrarCuentaMesa error.code:', (error as any)?.code);
-      console.log('cerrarCuentaMesa error.details:', (error as any)?.details);
-      console.log('cerrarCuentaMesa error.hint:', (error as any)?.hint);
-      console.log('cerrarCuentaMesa error raw:', error);
-      setMensaje(
-        `No se pudo cerrar la cuenta: ${
-          (error as any)?.message ?? 'Error desconocido'
-        }`
-      );
-      setProcesandoMesaId(null);
-      return;
-    }
-
-    setMensaje(`Cuenta de ${mesaLabel} cerrada correctamente.`);
-    setProcesandoMesaId(null);
-    cargarDatos();
-  };
-
-  const agregarMesa = async () => {
-    setAgregandoMesa(true);
-    setMensaje(null);
-
-    try {
-      const { data: mesasExistentes, error: errorMesas } = await supabase
-        .from('mesas')
-        .select('id, numero');
-
-      if (errorMesas) {
-        console.error(errorMesas);
-        setMensaje('No se pudo calcular el próximo número de mesa.');
-        setAgregandoMesa(false);
-        return;
-      }
-
-      const proximoNumero = getNextMesaNumero(
-        (mesasExistentes as Array<{ id: number; numero: number | null }>) ?? []
-      );
-
-      const payload = {
-        numero: proximoNumero,
-        nombre: `Mesa ${proximoNumero}`,
-      };
-
-      const { data, error } = await supabase
-        .from('mesas')
-        .insert(payload)
-        .select()
-        .single();
-
-      if (error || !data) {
-        console.error(error);
-        setMensaje('No se pudo agregar una nueva mesa.');
-        setAgregandoMesa(false);
-        return;
-      }
-
-      setMensaje(`Se agregó Mesa ${proximoNumero}.`);
-      setAgregandoMesa(false);
-      cargarDatos();
-    } catch (error) {
-      console.error(error);
-      setMensaje('Ocurrió un error al agregar la mesa.');
-      setAgregandoMesa(false);
-    }
-  };
-
-  const eliminarMesa = async (mesaId: number) => {
-    const mesa = mesas.find((m) => m.id === mesaId);
-    if (!mesa) return;
-
-    const mesaLabel = getMesaDisplayName(mesa);
-
-    setEliminandoMesaId(mesaId);
-    setMensaje(null);
-
-    const { count, error: countError } = await supabase
-      .from('pedidos')
-      .select('*', { count: 'exact', head: true })
-      .eq('mesa_id', mesaId);
-
-    if (countError) {
-      console.error(countError);
-      setMensaje('No se pudo verificar si la mesa tiene pedidos asociados.');
-      setEliminandoMesaId(null);
-      return;
-    }
-
-    if ((count ?? 0) > 0) {
-      setMensaje(
-        `No se puede eliminar ${mesaLabel} porque tiene pedidos asociados en el historial.`
-      );
-      setEliminandoMesaId(null);
-      return;
-    }
-
-    const confirmar = window.confirm(
-      `¿Eliminar ${mesaLabel}? Esta acción no se puede deshacer.`
-    );
-    if (!confirmar) {
-      setEliminandoMesaId(null);
-      return;
-    }
-
-    const { error } = await supabase.from('mesas').delete().eq('id', mesaId);
-
-    if (error) {
-      console.error(error);
-      setMensaje(
-        `No se pudo eliminar la mesa: ${
-          (error as any)?.message ?? 'Error desconocido'
-        }`
-      );
-      setEliminandoMesaId(null);
-      return;
-    }
-
-    setMensaje(`${mesaLabel} fue eliminada.`);
-    setEliminandoMesaId(null);
-    cargarDatos();
+    router.push(`/mostrador?focusMesaId=${mesaId}`);
   };
 
   const cancelarPedido = async (pedidoId: number) => {
@@ -1067,7 +933,7 @@ export default function MesasMozoPage() {
     }
 
     setMensaje('Pedido cancelado correctamente.');
-    cargarDatos();
+    void cargarDatos();
   };
 
   const actualizarEstadoPedido = async (
@@ -1090,7 +956,7 @@ export default function MesasMozoPage() {
     }
 
     setActualizandoPedidoId(null);
-    cargarDatos();
+    void cargarDatos();
   };
 
   const mesasFiltradas = mesas.filter((mesa) => {
@@ -1104,7 +970,7 @@ export default function MesasMozoPage() {
       acc[estado]++;
       return acc;
     },
-    { libre: 0, en_curso: 0, lista_para_cobrar: 0 }
+    { libre: 0, en_curso: 0, lista_para_caja: 0 }
   );
 
   if (checkingAccess) {
@@ -1210,43 +1076,51 @@ export default function MesasMozoPage() {
       />
 
       <div className="max-w-6xl mx-auto space-y-4">
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Mesas – Vista de mozo</h1>
-            <p className="text-sm text-slate-600">
-              Todas las mesas del salón en simultáneo.
-            </p>
-            <p className="text-sm text-slate-500">
-              La mesa técnica #{DELIVERY_MESA_ID} está reservada para delivery y no
-              aparece en esta vista.
-            </p>
-            <p className="text-sm text-slate-500">
-              Los links y QR de cliente usan <strong>/mesa/[id]</strong> con el ID interno.
-              La identificación visible del salón sigue siendo el número de mesa.
-            </p>
-          </div>
+        <header className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                MOZO · SALÓN
+              </span>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={cargarDatos}
-              className="px-3 py-1 rounded-lg text-sm bg-slate-800 text-white hover:bg-slate-700"
-            >
-              Actualizar
-            </button>
-            <button
-              onClick={agregarMesa}
-              disabled={agregandoMesa}
-              className="px-3 py-1 rounded-lg text-sm bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-60"
-            >
-              {agregandoMesa ? 'Agregando...' : 'Agregar mesa'}
-            </button>
+              <h1 className="mt-3 text-2xl font-bold text-slate-900">
+                Mesas – Vista de mozo
+              </h1>
+
+              <p className="mt-2 text-sm text-slate-600">
+                Vista liviana para atención del salón. Desde acá seguís mesas,
+                tomás pedidos y los pasás a caja cuando corresponde.
+              </p>
+
+              <p className="mt-1 text-sm text-slate-500">
+                El mozo atiende. <strong>Mostrador / caja</strong> cobra y hace el
+                cierre real.
+              </p>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Los links y QR de cliente usan <strong>/mesa/[id]</strong> con el
+                ID interno. La identificación visible del salón sigue siendo el
+                número de mesa.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  void cargarDatos();
+                }}
+                className="px-3 py-1 rounded-lg text-sm bg-slate-800 text-white hover:bg-slate-700"
+              >
+                Actualizar
+              </button>
+            </div>
           </div>
         </header>
 
         <div className="flex flex-wrap gap-3 text-sm bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
           <span>Libres: {resumenEstados.libre}</span>
           <span>En curso: {resumenEstados.en_curso}</span>
-          <span>Listas para cobrar: {resumenEstados.lista_para_cobrar}</span>
+          <span>Listas para pasar a caja: {resumenEstados.lista_para_caja}</span>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -1254,7 +1128,7 @@ export default function MesasMozoPage() {
             { value: 'todas', label: 'Todas' },
             { value: 'libre', label: 'Libres' },
             { value: 'en_curso', label: 'En curso' },
-            { value: 'lista_para_cobrar', label: 'Listas para cobrar' },
+            { value: 'lista_para_caja', label: 'Listas para caja' },
           ].map((f) => (
             <button
               key={f.value}
@@ -1307,16 +1181,19 @@ export default function MesasMozoPage() {
                       ID interno {mesa.id}
                     </span>
                   </div>
+
                   <div className="flex flex-col items-end gap-1">
                     {badgeMesaPorEstado(estado)}
+
                     {formaPago === 'efectivo' && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-700 text-emerald-50 px-2 py-[2px] text-[11px] font-medium">
-                        💵 Paga en efectivo
+                        💵 Efectivo
                       </span>
                     )}
+
                     {formaPago === 'virtual' && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-indigo-700 text-indigo-50 px-2 py-[2px] text-[11px] font-medium">
-                        💳 Pago virtual
+                        💳 Virtual
                       </span>
                     )}
                   </div>
@@ -1334,6 +1211,7 @@ export default function MesasMozoPage() {
                   <p className="mt-1 break-all text-xs text-slate-700">
                     {mesaUrl}
                   </p>
+
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -1342,6 +1220,7 @@ export default function MesasMozoPage() {
                     >
                       Abrir mesa
                     </button>
+
                     <button
                       type="button"
                       onClick={() => copiarLinkMesa(mesa)}
@@ -1349,6 +1228,7 @@ export default function MesasMozoPage() {
                     >
                       Copiar link
                     </button>
+
                     <button
                       type="button"
                       onClick={() => abrirQrMesa(mesa)}
@@ -1356,6 +1236,7 @@ export default function MesasMozoPage() {
                     >
                       Ver QR
                     </button>
+
                     <button
                       type="button"
                       onClick={() => imprimirQrMesa(mesa)}
@@ -1363,6 +1244,7 @@ export default function MesasMozoPage() {
                     >
                       Imprimir QR
                     </button>
+
                     <button
                       type="button"
                       onClick={() => descargarCartelMesaPng(mesa)}
@@ -1406,9 +1288,12 @@ export default function MesasMozoPage() {
                                   {item.cantidad} × {item.producto?.nombre ?? '—'}
                                 </span>
                                 <span>
-                                  ${(item.producto?.precio ?? 0) * item.cantidad}
+                                  {formatMoney(
+                                    (item.producto?.precio ?? 0) * item.cantidad
+                                  )}
                                 </span>
                               </div>
+
                               {item.comentarios && (
                                 <span className="text-[11px] text-slate-600 ml-3">
                                   Nota: {item.comentarios}
@@ -1430,21 +1315,7 @@ export default function MesasMozoPage() {
                               >
                                 {actualizandoPedidoId === p.id
                                   ? 'Actualizando...'
-                                  : 'Enviar a cocina'}
-                              </button>
-                            )}
-
-                            {p.estado === 'en_preparacion' && (
-                              <button
-                                onClick={() =>
-                                  actualizarEstadoPedido(p.id, 'listo')
-                                }
-                                disabled={actualizandoPedidoId === p.id}
-                                className="px-2 py-1 rounded-md bg-indigo-600 text-white text-[11px] font-medium hover:bg-indigo-700 disabled:opacity-60"
-                              >
-                                {actualizandoPedidoId === p.id
-                                  ? 'Actualizando...'
-                                  : 'Marcar listo'}
+                                  : 'Tomar pedido'}
                               </button>
                             )}
                           </div>
@@ -1462,28 +1333,36 @@ export default function MesasMozoPage() {
                 )}
 
                 <footer className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-semibold">Total: ${mesa.totalMesa}</p>
+                  <div>
+                    <p className="font-semibold text-slate-900">
+                      Total: {formatMoney(mesa.totalMesa)}
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      El cierre real se hace en caja.
+                    </p>
+                  </div>
+
                   <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={() => cerrarCuentaMesa(mesa.id)}
+                      onClick={() => router.push(`/mozo/mesas/${mesa.id}`)}
+                      className="px-3 py-1 rounded-lg bg-white border border-slate-300 text-slate-800 text-sm font-semibold hover:bg-slate-50"
+                    >
+                      Ver mesa
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        void pasarACaja(mesa.id);
+                      }}
                       disabled={
                         mesa.pedidos.length === 0 ||
-                        procesandoMesaId === mesa.id
+                        pasandoACajaMesaId === mesa.id
                       }
-                      className="px-3 py-1 rounded-lg bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700 disabled:opacity-60"
+                      className="px-3 py-1 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-60"
                     >
-                      {procesandoMesaId === mesa.id
-                        ? 'Cerrando...'
-                        : 'Cerrar cuenta'}
-                    </button>
-                    <button
-                      onClick={() => eliminarMesa(mesa.id)}
-                      disabled={eliminandoMesaId === mesa.id}
-                      className="px-3 py-1 rounded-lg bg-slate-300 text-slate-800 text-xs font-semibold hover:bg-slate-400 disabled:opacity-60"
-                    >
-                      {eliminandoMesaId === mesa.id
-                        ? 'Eliminando...'
-                        : 'Eliminar mesa'}
+                      {pasandoACajaMesaId === mesa.id
+                        ? 'Abriendo caja...'
+                        : 'Pasar a caja'}
                     </button>
                   </div>
                 </footer>
