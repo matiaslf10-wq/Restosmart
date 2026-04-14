@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import {
@@ -424,7 +424,7 @@ function matchesWorkflowFilter(pedido: Pedido, filtroEstado: FiltroEstado) {
   return normalizeText(getPedidoWorkflowState(pedido)) === filtroEstado;
 }
 
-export default function MostradorPage() {
+function MostradorPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -2428,5 +2428,18 @@ export default function MostradorPage() {
         </section>
       </div>
     </main>
+  );
+}
+export default function MostradorPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center bg-slate-100">
+          <p>Cargando mostrador...</p>
+        </main>
+      }
+    >
+      <MostradorPageContent />
+    </Suspense>
   );
 }
