@@ -5,10 +5,16 @@ import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { formatPlanLabel, type PlanCode } from '@/lib/plans';
 
+type KitchenPrepState = 'pendiente' | 'en_preparacion' | 'listo';
+type PrepTarget = 'mostrador' | 'cocina';
+
 type ItemPedido = {
   id: number;
   cantidad: number;
   comentarios: string | null;
+  comentarioVisible: string | null;
+  prepTarget: PrepTarget;
+  kitchenState: KitchenPrepState | null;
   producto: {
     nombre: string;
     precio: number | null;
@@ -112,6 +118,46 @@ function getMesaEstadoLabel(estado: EstadoMesaView) {
   return 'Sin pedidos';
 }
 
+function parseKitchenMeta(comment: string | null | undefined) {
+  const raw = String(comment ?? '').trim();
+
+  if (!raw) {
+    return {
+      prepTarget: 'mostrador' as PrepTarget,
+      kitchenState: null as KitchenPrepState | null,
+      comentarioVisible: null as string | null,
+    };
+  }
+
+  const match = raw.match(
+    /^\[\[COCINA:(pendiente|en_preparacion|listo)\]\]\s*(.*)$/i
+  );
+
+  if (!match) {
+    return {
+      prepTarget: 'mostrador' as PrepTarget,
+      kitchenState: null,
+      comentarioVisible: raw,
+    };
+  }
+
+  const visible = String(match[2] ?? '').trim();
+
+  return {
+    prepTarget: 'cocina' as PrepTarget,
+    kitchenState: match[1].toLowerCase() as KitchenPrepState,
+    comentarioVisible: visible || null,
+  };
+}
+
+function buildKitchenComment(
+  comment: string | null | undefined,
+  kitchenState: KitchenPrepState
+) {
+  const visible = String(comment ?? '').trim();
+  return `[[COCINA:${kitchenState}]]${visible ? ` ${visible}` : ''}`;
+}
+
 export default function MozoMesaPage() {
   const params = useParams();
   const router = useRouter();
@@ -126,6 +172,9 @@ export default function MozoMesaPage() {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [derivandoACaja, setDerivandoACaja] = useState(false);
   const [actualizandoPedidoId, setActualizandoPedidoId] = useState<number | null>(
+    null
+  );
+  const [actualizandoItemId, setActualizandoItemId] = useState<number | null>(
     null
   );
 
@@ -169,7 +218,19 @@ export default function MozoMesaPage() {
         creado_en: p.creado_en,
         estado: p.estado,
         paga_efectivo: p.paga_efectivo,
-        items: p.items_pedido ?? [],
+        items: (p.items_pedido ?? []).map((item: any) => {
+          const parsed = parseKitchenMeta(item.comentarios);
+
+          return {
+            id: item.id,
+            cantidad: item.cantidad,
+            comentarios: item.comentarios ?? null,
+            comentarioVisible: parsed.comentarioVisible,
+            prepTarget: parsed.prepTarget,
+            kitchenState: parsed.kitchenState,
+            producto: item.producto ?? null,
+          };
+        }),
       }));
 
       setPedidos(formateados);
@@ -271,6 +332,44 @@ export default function MozoMesaPage() {
     await cargarPedidos();
   };
 
+  const enviarItemACocina = async (pedidoId: number, item: ItemPedido) => {
+    setActualizandoItemId(item.id);
+    setMensaje(null);
+
+    const { error: itemError } = await supabase
+      .from('items_pedido')
+      .update({
+        comentarios: buildKitchenComment(item.comentarioVisible, 'pendiente'),
+      })
+      .eq('id', item.id);
+
+    if (itemError) {
+      console.error('No se pudo enviar el ítem a cocina:', itemError);
+      setMensaje('No se pudo enviar el ítem a cocina.');
+      setActualizandoItemId(null);
+      return;
+    }
+
+    const { error: pedidoError } = await supabase
+      .from('pedidos')
+      .update({ estado: 'en_preparacion' })
+      .eq('id', pedidoId);
+
+    if (pedidoError) {
+      console.error(
+        'No se pudo actualizar el pedido al enviar ítem a cocina:',
+        pedidoError
+      );
+      setMensaje('No se pudo actualizar el pedido al enviar el ítem a cocina.');
+      setActualizandoItemId(null);
+      return;
+    }
+
+    setActualizandoItemId(null);
+    setMensaje(`Ítem enviado a cocina en el pedido #${pedidoId}.`);
+    await cargarPedidos();
+  };
+
   const pasarACaja = async () => {
     if (!mesaId) return;
 
@@ -369,8 +468,8 @@ export default function MozoMesaPage() {
 
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
                 Esta vista queda enfocada en atención del salón: seguimiento de
-                pedidos, toma inicial del pedido y derivación a caja. El cobro y
-                el cierre real se resuelven desde mostrador.
+                pedidos, toma inicial del pedido, envío de ítems a cocina y derivación
+                a caja. El cobro y el cierre real se resuelven desde mostrador.
               </p>
             </div>
 
@@ -446,20 +545,59 @@ export default function MozoMesaPage() {
                       >
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <div>
-                            <p className="text-sm font-medium text-slate-900">
-                              {item.cantidad} × {item.producto?.nombre ?? 'Producto'}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-medium text-slate-900">
+                                {item.cantidad} × {item.producto?.nombre ?? 'Producto'}
+                              </p>
 
-                            {item.comentarios ? (
+                              <span
+                                className={`rounded-full px-2 py-1 text-[10px] font-medium ${
+                                  item.prepTarget === 'cocina'
+                                    ? item.kitchenState === 'listo'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : item.kitchenState === 'en_preparacion'
+                                      ? 'bg-sky-100 text-sky-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {item.prepTarget === 'cocina'
+                                  ? item.kitchenState === 'listo'
+                                    ? 'Listo cocina'
+                                    : item.kitchenState === 'en_preparacion'
+                                    ? 'Preparando'
+                                    : 'Enviado'
+                                  : 'Mostrador'}
+                              </span>
+                            </div>
+
+                            {item.comentarioVisible ? (
                               <p className="mt-1 text-xs text-slate-600">
-                                Nota: {item.comentarios}
+                                Nota: {item.comentarioVisible}
                               </p>
                             ) : null}
                           </div>
 
-                          <p className="text-sm font-semibold text-slate-700">
-                            {formatMoney((item.producto?.precio ?? 0) * item.cantidad)}
-                          </p>
+                          <div className="flex flex-col items-end gap-2">
+                            <p className="text-sm font-semibold text-slate-700">
+                              {formatMoney((item.producto?.precio ?? 0) * item.cantidad)}
+                            </p>
+
+                            {item.prepTarget === 'mostrador' ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void enviarItemACocina(pedido.id, item);
+                                }}
+                                disabled={actualizandoItemId === item.id}
+                                className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
+                              >
+                                {actualizandoItemId === item.id
+                                  ? 'Enviando...'
+                                  : 'A cocina'}
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       </li>
                     ))}
