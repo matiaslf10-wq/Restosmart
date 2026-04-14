@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import {
   formatBusinessModeLabel,
@@ -290,7 +290,7 @@ function formatEstadoLabel(estado: string) {
   if (normalized === 'en_preparacion') return 'En preparación';
   if (normalized === 'listo') return 'Listo';
   if (normalized === 'entregado') return 'Entregado';
-  if (normalized === 'cerrado') return 'Entregado';
+  if (normalized === 'cerrado') return 'Cerrado';
 
   return estado || 'Sin estado';
 }
@@ -426,6 +426,18 @@ function matchesWorkflowFilter(pedido: Pedido, filtroEstado: FiltroEstado) {
 
 export default function MostradorPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const focusMesaId = useMemo(() => {
+    const raw = searchParams.get('focusMesaId');
+    const parsed = Number(raw);
+
+    if (!raw || !Number.isFinite(parsed) || parsed <= DELIVERY_MESA_ID) {
+      return null;
+    }
+
+    return parsed;
+  }, [searchParams]);
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
@@ -697,7 +709,12 @@ export default function MostradorPage() {
       setMesasMap(map);
       setMesasList(mesasParaSelector);
 
-      if (mesasParaSelector.length > 0 && !manualMesaId) {
+      if (focusMesaId != null) {
+        const mesaExiste = mesasParaSelector.some((mesa) => mesa.id === focusMesaId);
+        if (mesaExiste) {
+          setManualMesaId(String(focusMesaId));
+        }
+      } else if (mesasParaSelector.length > 0 && !manualMesaId) {
         setManualMesaId(String(mesasParaSelector[0].id));
       }
     }
@@ -721,7 +738,12 @@ export default function MostradorPage() {
     }
 
     setCargando(false);
-  }, [manualMesaId, marcarPedidosComoNuevos, reproducirSonidoNuevoPedido]);
+  }, [
+    focusMesaId,
+    manualMesaId,
+    marcarPedidosComoNuevos,
+    reproducirSonidoNuevoPedido,
+  ]);
 
   useEffect(() => {
     if (checkingAccess) return;
@@ -736,10 +758,16 @@ export default function MostradorPage() {
   }, [checkingAccess, cargarDatos]);
 
   useEffect(() => {
+    if (isRestaurantMode && focusMesaId != null) {
+      setManualOrderMode('salon');
+      setManualMesaId(String(focusMesaId));
+      return;
+    }
+
     if (isRestaurantMode && !manualMesaId && mesasList.length > 0) {
       setManualMesaId(String(mesasList[0].id));
     }
-  }, [isRestaurantMode, manualMesaId, mesasList]);
+  }, [focusMesaId, isRestaurantMode, manualMesaId, mesasList]);
 
   useEffect(() => {
     setManualOrderMode(businessMode === 'takeaway' ? 'takeaway' : 'salon');
@@ -864,13 +892,18 @@ export default function MostradorPage() {
         };
       })
       .sort((a, b) => {
+        if (focusMesaId != null) {
+          if (a.id === focusMesaId && b.id !== focusMesaId) return -1;
+          if (b.id === focusMesaId && a.id !== focusMesaId) return 1;
+        }
+
         const aNumero = a.numero ?? Number.MAX_SAFE_INTEGER;
         const bNumero = b.numero ?? Number.MAX_SAFE_INTEGER;
 
         if (aNumero !== bNumero) return aNumero - bNumero;
         return a.id - b.id;
       });
-  }, [mesasMap, pedidosLocal]);
+  }, [focusMesaId, mesasMap, pedidosLocal]);
 
   const takeawayResumen = useMemo(() => {
     return takeawayPedidos.reduce(
@@ -917,12 +950,21 @@ export default function MostradorPage() {
   );
 
   const mesasSalonFiltradas = useMemo(() => {
-    if (filtroEstado === 'todos') return mesasSalonActivas;
+    const base =
+      filtroEstado === 'todos'
+        ? mesasSalonActivas
+        : mesasSalonActivas.filter((mesa) =>
+            mesa.pedidos.some((pedido) => matchesWorkflowFilter(pedido, filtroEstado))
+          );
 
-    return mesasSalonActivas.filter((mesa) =>
-      mesa.pedidos.some((pedido) => matchesWorkflowFilter(pedido, filtroEstado))
-    );
-  }, [mesasSalonActivas, filtroEstado]);
+    if (focusMesaId == null) return base;
+
+    return [...base].sort((a, b) => {
+      if (a.id === focusMesaId && b.id !== focusMesaId) return -1;
+      if (b.id === focusMesaId && a.id !== focusMesaId) return 1;
+      return 0;
+    });
+  }, [filtroEstado, focusMesaId, mesasSalonActivas]);
 
   async function actualizarEstadoPedido(pedidoId: number, nuevoEstado: string) {
     setActualizandoPedidoId(pedidoId);
@@ -1222,6 +1264,12 @@ export default function MostradorPage() {
                     Pro / mozo disponible
                   </span>
                 ) : null}
+
+                {focusMesaId != null ? (
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                    Foco en mesa {focusMesaId}
+                  </span>
+                ) : null}
               </div>
 
               <h1 className="mt-4 text-3xl font-bold text-slate-900">
@@ -1230,12 +1278,12 @@ export default function MostradorPage() {
 
               <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
                 {isRestaurantMode
-                  ? 'Mostrador puede operar todo el flujo: crear pedidos, resolverlos, enviarlos a cocina por ítem, cobrar y cerrar mesas.'
-                  : 'Mostrador puede operar todo el flujo: crear pedidos, resolverlos, enviar a cocina solo lo necesario, entregar y cobrar.'}
+                  ? 'Mostrador opera el flujo completo: pedidos manuales, apoyo al salón, envío a cocina, cobro, entrega y cierre real de cuenta.'
+                  : 'Mostrador opera el flujo completo: pedidos manuales, take away, envío a cocina, entrega, cobro y cierre.'}
               </p>
 
               <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-500">
-                Cocina sigue disponible como apoyo opcional y solo recibe los ítems que le mandes.
+                Mozo atiende el salón. Caja cobra y cierra. Cocina sigue como apoyo opcional y solo recibe los ítems que le mandes.
               </p>
             </div>
 
@@ -1292,6 +1340,13 @@ export default function MostradorPage() {
           <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
             {error}
           </div>
+        ) : null}
+
+        {focusMesaId != null ? (
+          <section className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 shadow-sm">
+            Llegaste desde mozo con foco en la <strong>mesa {focusMesaId}</strong>.
+            Acá resolvés el cobro y el cierre real de la cuenta.
+          </section>
         ) : null}
 
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1416,7 +1471,7 @@ export default function MostradorPage() {
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-slate-600">
                   {manualOrderMode === 'salon'
-                    ? 'Este pedido manual nace asociado a una mesa. La mesa es la referencia principal para cobrar y liberar el salón.'
+                    ? 'Este pedido manual nace asociado a una mesa. La mesa es la referencia principal para cobrar y cerrar la cuenta del salón.'
                     : 'Este pedido manual nace asociado a una persona. El nombre del cliente es la referencia principal para preparar y entregar.'}
                 </p>
               </div>
@@ -1688,12 +1743,12 @@ export default function MostradorPage() {
             </div>
 
             <button
-  type="button"
-  onClick={() => setCompactMode((prev) => !prev)}
-  className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
->
-  {compactMode ? 'Cambiar a modo completo' : 'Cambiar a modo compacto'}
-</button>
+              type="button"
+              onClick={() => setCompactMode((prev) => !prev)}
+              className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              {compactMode ? 'Cambiar a modo completo' : 'Cambiar a modo compacto'}
+            </button>
           </div>
         </div>
 
@@ -2021,7 +2076,7 @@ export default function MostradorPage() {
                   {compactMode
                     ? 'Operación activa de mesas.'
                     : isRestaurantMode
-                    ? 'Mostrador también puede resolver pedidos de salón, mandar ítems a cocina y cerrar la cuenta final.'
+                    ? 'Mostrador también puede apoyar al salón, mandar ítems a cocina y realizar el cobro y cierre final.'
                     : 'El local está configurado en take away. Si aparece información de salón, esta vista funciona como referencia secundaria.'}
                 </p>
               </div>
@@ -2053,6 +2108,7 @@ export default function MostradorPage() {
                   const mesaTienePedidoNuevo = mesa.pedidos.some((pedido) =>
                     recentPedidoIdsSet.has(pedido.id)
                   );
+                  const isFocusedMesa = focusMesaId != null && mesa.id === focusMesaId;
 
                   const visiblePedidos = mesa.pedidos;
 
@@ -2060,7 +2116,9 @@ export default function MostradorPage() {
                     <article
                       key={mesa.id}
                       className={`rounded-lg border px-2 py-1 shadow-sm ${
-                        mesaTienePedidoNuevo
+                        isFocusedMesa
+                          ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-200'
+                          : mesaTienePedidoNuevo
                           ? 'border-violet-300 bg-violet-50 ring-2 ring-violet-200'
                           : estadoMesa === 'lista'
                           ? 'border-emerald-300 bg-emerald-50'
@@ -2071,6 +2129,12 @@ export default function MostradorPage() {
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-1">
                             {getMesaEstadoBadge(estadoMesa)}
+
+                            {isFocusedMesa ? (
+                              <span className="rounded-full bg-amber-600 px-2 py-1 text-[10px] font-semibold text-white">
+                                PASADA A CAJA
+                              </span>
+                            ) : null}
 
                             {mesaTienePedidoNuevo ? (
                               <span className="rounded-full bg-violet-700 px-2 py-1 text-[10px] font-semibold text-white">
@@ -2334,13 +2398,13 @@ export default function MostradorPage() {
                           {cerrandoMesaId === mesa.id
                             ? '...'
                             : compactMode
-                            ? 'Cerrar mesa'
-                            : 'Cerrar cuenta / liberar mesa'}
+                            ? 'Cerrar cuenta'
+                            : 'Cerrar cuenta'}
                         </button>
 
                         {estadoMesa === 'lista' ? (
                           <span className="rounded-lg border border-emerald-300 bg-emerald-100 px-2 py-1 text-[10px] text-emerald-800">
-                            Mesa lista
+                            Mesa lista para cerrar
                           </span>
                         ) : (
                           <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-600">

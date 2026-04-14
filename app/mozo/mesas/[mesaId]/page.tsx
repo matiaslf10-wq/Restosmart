@@ -24,7 +24,58 @@ type Pedido = {
   items: ItemPedido[];
 };
 
-export default function CuentaMesaPage() {
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatTime(value: string) {
+  try {
+    return new Intl.DateTimeFormat('es-AR', {
+      timeStyle: 'short',
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
+function normalizeText(value: unknown) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function formatEstadoLabel(estado: string) {
+  const normalized = normalizeText(estado);
+
+  if (normalized === 'solicitado') return 'Solicitado';
+  if (normalized === 'pendiente') return 'Pendiente';
+  if (normalized === 'en_preparacion') return 'En preparación';
+  if (normalized === 'listo') return 'Listo';
+
+  return estado || 'Sin estado';
+}
+
+function getEstadoBadgeClass(estado: string) {
+  const normalized = normalizeText(estado);
+
+  if (normalized === 'listo') {
+    return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+  }
+
+  if (normalized === 'en_preparacion') {
+    return 'bg-sky-100 text-sky-800 border-sky-200';
+  }
+
+  if (normalized === 'pendiente' || normalized === 'solicitado') {
+    return 'bg-amber-100 text-amber-800 border-amber-200';
+  }
+
+  return 'bg-slate-100 text-slate-700 border-slate-200';
+}
+
+export default function MozoMesaPage() {
   const params = useParams();
   const router = useRouter();
   const mesaId = Number((params as { mesaId?: string }).mesaId);
@@ -35,12 +86,12 @@ export default function CuentaMesaPage() {
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [cargando, setCargando] = useState(true);
-  const [cerrando, setCerrando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
-  const [procesandoPago, setProcesandoPago] = useState(false);
+  const [derivandoACaja, setDerivandoACaja] = useState(false);
 
   const cargarPedidos = async () => {
     if (!mesaId) return;
+
     setCargando(true);
     setMensaje(null);
 
@@ -65,7 +116,7 @@ export default function CuentaMesaPage() {
 
     if (error) {
       console.error('Error al cargar pedidos de la mesa:', error);
-      setMensaje('No se pudo cargar la cuenta de la mesa.');
+      setMensaje('No se pudo cargar la mesa.');
       setPedidos([]);
       setCargando(false);
       return;
@@ -80,6 +131,7 @@ export default function CuentaMesaPage() {
         paga_efectivo: p.paga_efectivo,
         items: p.items_pedido ?? [],
       }));
+
       setPedidos(formateados);
     } else {
       setPedidos([]);
@@ -124,7 +176,7 @@ export default function CuentaMesaPage() {
       }
     }
 
-    verifyAccess();
+    void verifyAccess();
 
     return () => {
       active = false;
@@ -133,88 +185,25 @@ export default function CuentaMesaPage() {
 
   useEffect(() => {
     if (!canUseWaiterMode) return;
-    cargarPedidos();
+    void cargarPedidos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canUseWaiterMode, mesaId]);
 
-  const subtotalPedido = (p: Pedido) =>
-    p.items.reduce((acc, item) => {
+  const subtotalPedido = (pedido: Pedido) =>
+    pedido.items.reduce((acc, item) => {
       const precio = item.producto?.precio ?? 0;
       return acc + item.cantidad * precio;
     }, 0);
 
-  const totalMesa = pedidos.reduce((acc, p) => acc + subtotalPedido(p), 0);
+  const totalMesa = pedidos.reduce((acc, pedido) => acc + subtotalPedido(pedido), 0);
 
-  const cerrarCuenta = async () => {
-    if (pedidos.length === 0) {
-      setMensaje('No hay pedidos abiertos para esta mesa.');
-      return;
-    }
-
-    if (!confirm('¿Cerrar todos los pedidos de esta mesa?')) return;
-
-    setCerrando(true);
-    setMensaje(null);
-
-    const ids = pedidos.map((p) => p.id);
-
-    const { error } = await supabase
-      .from('pedidos')
-      .update({ estado: 'cerrado' })
-      .in('id', ids);
-
-    if (error) {
-      console.error(error);
-      setMensaje('No se pudo cerrar la cuenta.');
-      setCerrando(false);
-      return;
-    }
-
-    setMensaje('Cuenta cerrada correctamente.');
-    setPedidos([]);
-    setCerrando(false);
-  };
-
-  const marcarPagoEfectivoDesdeCliente = async () => {
+  const pasarACaja = async () => {
     if (!mesaId) return;
-    if (pedidos.length === 0) {
-      setMensaje('No hay pedidos abiertos para marcar como efectivo.');
-      return;
-    }
 
-    setProcesandoPago(true);
+    setDerivandoACaja(true);
     setMensaje(null);
 
-    const { error } = await supabase
-      .from('pedidos')
-      .update({ paga_efectivo: true })
-      .eq('mesa_id', mesaId)
-      .in('estado', ['pendiente', 'en_preparacion', 'listo']);
-
-    if (error) {
-      console.error('Error al marcar pago en efectivo desde cliente:', error);
-      setMensaje('No se pudo marcar el pago en efectivo. Avisá al mozo.');
-      setProcesandoPago(false);
-      return;
-    }
-
-    setMensaje('Listo, avisamos que vas a pagar en efectivo 💵');
-    await cargarPedidos();
-    setProcesandoPago(false);
-  };
-
-  const pagarVirtual = () => {
-    const urlPago =
-      process.env.NEXT_PUBLIC_PAGO_VIRTUAL_URL ||
-      'https://www.mercadopago.com.ar';
-
-    if (!urlPago) {
-      setMensaje('Por ahora, pedile al mozo el QR de pago virtual 🙌');
-      return;
-    }
-
-    window.open(urlPago, '_blank');
-    setMensaje('Abrimos el pago virtual en una nueva ventana 💳');
+    router.push(`/mostrador?focusMesaId=${mesaId}`);
   };
 
   if (checkingAccess) {
@@ -275,115 +264,149 @@ export default function CuentaMesaPage() {
   if (cargando) {
     return (
       <main className="min-h-screen flex items-center justify-center">
-        <p>Cargando cuenta de la mesa...</p>
+        <p>Cargando mesa...</p>
       </main>
     );
   }
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6">
-      <div className="max-w-3xl mx-auto space-y-4">
-        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <h1 className="text-2xl font-bold">Cuenta – Mesa {mesaId}</h1>
-          <button
-            onClick={cargarPedidos}
-            className="px-3 py-1 rounded-lg text-sm bg-slate-800 text-white hover:bg-slate-700"
-          >
-            Actualizar
-          </button>
+      <div className="max-w-4xl mx-auto space-y-4">
+        <header className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                MOZO · SALÓN
+              </span>
+
+              <h1 className="mt-3 text-3xl font-bold text-slate-900">
+                Mesa {mesaId}
+              </h1>
+
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+                Esta vista queda enfocada en atención del salón: seguimiento de pedidos,
+                estado de la mesa y derivación a caja. El cobro y el cierre real se
+                resuelven desde mostrador.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  void cargarPedidos();
+                }}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Actualizar
+              </button>
+
+              <button
+                onClick={() => router.push('/mozo/mesas')}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Volver a mesas
+              </button>
+            </div>
+          </div>
         </header>
 
-        {mensaje && (
-          <p className="text-sm text-slate-700 bg-yellow-50 border border-yellow-300 px-3 py-2 rounded-lg">
+        {mensaje ? (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             {mensaje}
-          </p>
-        )}
+          </div>
+        ) : null}
 
-        {pedidos.length === 0 && (
-          <p className="text-slate-600">
-            No hay pedidos abiertos para esta mesa.
-          </p>
-        )}
-
-        {pedidos.length > 0 && (
+        {pedidos.length === 0 ? (
+          <div className="rounded-3xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-600 shadow-sm">
+            No hay pedidos activos para esta mesa.
+          </div>
+        ) : (
           <>
             <section className="space-y-3">
-              {pedidos.map((p) => (
+              {pedidos.map((pedido) => (
                 <article
-                  key={p.id}
-                  className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm"
+                  key={pedido.id}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm"
                 >
-                  <header className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h2 className="font-semibold text-slate-900">
-                      Pedido #{p.id}
-                    </h2>
-                    <div className="text-xs text-slate-500">
-                      {new Date(p.creado_en).toLocaleTimeString()} ·{' '}
-                      {p.estado === 'solicitado'
-                        ? 'Esperando confirmación del mozo'
-                        : p.estado === 'pendiente'
-                        ? 'Pendiente'
-                        : p.estado === 'en_preparacion'
-                        ? 'En preparación'
-                        : 'Listo'}
+                  <header className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-lg font-semibold text-slate-900">
+                          Pedido #{pedido.id}
+                        </h2>
+
+                        <span
+                          className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${getEstadoBadgeClass(
+                            pedido.estado
+                          )}`}
+                        >
+                          {formatEstadoLabel(pedido.estado)}
+                        </span>
+                      </div>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        Creado a las {formatTime(pedido.creado_en)}
+                      </p>
                     </div>
+
+                    <p className="text-right text-base font-bold text-slate-900">
+                      {formatMoney(subtotalPedido(pedido))}
+                    </p>
                   </header>
 
-                  <ul className="mt-2 space-y-1 text-sm">
-                    {p.items.map((item) => (
-                      <li key={item.id}>
-                        <div className="flex justify-between">
-                          <span>
-                            {item.cantidad} × {item.producto?.nombre ?? '—'}
-                          </span>
-                          <span>
-                            ${(item.producto?.precio ?? 0) * item.cantidad}
-                          </span>
-                        </div>
-                        {item.comentarios && (
-                          <p className="text-xs text-slate-600 ml-4">
-                            Nota: {item.comentarios}
+                  <ul className="mt-4 space-y-2">
+                    {pedido.items.map((item) => (
+                      <li
+                        key={item.id}
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium text-slate-900">
+                              {item.cantidad} × {item.producto?.nombre ?? 'Producto'}
+                            </p>
+
+                            {item.comentarios ? (
+                              <p className="mt-1 text-xs text-slate-600">
+                                Nota: {item.comentarios}
+                              </p>
+                            ) : null}
+                          </div>
+
+                          <p className="text-sm font-semibold text-slate-700">
+                            {formatMoney((item.producto?.precio ?? 0) * item.cantidad)}
                           </p>
-                        )}
+                        </div>
                       </li>
                     ))}
                   </ul>
-
-                  <p className="mt-2 text-right font-semibold">
-                    Subtotal: ${subtotalPedido(p)}
-                  </p>
                 </article>
               ))}
             </section>
 
-            <footer className="border-t border-slate-300 pt-3 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <p className="text-lg font-bold">Total mesa: ${totalMesa}</p>
+            <footer className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-slate-500">Total activo de la mesa</p>
+                  <p className="text-2xl font-bold text-slate-900">
+                    {formatMoney(totalMesa)}
+                  </p>
+                </div>
+
                 <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={pagarVirtual}
-                    className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700"
+                    onClick={pasarACaja}
+                    disabled={derivandoACaja}
+                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
                   >
-                    Pago virtual
-                  </button>
-                  <button
-                    onClick={marcarPagoEfectivoDesdeCliente}
-                    disabled={procesandoPago}
-                    className="px-4 py-2 rounded-lg bg-emerald-700 text-emerald-50 font-semibold text-sm hover:bg-emerald-800 disabled:opacity-60"
-                  >
-                    {procesandoPago ? 'Marcando...' : 'Pagar en efectivo'}
-                  </button>
-                  <button
-                    onClick={cerrarCuenta}
-                    disabled={cerrando}
-                    className="px-4 py-2 rounded-lg bg-slate-500 text-white font-semibold text-sm hover:bg-slate-600 disabled:opacity-60"
-                  >
-                    {cerrando ? 'Cerrando...' : 'Cerrar cuenta'}
+                    {derivandoACaja ? 'Abriendo caja...' : 'Pasar a caja'}
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-slate-500">
-                El mozo verá cómo elegiste pagar. Si algo no funciona, avisale directamente 😊
+
+              <p className="mt-3 text-xs text-slate-500">
+                Desde mozo ya no se cobra ni se cierra la cuenta. Esta vista queda
+                enfocada en atención del salón.
               </p>
             </footer>
           </>
