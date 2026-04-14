@@ -517,7 +517,7 @@ export default function MostradorPage() {
   }, []);
 
   useEffect(() => {
-    const audio = new Audio('/sounds/new-order.mp3');
+    const audio = new Audio('/sounds/mostrador.mp3');
     audio.preload = 'auto';
     newOrderAudioRef.current = audio;
   }, []);
