@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { formatPlanLabel, type PlanCode } from '@/lib/plans';
@@ -23,6 +23,8 @@ type Pedido = {
   paga_efectivo?: boolean;
   items: ItemPedido[];
 };
+
+type EstadoMesaView = 'sin_pedidos' | 'en_curso' | 'lista_para_caja';
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat('es-AR', {
@@ -75,6 +77,41 @@ function getEstadoBadgeClass(estado: string) {
   return 'bg-slate-100 text-slate-700 border-slate-200';
 }
 
+function getMesaEstado(pedidos: Pedido[]): EstadoMesaView {
+  if (pedidos.length === 0) return 'sin_pedidos';
+
+  const hayEnCurso = pedidos.some((pedido) => {
+    const estado = normalizeText(pedido.estado);
+    return (
+      estado === 'solicitado' ||
+      estado === 'pendiente' ||
+      estado === 'en_preparacion'
+    );
+  });
+
+  if (hayEnCurso) return 'en_curso';
+
+  return 'lista_para_caja';
+}
+
+function getMesaEstadoBadgeClass(estado: EstadoMesaView) {
+  if (estado === 'lista_para_caja') {
+    return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+  }
+
+  if (estado === 'en_curso') {
+    return 'bg-amber-100 text-amber-800 border-amber-200';
+  }
+
+  return 'bg-slate-100 text-slate-700 border-slate-200';
+}
+
+function getMesaEstadoLabel(estado: EstadoMesaView) {
+  if (estado === 'lista_para_caja') return 'Lista para pasar a caja';
+  if (estado === 'en_curso') return 'En curso';
+  return 'Sin pedidos';
+}
+
 export default function MozoMesaPage() {
   const params = useParams();
   const router = useRouter();
@@ -88,8 +125,11 @@ export default function MozoMesaPage() {
   const [cargando, setCargando] = useState(true);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [derivandoACaja, setDerivandoACaja] = useState(false);
+  const [actualizandoPedidoId, setActualizandoPedidoId] = useState<number | null>(
+    null
+  );
 
-  const cargarPedidos = async () => {
+  const cargarPedidos = useCallback(async () => {
     if (!mesaId) return;
 
     setCargando(true);
@@ -138,7 +178,7 @@ export default function MozoMesaPage() {
     }
 
     setCargando(false);
-  };
+  }, [mesaId]);
 
   useEffect(() => {
     let active = true;
@@ -184,10 +224,16 @@ export default function MozoMesaPage() {
   }, [router]);
 
   useEffect(() => {
-    if (!canUseWaiterMode) return;
+    if (!canUseWaiterMode || !mesaId) return;
+
     void cargarPedidos();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canUseWaiterMode, mesaId]);
+
+    const interval = setInterval(() => {
+      void cargarPedidos();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [canUseWaiterMode, mesaId, cargarPedidos]);
 
   const subtotalPedido = (pedido: Pedido) =>
     pedido.items.reduce((acc, item) => {
@@ -195,7 +241,35 @@ export default function MozoMesaPage() {
       return acc + item.cantidad * precio;
     }, 0);
 
-  const totalMesa = pedidos.reduce((acc, pedido) => acc + subtotalPedido(pedido), 0);
+  const totalMesa = pedidos.reduce(
+    (acc, pedido) => acc + subtotalPedido(pedido),
+    0
+  );
+
+  const estadoMesa = useMemo(() => getMesaEstado(pedidos), [pedidos]);
+
+  const actualizarEstadoPedido = async (
+    pedidoId: number,
+    nuevoEstado: 'pendiente'
+  ) => {
+    setActualizandoPedidoId(pedidoId);
+    setMensaje(null);
+
+    const { error } = await supabase
+      .from('pedidos')
+      .update({ estado: nuevoEstado })
+      .eq('id', pedidoId);
+
+    if (error) {
+      console.error('Error al actualizar estado del pedido:', error);
+      setMensaje('No se pudo actualizar el estado del pedido.');
+      setActualizandoPedidoId(null);
+      return;
+    }
+
+    setActualizandoPedidoId(null);
+    await cargarPedidos();
+  };
 
   const pasarACaja = async () => {
     if (!mesaId) return;
@@ -275,18 +349,28 @@ export default function MozoMesaPage() {
         <header className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-                MOZO · SALÓN
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                  MOZO · SALÓN
+                </span>
+
+                <span
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getMesaEstadoBadgeClass(
+                    estadoMesa
+                  )}`}
+                >
+                  {getMesaEstadoLabel(estadoMesa)}
+                </span>
+              </div>
 
               <h1 className="mt-3 text-3xl font-bold text-slate-900">
                 Mesa {mesaId}
               </h1>
 
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-                Esta vista queda enfocada en atención del salón: seguimiento de pedidos,
-                estado de la mesa y derivación a caja. El cobro y el cierre real se
-                resuelven desde mostrador.
+                Esta vista queda enfocada en atención del salón: seguimiento de
+                pedidos, toma inicial del pedido y derivación a caja. El cobro y
+                el cierre real se resuelven desde mostrador.
               </p>
             </div>
 
@@ -380,6 +464,34 @@ export default function MozoMesaPage() {
                       </li>
                     ))}
                   </ul>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-slate-500">
+                      {normalizeText(pedido.estado) === 'solicitado'
+                        ? 'Todavía no fue tomado por mozo.'
+                        : normalizeText(pedido.estado) === 'pendiente'
+                        ? 'Pedido tomado. A la espera de preparación / avance.'
+                        : normalizeText(pedido.estado) === 'en_preparacion'
+                        ? 'El pedido está en preparación.'
+                        : 'El pedido ya quedó listo.'}
+                    </p>
+
+                    <div className="flex flex-wrap gap-2">
+                      {normalizeText(pedido.estado) === 'solicitado' ? (
+                        <button
+                          onClick={() => {
+                            void actualizarEstadoPedido(pedido.id, 'pendiente');
+                          }}
+                          disabled={actualizandoPedidoId === pedido.id}
+                          className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                        >
+                          {actualizandoPedidoId === pedido.id
+                            ? 'Tomando...'
+                            : 'Tomar pedido'}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                 </article>
               ))}
             </section>
