@@ -111,6 +111,35 @@ const DEFAULT_DELIVERY: DeliveryConfig = {
   costo_envio: 0,
 };
 
+const PLAN_CARDS: Array<{
+  code: PlanCode;
+  shortLabel: string;
+  title: string;
+  description: string;
+}> = [
+  {
+    code: 'esencial',
+    shortLabel: 'Esencial',
+    title: 'Operación base',
+    description:
+      'Menú digital, QR, cocina, operaciones básicas y configuración general.',
+  },
+  {
+    code: 'pro',
+    shortLabel: 'Pro',
+    title: 'Operación ampliada',
+    description:
+      'Suma modo mozo y operaciones avanzadas para locales con más flujo.',
+  },
+  {
+    code: 'intelligence',
+    shortLabel: 'Intelligence',
+    title: 'Analítica avanzada',
+    description:
+      'Incluye todo Pro y desbloquea analytics avanzados y ejecutivos.',
+  },
+];
+
 function getApiErrorMessage(value: unknown, fallback: string) {
   if (
     value &&
@@ -181,8 +210,10 @@ export default function AdminConfiguracionPage() {
   const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
   const [localForm, setLocalForm] = useState<LocalConfig>(DEFAULT_LOCAL);
   const [deliveryForm, setDeliveryForm] = useState<DeliveryConfig>(DEFAULT_DELIVERY);
+  const [selectedPlan, setSelectedPlan] = useState<PlanCode>('esencial');
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [guardandoPlan, setGuardandoPlan] = useState(false);
   const [mensaje, setMensaje] = useState('');
   const [error, setError] = useState('');
 
@@ -195,6 +226,7 @@ export default function AdminConfiguracionPage() {
   const tenantLabel =
     sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
   const businessModeLabel = formatBusinessModeLabel(localForm.business_mode);
+  const planChanged = selectedPlan !== plan;
 
   const waiterModeStatus =
     localForm.business_mode === 'takeaway'
@@ -229,6 +261,25 @@ export default function AdminConfiguracionPage() {
   const takeawayQrBadge =
     localForm.business_mode === 'takeaway' ? 'QR PRINCIPAL' : 'QR OPCIONAL';
 
+  async function reloadSession() {
+    const sessionRes = await fetch(`/api/admin/session?tenant=${encodeURIComponent(tenantLabel)}`, {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    const sessionJson = await sessionRes.json().catch(() => null);
+
+    if (!sessionRes.ok) {
+      throw new Error(
+        getApiErrorMessage(sessionJson, 'No se pudo refrescar la sesión.')
+      );
+    }
+
+    const session = (sessionJson?.session as AdminSessionPayload | null) ?? null;
+    setSessionData(session);
+    setSelectedPlan((session?.plan ?? 'esencial') as PlanCode);
+  }
+
   useEffect(() => {
     let activo = true;
 
@@ -238,7 +289,7 @@ export default function AdminConfiguracionPage() {
         setError('');
         setMensaje('');
 
-        const sessionRes = await fetch('/api/admin/session', {
+        const sessionRes = await fetch(`/api/admin/session?tenant=${encodeURIComponent(tenantLabel)}`, {
           method: 'GET',
           cache: 'no-store',
         });
@@ -258,6 +309,7 @@ export default function AdminConfiguracionPage() {
 
         const session = (sessionJson?.session as AdminSessionPayload | null) ?? null;
         setSessionData(session);
+        setSelectedPlan((session?.plan ?? 'esencial') as PlanCode);
 
         const localRes = await fetch('/api/admin/local-config', {
           method: 'GET',
@@ -386,6 +438,55 @@ export default function AdminConfiguracionPage() {
       ...prev,
       [key]: value,
     }));
+  }
+
+  async function guardarPlan() {
+    if (!planChanged) {
+      setMensaje('El plan seleccionado ya es el plan actual.');
+      setError('');
+      return;
+    }
+
+    try {
+      setGuardandoPlan(true);
+      setMensaje('');
+      setError('');
+
+      const res = await fetch(
+        `/api/admin/plan?tenant=${encodeURIComponent(tenantLabel)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            plan: selectedPlan,
+            tenantSlug: tenantLabel,
+            restaurantId: sessionData?.restaurant?.id ?? null,
+          }),
+        }
+      );
+
+      const raw = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(
+          getApiErrorMessage(raw, 'No se pudo actualizar el plan.')
+        );
+      }
+
+      await reloadSession();
+
+      setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
+      setError('');
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo actualizar el plan.'
+      );
+    } finally {
+      setGuardandoPlan(false);
+    }
   }
 
   async function guardarTodo(e: React.FormEvent<HTMLFormElement>) {
@@ -562,6 +663,89 @@ export default function AdminConfiguracionPage() {
           {error}
         </div>
       ) : null}
+
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-medium">Plan y funcionalidades</h2>
+            <p className="mt-1 text-sm text-neutral-600">
+              El cambio se aplica sobre este tenant y actualiza automáticamente
+              lo que queda habilitado en el sistema.
+            </p>
+          </div>
+
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+            Plan actual: {planLabel}
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          {PLAN_CARDS.map((planCard) => {
+            const selected = selectedPlan === planCard.code;
+            const isCurrent = plan === planCard.code;
+
+            return (
+              <button
+                key={planCard.code}
+                type="button"
+                onClick={() => setSelectedPlan(planCard.code)}
+                className={`rounded-2xl border p-4 text-left transition ${
+                  selected
+                    ? 'border-black bg-neutral-50'
+                    : 'border-neutral-200 bg-white hover:border-neutral-300'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-base font-semibold">{planCard.shortLabel}</p>
+                    <p className="mt-1 text-sm font-medium text-neutral-800">
+                      {planCard.title}
+                    </p>
+                  </div>
+
+                  {isCurrent ? (
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                      Actual
+                    </span>
+                  ) : null}
+                </div>
+
+                <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+                  {planCard.description}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          El add-on de WhatsApp Delivery sigue siendo independiente del plan y
+          se gestiona por separado por restaurante.
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              void guardarPlan();
+            }}
+            disabled={guardandoPlan || !planChanged}
+            className="rounded-xl bg-black px-5 py-3 text-white disabled:opacity-60"
+          >
+            {guardandoPlan ? 'Actualizando plan...' : 'Guardar cambio de plan'}
+          </button>
+
+          {planChanged ? (
+            <span className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Vas a pasar de {planLabel} a {formatPlanLabel(selectedPlan)}.
+            </span>
+          ) : (
+            <span className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              No hay cambios pendientes en el plan.
+            </span>
+          )}
+        </div>
+      </section>
 
       <form onSubmit={guardarTodo} className="grid gap-6">
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
