@@ -1688,12 +1688,12 @@ export default function MostradorPage() {
             </div>
 
             <button
-              type="button"
-              onClick={() => setCompactMode((prev) => !prev)}
-              className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              {compactMode ? 'Ver detalle completo' : 'Modo compacto'}
-            </button>
+  type="button"
+  onClick={() => setCompactMode((prev) => !prev)}
+  className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+>
+  {compactMode ? 'Cambiar a modo completo' : 'Cambiar a modo compacto'}
+</button>
           </div>
         </div>
 
@@ -1778,13 +1778,7 @@ export default function MostradorPage() {
                     !ready &&
                     pedido.items.some((item) => item.prepTarget === 'mostrador');
 
-                  const visibleItems = compactMode
-                    ? pedido.items.slice(0, 1)
-                    : pedido.items;
-                  const hiddenItemsCount = Math.max(
-                    0,
-                    pedido.items.length - visibleItems.length
-                  );
+                  const visibleItems = pedido.items;
 
                   return (
                     <article
@@ -1921,12 +1915,6 @@ export default function MostradorPage() {
                             </div>
                           </div>
                         ))}
-
-                        {hiddenItemsCount > 0 ? (
-                          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">
-                            + {hiddenItemsCount} ítem{hiddenItemsCount !== 1 ? 's' : ''} más
-                          </div>
-                        ) : null}
                       </div>
 
                       <div className="mt-2 flex flex-wrap gap-1">
@@ -2066,13 +2054,7 @@ export default function MostradorPage() {
                     recentPedidoIdsSet.has(pedido.id)
                   );
 
-                  const visiblePedidos = compactMode
-                    ? mesa.pedidos.slice(0, 2)
-                    : mesa.pedidos;
-                  const hiddenPedidosCount = Math.max(
-                    0,
-                    mesa.pedidos.length - visiblePedidos.length
-                  );
+                  const visiblePedidos = mesa.pedidos;
 
                   return (
                     <article
@@ -2145,13 +2127,7 @@ export default function MostradorPage() {
                               (item) => item.prepTarget === 'mostrador'
                             );
 
-                          const visibleItems = compactMode
-                            ? pedido.items.slice(0, 1)
-                            : pedido.items;
-                          const hiddenItemsCount = Math.max(
-                            0,
-                            pedido.items.length - visibleItems.length
-                          );
+                          const visibleItems = pedido.items;
 
                           return (
                             <div
@@ -2275,12 +2251,6 @@ export default function MostradorPage() {
                                     </div>
                                   </div>
                                 ))}
-
-                                {hiddenItemsCount > 0 ? (
-                                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">
-                                    + {hiddenItemsCount} ítem{hiddenItemsCount !== 1 ? 's' : ''} más
-                                  </div>
-                                ) : null}
                               </div>
 
                               <div className="mt-1.5 flex flex-wrap gap-1">
@@ -2350,12 +2320,6 @@ export default function MostradorPage() {
                             </div>
                           );
                         })}
-
-                        {hiddenPedidosCount > 0 ? (
-                          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">
-                            + {hiddenPedidosCount} pedido{hiddenPedidosCount !== 1 ? 's' : ''} más en esta mesa
-                          </div>
-                        ) : null}
                       </div>
 
                       <div className="mt-2 flex flex-wrap gap-1">
