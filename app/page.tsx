@@ -356,38 +356,38 @@ export default function RestoSmartLanding() {
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             {[
               {
-                title: 'Esencial',
-                desc: 'Digitalizá y ordená la operación base del local.',
-                bullets: [
-                  'Gestión de productos y categorías',
-                  'Menú digital',
-                  'Modo restaurante o take away',
-                  'QR por mesa si operás con salón',
-                  'Cocina y operación básica',
-                ],
-              },
-              {
-                title: 'Pro',
-                desc: 'Sumá herramientas para una operación de salón más completa.',
-                bullets: [
-                  'Todo lo de Esencial',
-                  'Modo mozo',
-                  'Gestión operativa ampliada',
-                  'Mejor flujo de salón',
-                  'Más control del local',
-                ],
-              },
-              {
-                title: 'Intelligence',
-                desc: 'Tomá decisiones con datos y visión ejecutiva.',
-                bullets: [
-                  'Todo lo de Pro',
-                  'Analytics avanzados',
-                  'KPIs operativos y comerciales',
-                  'Vista ejecutiva',
-                  'Base para crecimiento multi-local',
-                ],
-              },
+  title: 'Esencial',
+  desc: 'Vendé y operá con una base simple, clara y lista para usar.',
+  bullets: [
+    'Gestión de productos y categorías',
+    'Menú digital',
+    'Modo restaurante o take away',
+    'QR por mesa si operás con salón',
+    'Cocina y operación básica',
+  ],
+},
+{
+  title: 'Pro',
+  desc: 'Ganás más control sobre la operación diaria del local.',
+  bullets: [
+    'Todo lo de Esencial',
+    'Gestión operativa ampliada',
+    'Más control del flujo diario',
+    'Modo mozo para restaurante',
+    'Mejor coordinación del local',
+  ],
+},
+{
+  title: 'Intelligence',
+  desc: 'Optimizá el negocio con datos, KPIs e insights.',
+  bullets: [
+    'Todo lo de Pro',
+    'Analytics avanzados',
+    'KPIs operativos y comerciales',
+    'Vista ejecutiva',
+    'Mejores decisiones con datos',
+  ],
+},
             ].map((c) => (
               <div
                 key={c.title}
@@ -493,10 +493,10 @@ export default function RestoSmartLanding() {
               </div>
               <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
                 <li>✔ Todo lo del plan Esencial</li>
-                <li>✔ Modo mozo</li>
-                <li>✔ Gestión operativa ampliada</li>
-                <li>✔ Mejor flujo de salón</li>
-                <li>✔ Más control del local</li>
+<li>✔ Gestión operativa ampliada</li>
+<li>✔ Más control del flujo diario</li>
+<li>✔ Modo mozo para restaurante</li>
+<li>✔ Más control del local</li>
               </ul>
             </div>
 
@@ -507,10 +507,10 @@ export default function RestoSmartLanding() {
               </div>
               <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
                 <li>✔ Todo lo del plan Pro</li>
-                <li>✔ Analytics avanzados</li>
-                <li>✔ KPIs y rendimiento</li>
-                <li>✔ Vista ejecutiva</li>
-                <li>✔ Lectura comercial del negocio</li>
+<li>✔ Analytics avanzados</li>
+<li>✔ KPIs y rendimiento</li>
+<li>✔ Vista ejecutiva</li>
+<li>✔ Insights para optimizar el negocio</li>
               </ul>
             </div>
           </div>

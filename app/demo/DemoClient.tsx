@@ -959,8 +959,8 @@ function CocinaView(props: {
           <div className="text-xs text-zinc-500">Cocina (Demo)</div>
           <h1 className="text-2xl font-bold tracking-tight">Panel de cocina</h1>
           <p className="mt-1 text-sm text-zinc-700">
-            Cocina ve pedidos de restaurante y take away en una misma operación.
-          </p>
+  Cocina concentra la preparación de pedidos de restaurante y take away en una misma operación.
+</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -1232,8 +1232,8 @@ function MozoView(props: {
           <div className="text-xs text-zinc-500">Mozo (Demo)</div>
           <h1 className="text-2xl font-bold tracking-tight">Pantalla mozo</h1>
           <p className="mt-1 text-sm text-zinc-700">
-            Entregas + cuenta por mesa + pago efectivo.
-          </p>
+  Atención de salón, seguimiento de pedidos y coordinación operativa por mesa.
+</p>
         </div>
 
         <div className="flex items-center gap-2">

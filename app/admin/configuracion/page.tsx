@@ -120,23 +120,23 @@ const PLAN_CARDS: Array<{
   {
     code: 'esencial',
     shortLabel: 'Esencial',
-    title: 'Operación base',
+    title: 'Venta y operación base',
     description:
-      'Menú digital, QR, cocina, operaciones básicas y configuración general.',
+      'Menú digital, QR, cocina, operaciones básicas y configuración general para empezar a vender y ordenar el local.',
   },
   {
     code: 'pro',
     shortLabel: 'Pro',
-    title: 'Operación ampliada',
+    title: 'Control operativo del local',
     description:
-      'Suma modo mozo y operaciones avanzadas para locales con más flujo.',
+      'Suma gestión operativa ampliada, más control del flujo diario y modo mozo para negocios con salón.',
   },
   {
     code: 'intelligence',
     shortLabel: 'Intelligence',
-    title: 'Analítica avanzada',
+    title: 'Optimización con datos',
     description:
-      'Incluye todo Pro y desbloquea analytics avanzados y ejecutivos.',
+      'Incluye todo Pro y desbloquea analytics avanzados, KPIs e insights ejecutivos para tomar mejores decisiones.',
   },
 ];
 

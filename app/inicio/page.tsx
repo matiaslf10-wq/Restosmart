@@ -96,14 +96,12 @@ export default function InicioPage() {
           <QuickAccessCard
             href="/mostrador"
             title="🧾 Mostrador / Caja"
-            description="Entrega final de take away y cierre de cuenta en salón para el flujo compacto de Esencial."
-          />
+            description="Pantalla central para operación diaria, cobro, entrega y cierre, tanto en salón como en take away."          />
 
           <QuickAccessCard
             href="/mozo/mesas"
             title="🍽️ Mozo"
-            description="Acceso rápido al flujo de salón para visualizar mesas, pedidos y atención al cliente."
-          />
+            description="Acceso rápido al flujo de salón para visualizar mesas, pedidos y atención operativa del mozo."          />
 
           <QuickAccessCard
             href="/admin/mesas"

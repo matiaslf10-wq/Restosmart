@@ -179,10 +179,10 @@ export default function AdminHome() {
       {
         key: 'mostrador',
         title: 'Mostrador / Caja',
-        description:
-          businessMode === 'takeaway'
-            ? 'Entrega final de pedidos take away y confirmación de retiro desde una sola pantalla.'
-            : 'Punto operativo compacto para entrega final y cierre de cuenta del salón en el flujo Esencial.',
+          description:
+  businessMode === 'takeaway'
+    ? 'Pantalla central para operar pedidos, entrega, cobro y retiro en take away.'
+    : 'Pantalla central para operación diaria, apoyo al salón, cobro y cierre de cuenta.',
         status: 'enabled',
         href: '/mostrador',
         action: 'Abrir módulo',
@@ -206,10 +206,9 @@ export default function AdminHome() {
         key: 'mozo',
         title: 'Modo mozo',
         description:
-          businessMode === 'restaurant'
-            ? 'Vista de salón, control de mesas y gestión operativa asistida.'
-            : 'No aplica en take away porque no hay operación de salón ni mozos por mesa.',
-        status:
+  businessMode === 'restaurant'
+    ? 'Vista de salón para atención de mesas y seguimiento operativo del mozo.'
+    : 'No aplica en take away porque no hay operación de salón ni mozos por mesa.',        status:
           businessMode === 'takeaway'
             ? 'not_applicable'
             : capabilities.waiter_mode
@@ -260,10 +259,9 @@ export default function AdminHome() {
   ]);
 
   const nextStepText =
-    businessMode === 'restaurant'
-      ? 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Todo lo que esté marcado como disponible se muestra en el menú de las mesas.'
-      : 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Todo lo que esté marcado como disponible queda listo para el flujo del negocio en modo take away.';
-
+  businessMode === 'restaurant'
+    ? 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Después podés seguir con mostrador, cocina, mesas y, si tu plan lo permite, modo mozo.'
+    : 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Después podés seguir con mostrador, cocina y el flujo público de take away.';
   const getModuleCardClassName = (status: ModuleStatus) => {
     switch (status) {
       case 'enabled':
