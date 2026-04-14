@@ -12,7 +12,11 @@ export type FeatureKey =
   | 'operations_basic'
   | 'settings_basic'
   | 'waiter_mode'
-  | 'operations_advanced'
+  | 'stock_control'
+  | 'discounts_manual'
+  | 'operational_history'
+  | 'operational_reports'
+  | 'settings_advanced'
   | 'analytics_advanced'
   | 'analytics_executive';
 
@@ -22,6 +26,7 @@ export type CapabilityMap = {
   analytics: boolean;
   delivery: boolean;
   waiter_mode: boolean;
+  stock_control: boolean;
 };
 
 export const PLAN_FEATURES: Record<PlanCode, FeatureKey[]> = {
@@ -47,7 +52,11 @@ export const PLAN_FEATURES: Record<PlanCode, FeatureKey[]> = {
     'operations_basic',
     'settings_basic',
     'waiter_mode',
-    'operations_advanced',
+    'stock_control',
+    'discounts_manual',
+    'operational_history',
+    'operational_reports',
+    'settings_advanced',
   ],
   intelligence: [
     'products',
@@ -60,7 +69,11 @@ export const PLAN_FEATURES: Record<PlanCode, FeatureKey[]> = {
     'operations_basic',
     'settings_basic',
     'waiter_mode',
-    'operations_advanced',
+    'stock_control',
+    'discounts_manual',
+    'operational_history',
+    'operational_reports',
+    'settings_advanced',
     'analytics_advanced',
     'analytics_executive',
   ],
@@ -150,5 +163,6 @@ export function getCapabilityMap(
     delivery: hasAddon(addons, 'whatsapp_delivery'),
     waiter_mode:
       businessMode === 'restaurant' && hasFeature(plan, 'waiter_mode'),
+    stock_control: hasFeature(plan, 'stock_control'),
   };
 }
