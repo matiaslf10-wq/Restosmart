@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import {
   formatBusinessModeLabel,
+  formatPlanLabel,
   normalizeBusinessMode,
   type BusinessMode,
   type PlanCode,
@@ -246,12 +247,15 @@ export default function AdminOperacionesPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
 
-  const businessMode = normalizeBusinessMode(
-    sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
-  );
-  const businessModeLabel = formatBusinessModeLabel(businessMode);
-  const deliveryAddonEnabled = !!sessionData?.addons?.whatsapp_delivery;
-  const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
+  const plan = sessionData?.plan ?? 'esencial';
+const planLabel = formatPlanLabel(plan);
+
+const businessMode = normalizeBusinessMode(
+  sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
+);
+const businessModeLabel = formatBusinessModeLabel(businessMode);
+const deliveryAddonEnabled = !!sessionData?.addons?.whatsapp_delivery;
+const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
 
   async function cargar() {
     try {
@@ -328,41 +332,58 @@ export default function AdminOperacionesPage() {
   }, [localPedidosConCanal]);
 
   const copy = useMemo(() => {
-    return {
-      intro:
-        'Tablero general de la operación. Acá monitoreás el estado del local, delivery y alertas. La acción operativa final vive en Mostrador / Caja.',
-      localTitle: 'Movimientos del local',
-      localDescription:
-        'Pedidos abiertos del negocio en estado solicitado, pendiente, en preparación o listo.',
-      localEmpty: 'No hay movimientos activos del local.',
-      statsRequested: 'Local · solicitados',
-      statsInProgress: 'Local · en curso',
-      statsReady: 'Local · listos',
-    };
-  }, []);
+  return {
+    intro:
+      plan === 'pro' || plan === 'intelligence'
+        ? 'Tablero operativo del negocio. En este plan ya contás con gestión operativa ampliada para coordinar mostrador, cocina y, cuando aplica, mozo.'
+        : 'Tablero operativo del negocio. Acá monitoreás el estado general y bajás a los módulos internos para accionar.',
+    localTitle: 'Operación activa del local',
+    localDescription:
+      businessMode === 'takeaway'
+        ? 'Pedidos abiertos del negocio para preparación, entrega y retiro en mostrador.'
+        : 'Pedidos abiertos del negocio en salón y take away para preparación, cobro, entrega o cierre según el caso.',
+    localEmpty: 'No hay movimientos activos del local.',
+    statsRequested: 'Local · solicitados',
+    statsInProgress: 'Local · en curso',
+    statsReady: 'Local · listos',
+  };
+}, [businessMode, plan]);
 
   const quickFlowText = useMemo(() => {
-    if (businessMode === 'takeaway') {
-      return 'En take away, el flujo práctico es: cliente pide → cocina prepara → mostrador entrega y marca retirado.';
-    }
+  if (businessMode === 'takeaway') {
+    return 'En take away, el flujo práctico es: cliente pide → cocina prepara → mostrador concentra la entrega, el cobro y el retiro.';
+  }
 
-    if (waiterModeEnabled) {
-      return 'En restaurante con Pro, el flujo práctico es: cliente/mozo genera pedido → cocina prepara → mozo o caja entregan/cobran según el caso.';
-    }
+  if (waiterModeEnabled) {
+    return 'En restaurante con Pro o superior, el flujo práctico es: cliente o mozo generan pedido → cocina prepara → mozo acompaña el salón → mostrador/caja cobra y cierra la cuenta.';
+  }
 
-    return 'En restaurante Esencial, el flujo práctico es: cliente pide → cocina prepara → mostrador/caja entrega lo listo y cierra la cuenta cuando la mesa se libera.';
-  }, [businessMode, waiterModeEnabled]);
+  return 'En restaurante con Esencial, el flujo práctico es: cliente pide → cocina prepara → mostrador/caja concentra la gestión operativa final del salón.';
+}, [businessMode, waiterModeEnabled]);
 
   return (
     <main className="p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Operaciones en tiempo real</h1>
-          <p className="mt-1 text-sm text-neutral-600">{copy.intro}</p>
-          <p className="mt-1 text-xs text-neutral-500">
-            Modo actual del negocio: {businessModeLabel}
-          </p>
-        </div>
+  <h1 className="text-2xl font-semibold">Operaciones en tiempo real</h1>
+  <p className="mt-1 text-sm text-neutral-600">{copy.intro}</p>
+
+  <div className="mt-3 flex flex-wrap gap-2">
+    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+      Plan {planLabel}
+    </span>
+
+    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+      Modo {businessModeLabel}
+    </span>
+
+    {businessMode === 'restaurant' && waiterModeEnabled ? (
+      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+        Gestión operativa ampliada
+      </span>
+    ) : null}
+  </div>
+</div>
 
         <div className="flex flex-wrap gap-2">
           <Link
@@ -441,8 +462,8 @@ export default function AdminOperacionesPage() {
                 Mostrador / Caja
               </h2>
               <p className="mt-2 text-sm text-slate-600">
-                Crear pedidos manuales, resolver pedidos rápidos, entregar take away y cerrar cuentas del salón.
-              </p>
+  Pantalla central para resolver pedidos, cobrar, entregar y cerrar la operación del local.
+</p>
             </Link>
 
             <Link
@@ -452,8 +473,8 @@ export default function AdminOperacionesPage() {
               <p className="text-sm font-semibold text-slate-700">Producción</p>
               <h2 className="mt-2 text-xl font-bold text-slate-900">Cocina</h2>
               <p className="mt-2 text-sm text-slate-600">
-                Tomar pedidos, prepararlos y dejarlos en listo.
-              </p>
+  Producción del local: tomar pedidos, prepararlos y dejarlos listos para entregar.
+</p>
             </Link>
 
             {businessMode === 'restaurant' && waiterModeEnabled ? (
@@ -466,8 +487,8 @@ export default function AdminOperacionesPage() {
                 </p>
                 <h2 className="mt-2 text-xl font-bold text-slate-900">Mozo</h2>
                 <p className="mt-2 text-sm text-slate-600">
-                  Vista distribuida del salón, mesas y atención asistida.
-                </p>
+  Atención del salón, seguimiento por mesa y apoyo operativo distribuido.
+</p>
               </Link>
             ) : (
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -478,8 +499,8 @@ export default function AdminOperacionesPage() {
                   Sin modo mozo activo
                 </h2>
                 <p className="mt-2 text-sm text-slate-600">
-                  En este contexto, Mostrador / Caja absorbe la operación final del salón.
-                </p>
+  En este contexto, la operación se concentra entre mostrador/caja y cocina.
+</p>
               </div>
             )}
 
@@ -494,8 +515,8 @@ export default function AdminOperacionesPage() {
                 Dashboard admin
               </h2>
               <p className="mt-2 text-sm text-slate-600">
-                KPIs, módulos disponibles y navegación general del negocio.
-              </p>
+  Resumen comercial del negocio, módulos disponibles y navegación general.
+</p>
             </Link>
           </section>
 
