@@ -65,7 +65,8 @@ export default function AdminHome() {
     porCategoria: {},
   });
 
-  const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
+  const [sessionData, setSessionData] =
+    useState<AdminSessionPayload | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
 
@@ -118,7 +119,9 @@ export default function AdminHome() {
           (a, b) => b[1] - a[1]
         );
 
-        setSessionData((sessionJson?.session as AdminSessionPayload | null) ?? null);
+        setSessionData(
+          (sessionJson?.session as AdminSessionPayload | null) ?? null
+        );
         setStats({
           total,
           disponibles,
@@ -165,7 +168,8 @@ export default function AdminHome() {
       ? 'Activo'
       : 'Bloqueado';
 
-  const hasAdvancedOperations = plan === 'pro' || plan === 'intelligence';
+  const hasOperationalManagement =
+    plan === 'pro' || plan === 'intelligence';
 
   const planSummary = useMemo(() => {
     if (plan === 'intelligence') {
@@ -183,25 +187,25 @@ export default function AdminHome() {
 
     if (plan === 'pro') {
       return {
-        title: 'Pro: más control sobre la operación diaria',
+        title: 'Pro: gestión operativa ampliada',
         description:
           businessMode === 'restaurant'
-            ? 'Además de la base de Esencial, sumás modo mozo y una capa operativa más sólida para coordinar mejor salón, cocina y caja.'
-            : 'Además de la base de Esencial, ganás una operación más robusta para coordinar mejor pedidos, cocina y mostrador en el día a día.',
+            ? 'Además de la base de Esencial, sumás un tablero real de gestión operativa para coordinar mejor salón, cocina, mostrador y caja. En restaurante también se habilita modo mozo.'
+            : 'Además de la base de Esencial, sumás un tablero real de gestión operativa para coordinar mejor pedidos, cocina, mostrador y entrega en take away.',
         highlights: [
-          'Gestión operativa ampliada',
+          'Tablero de gestión operativa',
           businessMode === 'restaurant'
             ? 'Modo mozo para salón'
-            : 'Más orden operativo en take away',
+            : 'Operación más ordenada en take away',
           'Analytics avanzados siguen en Intelligence',
         ],
       };
     }
 
     return {
-      title: 'Esencial: base operativa simple y clara',
+      title: 'Esencial: operación base simple y clara',
       description:
-        'Tenés menú digital, cocina, operación básica y el mismo sistema puede funcionar como restaurante o como take away. Pro agrega una capa operativa más amplia.',
+        'Tenés menú digital, cocina, mostrador/caja y la base comercial del local. La capa de gestión operativa ampliada aparece recién en Pro.',
       highlights: [
         'Menú digital y operación base',
         'Restaurante o take away',
@@ -223,13 +227,15 @@ export default function AdminHome() {
       },
       {
         key: 'operaciones',
-        title: 'Operaciones',
-        description: hasAdvancedOperations
-          ? 'Vista transversal para seguir la operación diaria con mayor control y coordinación entre los distintos frentes del local.'
-          : 'La gestión operativa ampliada se desbloquea desde Pro para dar más control sobre el flujo diario del local.',
-        status: hasAdvancedOperations ? 'enabled' : 'blocked',
-        href: hasAdvancedOperations ? '/admin/operaciones' : '/#precios',
-        action: hasAdvancedOperations ? 'Abrir módulo' : 'Disponible desde Pro',
+        title: 'Gestión operativa',
+        description: hasOperationalManagement
+          ? 'Tablero transversal para seguir y coordinar la operación diaria del local con más control.'
+          : 'La capa de gestión operativa ampliada vive acá. En Esencial seguís operando desde cocina y mostrador, pero este tablero se habilita desde Pro.',
+        status: hasOperationalManagement ? 'enabled' : 'blocked',
+        href: '/admin/operaciones',
+        action: hasOperationalManagement
+          ? 'Abrir módulo'
+          : 'Disponible desde Pro',
       },
       {
         key: 'mostrador',
@@ -312,21 +318,17 @@ export default function AdminHome() {
     businessMode,
     capabilities.analytics,
     capabilities.waiter_mode,
-    hasAdvancedOperations,
+    hasOperationalManagement,
   ]);
 
   const nextStepText =
     plan === 'pro'
       ? businessMode === 'restaurant'
-        ? 'Ya tenés Pro: después de cargar el menú, podés seguir con operaciones, mostrador, cocina, mesas y modo mozo para ordenar mejor la operación del salón.'
-        : 'Ya tenés Pro: después de cargar el menú, podés seguir con operaciones, mostrador, cocina y una operación más ordenada para take away.'
-      : plan === 'intelligence'
-      ? businessMode === 'restaurant'
-        ? 'Ya tenés Intelligence: después de cargar el menú, podés trabajar con operaciones, mostrador, cocina, mesas, modo mozo y analytics avanzados.'
-        : 'Ya tenés Intelligence: después de cargar el menú, podés trabajar con operaciones, mostrador, cocina y analytics avanzados para optimizar take away.'
+        ? 'Ya tenés Pro: después de cargar el menú, el siguiente circuito natural es gestión operativa, mostrador, cocina, mesas y modo mozo para ordenar mejor el salón.'
+        : 'Ya tenés Pro: después de cargar el menú, el siguiente circuito natural es gestión operativa, mostrador y cocina para ordenar mejor el flujo de take away.'
       : businessMode === 'restaurant'
-      ? 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Después podés seguir con mostrador, cocina y mesas. Si más adelante necesitás más control operativo, el siguiente paso natural es Pro.'
-      : 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Después podés seguir con mostrador, cocina y el flujo público de take away. Si más adelante necesitás más control operativo, el siguiente paso natural es Pro.';
+      ? 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Después seguí con mostrador, cocina y mesas. Cuando necesites una coordinación operativa más fuerte, el siguiente paso natural es Pro.'
+      : 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Después seguí con mostrador, cocina y el flujo público de take away. Cuando necesites una coordinación operativa más fuerte, el siguiente paso natural es Pro.';
 
   const getModuleCardClassName = (status: ModuleStatus) => {
     switch (status) {
@@ -418,27 +420,27 @@ export default function AdminHome() {
       ) : null}
 
       <section className="grid gap-4 md:grid-cols-5">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <p className="text-sm text-slate-500">Plan actual</p>
           <p className="mt-1 text-2xl font-bold">{planLabel}</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <p className="text-sm text-slate-500">Tenant</p>
           <p className="mt-1 text-2xl font-bold">{tenantLabel}</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <p className="text-sm text-slate-500">Modo de negocio</p>
           <p className="mt-1 text-2xl font-bold">{businessModeLabel}</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <p className="text-sm text-slate-500">Modo mozo</p>
           <p className="mt-1 text-2xl font-bold">{waiterModeStatus}</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <p className="text-sm text-slate-500">WhatsApp Delivery</p>
           <p className="mt-1 text-2xl font-bold">
             {addons.whatsapp_delivery ? 'Activo' : 'No activo'}
@@ -472,10 +474,10 @@ export default function AdminHome() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
         <h2 className="text-lg font-semibold">Accesos rápidos</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Atajos internos según la función y el modo de operación.
+          Atajos internos según la función, el plan y el modo de operación.
         </p>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
@@ -486,19 +488,19 @@ export default function AdminHome() {
             Menú / Productos
           </Link>
 
-          {hasAdvancedOperations ? (
+          {hasOperationalManagement ? (
             <Link
               href="/admin/operaciones"
               className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
             >
-              Operaciones
+              Gestión operativa
             </Link>
           ) : (
             <Link
               href="/#precios"
-              className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+              className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-100"
             >
-              Operaciones (desde Pro)
+              Gestión operativa · Pro
             </Link>
           )}
 
@@ -539,6 +541,13 @@ export default function AdminHome() {
             >
               Modo mozo
             </Link>
+          ) : !hasOperationalManagement ? (
+            <Link
+              href="/#precios"
+              className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-100"
+            >
+              Modo mozo · Pro
+            </Link>
           ) : (
             <Link
               href="/inicio"
@@ -551,19 +560,19 @@ export default function AdminHome() {
       </section>
 
       <section className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <h2 className="text-sm text-slate-500">Productos totales</h2>
-          <p className="mt-1 text-3xl font-bold">{stats.total}</p>
+          <p className="text-3xl font-bold mt-1">{stats.total}</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <h2 className="text-sm text-slate-500">Disponibles en menú</h2>
-          <p className="mt-1 text-3xl font-bold">{stats.disponibles}</p>
+          <p className="text-3xl font-bold mt-1">{stats.disponibles}</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <h2 className="text-sm text-slate-500">Categorías</h2>
-          <ul className="mt-2 space-y-1 text-sm">
+          <ul className="mt-2 text-sm space-y-1">
             {Object.keys(stats.porCategoria).length === 0 && (
               <li className="text-slate-500">Sin productos aún.</li>
             )}
@@ -578,7 +587,7 @@ export default function AdminHome() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Módulos del sistema</h2>
@@ -614,7 +623,7 @@ export default function AdminHome() {
                 </span>
               </div>
 
-              <p className="mt-3 text-sm leading-relaxed text-slate-600">
+              <p className="mt-3 text-sm text-slate-600 leading-relaxed">
                 {modulo.description}
               </p>
 
@@ -629,21 +638,21 @@ export default function AdminHome() {
                 ) : modulo.externalHref ? (
                   <a
                     href={modulo.externalHref}
-                    className="inline-flex rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+                    className="inline-flex rounded-lg bg-white px-4 py-2 text-sm font-semibold text-blue-700 border border-blue-300 hover:bg-blue-100"
                   >
                     {modulo.action}
                   </a>
                 ) : modulo.status === 'not_applicable' && modulo.href ? (
                   <Link
                     href={modulo.href}
-                    className="inline-flex rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
+                    className="inline-flex rounded-lg bg-white px-4 py-2 text-sm font-semibold text-amber-700 border border-amber-300 hover:bg-amber-100"
                   >
                     {modulo.action}
                   </Link>
                 ) : (
                   <Link
                     href="/#precios"
-                    className="inline-flex rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+                    className="inline-flex rounded-lg bg-white px-4 py-2 text-sm font-semibold text-blue-700 border border-blue-300 hover:bg-blue-100"
                   >
                     {modulo.action}
                   </Link>
@@ -654,8 +663,8 @@ export default function AdminHome() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="mb-2 text-lg font-semibold">Siguiente paso</h2>
+      <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+        <h2 className="text-lg font-semibold mb-2">Siguiente paso</h2>
         <p className="text-sm text-slate-600">{nextStepText}</p>
 
         <div className="mt-4 flex flex-wrap gap-3">
@@ -666,14 +675,21 @@ export default function AdminHome() {
             Ir a productos
           </Link>
 
-          {hasAdvancedOperations ? (
+          {hasOperationalManagement ? (
             <Link
               href="/admin/operaciones"
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              Ver operaciones
+              Ver gestión operativa
             </Link>
-          ) : null}
+          ) : (
+            <Link
+              href="/#precios"
+              className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+            >
+              Desbloquear Pro
+            </Link>
+          )}
 
           <Link
             href="/mostrador"
@@ -697,15 +713,6 @@ export default function AdminHome() {
               Revisar modo de negocio
             </Link>
           )}
-
-          {!hasAdvancedOperations ? (
-            <Link
-              href="/#precios"
-              className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
-            >
-              Desbloquear gestión operativa
-            </Link>
-          ) : null}
 
           {!capabilities.analytics ? (
             <Link

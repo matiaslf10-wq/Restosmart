@@ -51,7 +51,8 @@ export default function AdminLayout({
 
   const [ready, setReady] = useState(false);
   const [checking, setChecking] = useState(true);
-  const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
+  const [sessionData, setSessionData] =
+    useState<AdminSessionPayload | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -84,6 +85,13 @@ export default function AdminLayout({
 
         const session = (data?.session as AdminSessionPayload | null) ?? null;
         const capabilities = session?.capabilities ?? {};
+        const plan = (session?.plan ?? 'esencial') as PlanCode;
+        const businessMode = normalizeBusinessMode(
+          session?.business_mode ?? session?.restaurant?.business_mode
+        );
+
+        const hasOperationalManagement =
+          plan === 'pro' || plan === 'intelligence';
 
         const analyticsBlocked =
           pathname.startsWith('/admin/analytics') && !capabilities.analytics;
@@ -91,7 +99,24 @@ export default function AdminLayout({
         const deliveryBlocked =
           pathname.startsWith('/admin/delivery') && !capabilities.delivery;
 
-        if (analyticsBlocked || deliveryBlocked) {
+        const operationsBlocked =
+          pathname.startsWith('/admin/operaciones') &&
+          !hasOperationalManagement;
+
+        const waiterBlocked =
+          pathname.startsWith('/mozo/mesas') &&
+          !(businessMode === 'restaurant' && !!capabilities.waiter_mode);
+
+        const mesasBlocked =
+          pathname.startsWith('/admin/mesas') && businessMode !== 'restaurant';
+
+        if (
+          analyticsBlocked ||
+          deliveryBlocked ||
+          operationsBlocked ||
+          waiterBlocked ||
+          mesasBlocked
+        ) {
           router.replace('/admin');
           return;
         }
@@ -112,7 +137,7 @@ export default function AdminLayout({
     setReady(false);
     setChecking(true);
     setSessionData(null);
-    verifySession();
+    void verifySession();
 
     return () => {
       active = false;
@@ -132,27 +157,28 @@ export default function AdminLayout({
     }
   }
 
+  const plan = (sessionData?.plan ?? 'esencial') as PlanCode;
+  const capabilities = sessionData?.capabilities ?? {};
+  const hasOperationalManagement =
+    plan === 'pro' || plan === 'intelligence';
+
   const businessMode = normalizeBusinessMode(
     sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
   );
   const businessModeLabel = formatBusinessModeLabel(businessMode);
 
   const navItems = useMemo<NavItem[]>(() => {
-    const capabilities = sessionData?.capabilities ?? {};
-
     return [
       { href: '/inicio', label: 'Inicio', visible: true },
       { href: '/admin', label: 'Dashboard', visible: true },
+      { href: '/admin/productos', label: 'Menú / Productos', visible: true },
       { href: '/cocina', label: 'Cocina', visible: true },
       { href: '/mostrador', label: 'Mostrador / Caja', visible: true },
       {
-        href: '/pedir',
-        label: 'Take Away',
-        visible: businessMode === 'takeaway',
+        href: '/admin/operaciones',
+        label: 'Gestión operativa',
+        visible: hasOperationalManagement,
       },
-      { href: '/admin/configuracion', label: 'Configuración', visible: true },
-      { href: '/admin/operaciones', label: 'Operaciones', visible: true },
-      { href: '/admin/productos', label: 'Menú / Productos', visible: true },
       {
         href: '/admin/mesas',
         label: 'Mesas / QR',
@@ -164,6 +190,12 @@ export default function AdminLayout({
         visible: businessMode === 'restaurant' && !!capabilities.waiter_mode,
       },
       {
+        href: '/pedir',
+        label: 'Take Away',
+        visible: businessMode === 'takeaway',
+      },
+      { href: '/admin/configuracion', label: 'Configuración', visible: true },
+      {
         href: '/admin/delivery',
         label: 'Delivery',
         visible: !!capabilities.delivery,
@@ -174,14 +206,13 @@ export default function AdminLayout({
         visible: !!capabilities.analytics,
       },
     ].filter((item) => item.visible);
-  }, [businessMode, sessionData]);
+  }, [businessMode, capabilities, hasOperationalManagement]);
 
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin';
     if (href === '/inicio') return pathname === '/inicio';
     if (href === '/cocina') return pathname === '/cocina';
     if (href === '/mostrador') return pathname === '/mostrador';
-    if (href === '/mozo/mesas') return pathname === '/mozo/mesas';
     if (href === '/pedir') return pathname === '/pedir';
     return pathname === href || pathname.startsWith(`${href}/`);
   };
@@ -206,7 +237,7 @@ export default function AdminLayout({
     return <>{children}</>;
   }
 
-  const planLabel = formatPlanLabel(sessionData?.plan ?? 'esencial');
+  const planLabel = formatPlanLabel(plan);
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -235,6 +266,16 @@ export default function AdminLayout({
               >
                 Modo {businessModeLabel}
               </span>
+
+              {hasOperationalManagement ? (
+                <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-200">
+                  Gestión operativa ampliada
+                </span>
+              ) : (
+                <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-200">
+                  Operación base
+                </span>
+              )}
 
               {sessionData?.addons?.whatsapp_delivery ? (
                 <span className="rounded-full bg-violet-600/20 border border-violet-400/30 px-2.5 py-1 text-xs text-violet-100">
