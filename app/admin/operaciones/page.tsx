@@ -248,32 +248,26 @@ export default function AdminOperacionesPage() {
   const [error, setError] = useState('');
 
   const plan = sessionData?.plan ?? 'esencial';
-const planLabel = formatPlanLabel(plan);
+  const planLabel = formatPlanLabel(plan);
 
-const businessMode = normalizeBusinessMode(
-  sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
-);
-const businessModeLabel = formatBusinessModeLabel(businessMode);
-const deliveryAddonEnabled = !!sessionData?.addons?.whatsapp_delivery;
-const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
+  const businessMode = normalizeBusinessMode(
+    sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
+  );
+  const businessModeLabel = formatBusinessModeLabel(businessMode);
+  const deliveryAddonEnabled = !!sessionData?.addons?.whatsapp_delivery;
+  const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
+  const hasAdvancedOperations = plan === 'pro' || plan === 'intelligence';
 
   async function cargar() {
     try {
       setError('');
 
-      const [sessionRes, operacionesRes] = await Promise.all([
-        fetch('/api/admin/session', {
-          method: 'GET',
-          cache: 'no-store',
-        }),
-        fetch('/api/admin/operaciones-resumen', {
-          method: 'GET',
-          cache: 'no-store',
-        }),
-      ]);
+      const sessionRes = await fetch('/api/admin/session', {
+        method: 'GET',
+        cache: 'no-store',
+      });
 
       const sessionBody = await sessionRes.json().catch(() => null);
-      const operacionesBody = await operacionesRes.json().catch(() => null);
 
       if (!sessionRes.ok) {
         throw new Error(
@@ -281,15 +275,33 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
         );
       }
 
+      const session =
+        (sessionBody?.session as AdminSessionPayload | null) ?? null;
+
+      setSessionData(session);
+
+      const currentPlan = session?.plan ?? 'esencial';
+      const canAccessOperations =
+        currentPlan === 'pro' || currentPlan === 'intelligence';
+
+      if (!canAccessOperations) {
+        setData(null);
+        return;
+      }
+
+      const operacionesRes = await fetch('/api/admin/operaciones-resumen', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      const operacionesBody = await operacionesRes.json().catch(() => null);
+
       if (!operacionesRes.ok) {
         throw new Error(
           operacionesBody?.error || 'No se pudo cargar el panel de operaciones.'
         );
       }
 
-      setSessionData(
-        (sessionBody?.session as AdminSessionPayload | null) ?? null
-      );
       setData((operacionesBody as OperacionesResponse | null) ?? null);
     } catch (err) {
       console.error(err);
@@ -304,10 +316,10 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
   }
 
   useEffect(() => {
-    cargar();
+    void cargar();
 
     const interval = setInterval(() => {
-      cargar();
+      void cargar();
     }, 15000);
 
     return () => clearInterval(interval);
@@ -332,58 +344,138 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
   }, [localPedidosConCanal]);
 
   const copy = useMemo(() => {
-  return {
-    intro:
-      plan === 'pro' || plan === 'intelligence'
-        ? 'Tablero operativo del negocio. En este plan ya contás con gestión operativa ampliada para coordinar mostrador, cocina y, cuando aplica, mozo.'
-        : 'Tablero operativo del negocio. Acá monitoreás el estado general y bajás a los módulos internos para accionar.',
-    localTitle: 'Operación activa del local',
-    localDescription:
-      businessMode === 'takeaway'
-        ? 'Pedidos abiertos del negocio para preparación, entrega y retiro en mostrador.'
-        : 'Pedidos abiertos del negocio en salón y take away para preparación, cobro, entrega o cierre según el caso.',
-    localEmpty: 'No hay movimientos activos del local.',
-    statsRequested: 'Local · solicitados',
-    statsInProgress: 'Local · en curso',
-    statsReady: 'Local · listos',
-  };
-}, [businessMode, plan]);
+    return {
+      intro:
+        plan === 'pro' || plan === 'intelligence'
+          ? 'Tablero operativo del negocio. En este plan ya contás con gestión operativa ampliada para coordinar mostrador, cocina y, cuando aplica, mozo.'
+          : 'Tablero operativo del negocio. Acá monitoreás el estado general y bajás a los módulos internos para accionar.',
+      localTitle: 'Operación activa del local',
+      localDescription:
+        businessMode === 'takeaway'
+          ? 'Pedidos abiertos del negocio para preparación, entrega y retiro en mostrador.'
+          : 'Pedidos abiertos del negocio en salón y take away para preparación, cobro, entrega o cierre según el caso.',
+      localEmpty: 'No hay movimientos activos del local.',
+      statsRequested: 'Local · solicitados',
+      statsInProgress: 'Local · en curso',
+      statsReady: 'Local · listos',
+    };
+  }, [businessMode, plan]);
 
   const quickFlowText = useMemo(() => {
-  if (businessMode === 'takeaway') {
-    return 'En take away, el flujo práctico es: cliente pide → cocina prepara → mostrador concentra la entrega, el cobro y el retiro.';
+    if (businessMode === 'takeaway') {
+      return 'En take away, el flujo práctico es: cliente pide → cocina prepara → mostrador concentra la entrega, el cobro y el retiro.';
+    }
+
+    if (waiterModeEnabled) {
+      return 'En restaurante con Pro o superior, el flujo práctico es: cliente o mozo generan pedido → cocina prepara → mozo acompaña el salón → mostrador/caja cobra y cierra la cuenta.';
+    }
+
+    return 'En restaurante con Esencial, el flujo práctico es: cliente pide → cocina prepara → mostrador/caja concentra la gestión operativa final del salón.';
+  }, [businessMode, waiterModeEnabled]);
+
+  if (cargando && !sessionData) {
+    return (
+      <main className="p-6">
+        <p>Cargando panel...</p>
+      </main>
+    );
   }
 
-  if (waiterModeEnabled) {
-    return 'En restaurante con Pro o superior, el flujo práctico es: cliente o mozo generan pedido → cocina prepara → mozo acompaña el salón → mostrador/caja cobra y cierra la cuenta.';
-  }
+  if (!hasAdvancedOperations) {
+    return (
+      <main className="min-h-screen bg-slate-50 p-6">
+        <div className="mx-auto max-w-4xl">
+          <div className="rounded-3xl border border-blue-200 bg-white p-8 shadow-sm">
+            <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+              Disponible desde Pro
+            </span>
 
-  return 'En restaurante con Esencial, el flujo práctico es: cliente pide → cocina prepara → mostrador/caja concentra la gestión operativa final del salón.';
-}, [businessMode, waiterModeEnabled]);
+            <h1 className="mt-4 text-3xl font-bold text-slate-900">
+              Gestión operativa ampliada
+            </h1>
+
+            <p className="mt-3 leading-relaxed text-slate-600">
+              Tu plan actual es <strong>{planLabel}</strong>. El módulo de{' '}
+              <strong>Operaciones</strong> forma parte de <strong>Pro</strong> y{' '}
+              <strong>Intelligence</strong>, porque concentra una capa de control
+              operativo más amplia sobre el flujo diario del local.
+            </p>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-semibold text-slate-900">
+                  Qué suma Pro en esta parte
+                </p>
+                <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                  <li>• Vista transversal de la operación</li>
+                  <li>• Más control sobre cocina, mostrador y salón</li>
+                  <li>• Modo mozo para restaurante</li>
+                  <li>• Mejor coordinación del flujo diario</li>
+                </ul>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-semibold text-slate-900">
+                  Lo que seguís teniendo ahora
+                </p>
+                <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                  <li>• Menú y productos</li>
+                  <li>• Cocina</li>
+                  <li>• Mostrador / caja</li>
+                  <li>• Operación base del local</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link
+                href="/#precios"
+                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Ver planes
+              </Link>
+
+              <Link
+                href="/admin"
+                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Volver al dashboard
+              </Link>
+
+              <Link
+                href="/mostrador"
+                className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Ir a mostrador / caja
+              </Link>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-  <h1 className="text-2xl font-semibold">Operaciones en tiempo real</h1>
-  <p className="mt-1 text-sm text-neutral-600">{copy.intro}</p>
+          <h1 className="text-2xl font-semibold">Operaciones en tiempo real</h1>
+          <p className="mt-1 text-sm text-neutral-600">{copy.intro}</p>
 
-  <div className="mt-3 flex flex-wrap gap-2">
-    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-      Plan {planLabel}
-    </span>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              Plan {planLabel}
+            </span>
 
-    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-      Modo {businessModeLabel}
-    </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              Modo {businessModeLabel}
+            </span>
 
-    {businessMode === 'restaurant' && waiterModeEnabled ? (
-      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-        Gestión operativa ampliada
-      </span>
-    ) : null}
-  </div>
-</div>
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+              Gestión operativa ampliada
+            </span>
+          </div>
+        </div>
 
         <div className="flex flex-wrap gap-2">
           <Link
@@ -425,7 +517,9 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
 
           <button
             type="button"
-            onClick={cargar}
+            onClick={() => {
+              void cargar();
+            }}
             className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
           >
             Actualizar
@@ -441,9 +535,7 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
 
       <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
         <p className="font-semibold">Cómo leer este tablero</p>
-        <p className="mt-1 leading-relaxed">
-          {quickFlowText}
-        </p>
+        <p className="mt-1 leading-relaxed">{quickFlowText}</p>
       </div>
 
       {cargando && !data ? <p>Cargando panel...</p> : null}
@@ -462,8 +554,9 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
                 Mostrador / Caja
               </h2>
               <p className="mt-2 text-sm text-slate-600">
-  Pantalla central para resolver pedidos, cobrar, entregar y cerrar la operación del local.
-</p>
+                Pantalla central para resolver pedidos, cobrar, entregar y cerrar
+                la operación del local.
+              </p>
             </Link>
 
             <Link
@@ -473,8 +566,9 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
               <p className="text-sm font-semibold text-slate-700">Producción</p>
               <h2 className="mt-2 text-xl font-bold text-slate-900">Cocina</h2>
               <p className="mt-2 text-sm text-slate-600">
-  Producción del local: tomar pedidos, prepararlos y dejarlos listos para entregar.
-</p>
+                Producción del local: tomar pedidos, prepararlos y dejarlos listos
+                para entregar.
+              </p>
             </Link>
 
             {businessMode === 'restaurant' && waiterModeEnabled ? (
@@ -487,8 +581,9 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
                 </p>
                 <h2 className="mt-2 text-xl font-bold text-slate-900">Mozo</h2>
                 <p className="mt-2 text-sm text-slate-600">
-  Atención del salón, seguimiento por mesa y apoyo operativo distribuido.
-</p>
+                  Atención del salón, seguimiento por mesa y apoyo operativo
+                  distribuido.
+                </p>
               </Link>
             ) : (
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -499,8 +594,9 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
                   Sin modo mozo activo
                 </h2>
                 <p className="mt-2 text-sm text-slate-600">
-  En este contexto, la operación se concentra entre mostrador/caja y cocina.
-</p>
+                  En este contexto, la operación se concentra entre mostrador/caja
+                  y cocina.
+                </p>
               </div>
             )}
 
@@ -515,8 +611,9 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
                 Dashboard admin
               </h2>
               <p className="mt-2 text-sm text-slate-600">
-  Resumen comercial del negocio, módulos disponibles y navegación general.
-</p>
+                Resumen comercial del negocio, módulos disponibles y navegación
+                general.
+              </p>
             </Link>
           </section>
 
@@ -628,8 +725,7 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
                               {getLocalSecondaryLabel(pedido, pedido._canal)}
                             </p>
 
-                            {pedido._canal === 'takeaway' &&
-                            pedido.creado_en ? (
+                            {pedido._canal === 'takeaway' && pedido.creado_en ? (
                               <p className="text-xs text-neutral-500">
                                 {formatDate(pedido.creado_en)}
                               </p>
@@ -665,8 +761,8 @@ const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
               {!deliveryAddonEnabled ? (
                 <div className="mb-4 rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800">
                   WhatsApp Delivery no está activo para este negocio. Este bloque
-                  puede seguir mostrando pedidos de delivery si existen en la operación,
-                  pero el add-on se administra por separado.
+                  puede seguir mostrando pedidos de delivery si existen en la
+                  operación, pero el add-on se administra por separado.
                 </div>
               ) : null}
 
