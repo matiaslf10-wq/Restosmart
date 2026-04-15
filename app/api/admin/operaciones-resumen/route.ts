@@ -46,6 +46,11 @@ type WhatsappAlertRow = {
 type PedidoCanal = 'restaurant' | 'takeaway' | 'delivery';
 type EstadoMesaSalon = 'en_curso' | 'lista_para_caja';
 
+type PedidoConCanal = PedidoRow & {
+  operacion_canal: PedidoCanal;
+  mesa_nombre: string;
+};
+
 function normalizeText(value: string | null | undefined) {
   return String(value ?? '').trim().toLowerCase();
 }
@@ -103,6 +108,15 @@ function esPendienteAprobacionEfectivo(pedido: PedidoRow) {
   );
 }
 
+function esEstadoFinalizado(estado: string | null | undefined) {
+  const normalized = normalizeText(estado);
+  return normalized === 'entregado' || normalized === 'cerrado';
+}
+
+function esEstadoCancelado(estado: string | null | undefined) {
+  return normalizeText(estado) === 'cancelado';
+}
+
 function getMesaDisplay(mesa: MesaRow | undefined, pedido: PedidoRow) {
   const canal = getPedidoCanal(pedido);
 
@@ -129,6 +143,24 @@ function getEstadoMesaSalon(pedidosMesa: PedidoRow[]): EstadoMesaSalon {
   return 'lista_para_caja';
 }
 
+function enrichPedidosWithCanal(
+  pedidos: PedidoRow[],
+  mesasMap: Map<number, MesaRow>
+): PedidoConCanal[] {
+  return pedidos.map((pedido) => {
+    const canal = getPedidoCanal(pedido);
+
+    return {
+      ...pedido,
+      operacion_canal: canal,
+      mesa_nombre:
+        pedido.mesa_id != null
+          ? getMesaDisplay(mesasMap.get(pedido.mesa_id), pedido)
+          : getMesaDisplay(undefined, pedido),
+    };
+  });
+}
+
 export async function GET(request: NextRequest) {
   const auth = requireAdminAuth(request);
   if (!auth.ok) {
@@ -138,52 +170,59 @@ export async function GET(request: NextRequest) {
   try {
     const restaurant = await getRestaurantContext().catch(() => null);
 
-    const [mesasResult, pedidosResult, alertasResult] = await Promise.all([
-      supabaseAdmin
-        .from('mesas')
-        .select('id, numero, nombre')
-        .order('id', { ascending: true }),
-      supabaseAdmin
-        .from('pedidos')
-        .select(
-          `
-            id,
-            codigo_publico,
-            mesa_id,
-            creado_en,
-            estado,
-            total,
-            origen,
-            tipo_servicio,
-            cliente_nombre,
-            cliente_telefono,
-            direccion_entrega,
-            medio_pago,
-            estado_pago,
-            efectivo_aprobado
-          `
-        )
-        .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
-        .order('creado_en', { ascending: false }),
-      supabaseAdmin
-        .from('whatsapp_alertas')
-        .select(
-          `
-            id,
-            telefono,
-            pedido_id,
-            motivo,
-            mensaje,
-            prioridad,
-            requiere_atencion_humana,
-            resuelta,
-            created_at
-          `
-        )
-        .eq('resuelta', false)
-        .order('created_at', { ascending: false })
-        .limit(20),
-    ]);
+    const pedidoSelect = `
+      id,
+      codigo_publico,
+      mesa_id,
+      creado_en,
+      estado,
+      total,
+      origen,
+      tipo_servicio,
+      cliente_nombre,
+      cliente_telefono,
+      direccion_entrega,
+      medio_pago,
+      estado_pago,
+      efectivo_aprobado
+    `;
+
+    const [mesasResult, pedidosActivosResult, historialResult, alertasResult] =
+      await Promise.all([
+        supabaseAdmin
+          .from('mesas')
+          .select('id, numero, nombre')
+          .order('id', { ascending: true }),
+        supabaseAdmin
+          .from('pedidos')
+          .select(pedidoSelect)
+          .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
+          .order('creado_en', { ascending: false }),
+        supabaseAdmin
+          .from('pedidos')
+          .select(pedidoSelect)
+          .in('estado', ['entregado', 'cerrado', 'cancelado'])
+          .order('id', { ascending: false })
+          .limit(50),
+        supabaseAdmin
+          .from('whatsapp_alertas')
+          .select(
+            `
+              id,
+              telefono,
+              pedido_id,
+              motivo,
+              mensaje,
+              prioridad,
+              requiere_atencion_humana,
+              resuelta,
+              created_at
+            `
+          )
+          .eq('resuelta', false)
+          .order('created_at', { ascending: false })
+          .limit(20),
+      ]);
 
     if (mesasResult.error) {
       return NextResponse.json(
@@ -192,15 +231,27 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (pedidosResult.error) {
+    if (pedidosActivosResult.error) {
       return NextResponse.json(
-        { error: `No se pudieron leer los pedidos: ${pedidosResult.error.message}` },
+        {
+          error: `No se pudieron leer los pedidos activos: ${pedidosActivosResult.error.message}`,
+        },
+        { status: 500 }
+      );
+    }
+
+    if (historialResult.error) {
+      return NextResponse.json(
+        {
+          error: `No se pudo leer el historial operativo: ${historialResult.error.message}`,
+        },
         { status: 500 }
       );
     }
 
     const mesas = (mesasResult.data ?? []) as MesaRow[];
-    const pedidos = (pedidosResult.data ?? []) as PedidoRow[];
+    const pedidosActivos = (pedidosActivosResult.data ?? []) as PedidoRow[];
+    const historialPedidosRaw = (historialResult.data ?? []) as PedidoRow[];
     const alertasError = alertasResult.error;
     const alertas = alertasError
       ? []
@@ -211,18 +262,11 @@ export async function GET(request: NextRequest) {
       mesasMap.set(mesa.id, mesa);
     });
 
-    const pedidosConCanal = pedidos.map((pedido) => {
-      const canal = getPedidoCanal(pedido);
-
-      return {
-        ...pedido,
-        operacion_canal: canal,
-        mesa_nombre:
-          pedido.mesa_id != null
-            ? getMesaDisplay(mesasMap.get(pedido.mesa_id), pedido)
-            : getMesaDisplay(undefined, pedido),
-      };
-    });
+    const pedidosConCanal = enrichPedidosWithCanal(pedidosActivos, mesasMap);
+    const historialPedidos = enrichPedidosWithCanal(
+      historialPedidosRaw,
+      mesasMap
+    );
 
     const localPedidos = pedidosConCanal
       .filter((pedido) => esOperacionLocal(pedido))
@@ -260,7 +304,7 @@ export async function GET(request: NextRequest) {
         mesa_id: number;
         mesa_nombre: string;
         mesa_numero: number | null;
-        pedidos: typeof restaurantPedidosFull;
+        pedidos: PedidoConCanal[];
         total: number;
       }
     >();
@@ -309,6 +353,22 @@ export async function GET(request: NextRequest) {
         if (aNumero !== bNumero) return aNumero - bNumero;
         return a.mesa_id - b.mesa_id;
       });
+
+    const historialFinalizados = historialPedidos.filter((pedido) =>
+      esEstadoFinalizado(pedido.estado)
+    );
+
+    const historialCancelados = historialPedidos.filter((pedido) =>
+      esEstadoCancelado(pedido.estado)
+    );
+
+    const ticketPromedioFinalizadosRecientes =
+      historialFinalizados.length > 0
+        ? historialFinalizados.reduce(
+            (acc, pedido) => acc + Number(pedido.total ?? 0),
+            0
+          ) / historialFinalizados.length
+        : 0;
 
     const resumen = {
       salonSolicitados: restaurantPedidosFull.filter(
@@ -376,6 +436,21 @@ export async function GET(request: NextRequest) {
       ).length,
     };
 
+    const reporteOperativo = {
+      pedidosActivosLocal: localPedidos.length,
+      pedidosFinalizadosRecientes: historialFinalizados.length,
+      pedidosCanceladosRecientes: historialCancelados.length,
+      ticketPromedioFinalizadosRecientes,
+      mesasActivasSalon: salonMesas.length,
+      mesasListasParaCaja: salonMesas.filter(
+        (mesa) => mesa.estado_mesa === 'lista_para_caja'
+      ).length,
+      takeawaysListos: takeawayPedidosFull.filter(
+        (pedido) => normalizeText(pedido.estado) === 'listo'
+      ).length,
+      entregasDeliveryActivas: deliveryPedidosFull.length,
+    };
+
     return NextResponse.json(
       {
         resumen,
@@ -383,6 +458,8 @@ export async function GET(request: NextRequest) {
         takeawayPedidos,
         localPedidos,
         salonMesas: salonMesas.slice(0, 20),
+        historialPedidos: historialPedidos.slice(0, 20),
+        reporteOperativo,
         deliveryPedidos,
         whatsappAlertas: alertas,
         meta: {

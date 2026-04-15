@@ -43,6 +43,17 @@ type WhatsappAlert = {
   created_at: string;
 };
 
+type OperativeReport = {
+  pedidosActivosLocal: number;
+  pedidosFinalizadosRecientes: number;
+  pedidosCanceladosRecientes: number;
+  ticketPromedioFinalizadosRecientes: number;
+  mesasActivasSalon: number;
+  mesasListasParaCaja: number;
+  takeawaysListos: number;
+  entregasDeliveryActivas: number;
+};
+
 type OperacionesResponse = {
   resumen: {
     salonSolicitados: number;
@@ -59,8 +70,18 @@ type OperacionesResponse = {
     localTakeawaySolicitados: number;
     localTakeawayEnCurso: number;
     localTakeawayListos: number;
+    localSolicitados?: number;
+    localEnCurso?: number;
+    localListos?: number;
+    salonMesasActivas?: number;
+    salonMesasEnCurso?: number;
+    salonMesasListasParaCaja?: number;
   };
   salonPedidos: OperacionPedido[];
+  takeawayPedidos?: OperacionPedido[];
+  localPedidos?: OperacionPedido[];
+  historialPedidos?: OperacionPedido[];
+  reporteOperativo?: OperativeReport;
   deliveryPedidos: OperacionPedido[];
   whatsappAlertas: WhatsappAlert[];
   meta?: {
@@ -194,16 +215,25 @@ function formatEstadoLabel(value: string) {
   if (estado === 'listo') return 'Listo';
   if (estado === 'cancelado') return 'Cancelado';
   if (estado === 'cerrado') return 'Cerrado';
+  if (estado === 'entregado') return 'Entregado';
 
   return value || 'Sin estado';
 }
 
-function getLocalBadge(canal: OperacionCanal) {
+function getCanalBadge(canal: OperacionCanal) {
   if (canal === 'takeaway') {
     return {
       label: 'TAKE AWAY',
       className:
         'rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800',
+    };
+  }
+
+  if (canal === 'delivery') {
+    return {
+      label: 'DELIVERY',
+      className:
+        'rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-800',
     };
   }
 
@@ -217,6 +247,10 @@ function getLocalBadge(canal: OperacionCanal) {
 function getLocalLocationLabel(pedido: OperacionPedido, canal: OperacionCanal) {
   if (canal === 'takeaway') {
     return 'Retiro / mostrador';
+  }
+
+  if (canal === 'delivery') {
+    return 'Delivery';
   }
 
   if (pedido.mesa_nombre?.trim()) {
@@ -238,7 +272,26 @@ function getLocalSecondaryLabel(
     return pedido.cliente_nombre?.trim() || 'Cliente sin nombre';
   }
 
+  if (canal === 'delivery') {
+    return pedido.cliente_nombre?.trim() || 'Cliente sin nombre';
+  }
+
   return formatDate(pedido.creado_en);
+}
+
+function getHistoryDetailLabel(
+  pedido: OperacionPedido,
+  canal: OperacionCanal
+) {
+  if (canal === 'delivery') {
+    return pedido.direccion_entrega?.trim() || 'Sin dirección';
+  }
+
+  if (canal === 'takeaway') {
+    return pedido.cliente_nombre?.trim() || 'Cliente sin nombre';
+  }
+
+  return getLocalLocationLabel(pedido, canal);
 }
 
 export default function AdminOperacionesPage() {
@@ -256,18 +309,26 @@ export default function AdminOperacionesPage() {
   const businessModeLabel = formatBusinessModeLabel(businessMode);
   const deliveryAddonEnabled = !!sessionData?.addons?.whatsapp_delivery;
   const waiterModeEnabled = !!sessionData?.capabilities?.waiter_mode;
-  const hasAdvancedOperations = plan === 'pro' || plan === 'intelligence';
+  const hasAdvancedOperations =
+    plan === 'pro' || plan === 'intelligence';
 
   async function cargar() {
     try {
       setError('');
 
-      const sessionRes = await fetch('/api/admin/session', {
-        method: 'GET',
-        cache: 'no-store',
-      });
+      const [sessionRes, operacionesRes] = await Promise.all([
+        fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+        }),
+        fetch('/api/admin/operaciones-resumen', {
+          method: 'GET',
+          cache: 'no-store',
+        }),
+      ]);
 
       const sessionBody = await sessionRes.json().catch(() => null);
+      const operacionesBody = await operacionesRes.json().catch(() => null);
 
       if (!sessionRes.ok) {
         throw new Error(
@@ -275,33 +336,15 @@ export default function AdminOperacionesPage() {
         );
       }
 
-      const session =
-        (sessionBody?.session as AdminSessionPayload | null) ?? null;
-
-      setSessionData(session);
-
-      const currentPlan = session?.plan ?? 'esencial';
-      const canAccessOperations =
-        currentPlan === 'pro' || currentPlan === 'intelligence';
-
-      if (!canAccessOperations) {
-        setData(null);
-        return;
-      }
-
-      const operacionesRes = await fetch('/api/admin/operaciones-resumen', {
-        method: 'GET',
-        cache: 'no-store',
-      });
-
-      const operacionesBody = await operacionesRes.json().catch(() => null);
-
       if (!operacionesRes.ok) {
         throw new Error(
           operacionesBody?.error || 'No se pudo cargar el panel de operaciones.'
         );
       }
 
+      setSessionData(
+        (sessionBody?.session as AdminSessionPayload | null) ?? null
+      );
       setData((operacionesBody as OperacionesResponse | null) ?? null);
     } catch (err) {
       console.error(err);
@@ -326,11 +369,11 @@ export default function AdminOperacionesPage() {
   }, []);
 
   const localPedidosConCanal = useMemo(() => {
-    return (data?.salonPedidos ?? []).map((pedido) => ({
+    return (data?.localPedidos ?? data?.salonPedidos ?? []).map((pedido) => ({
       ...pedido,
       _canal: resolveOperacionCanal(pedido),
     }));
-  }, [data?.salonPedidos]);
+  }, [data?.localPedidos, data?.salonPedidos]);
 
   const localResumenCanales = useMemo(() => {
     return localPedidosConCanal.reduce(
@@ -343,12 +386,19 @@ export default function AdminOperacionesPage() {
     );
   }, [localPedidosConCanal]);
 
+  const historialPedidosConCanal = useMemo(() => {
+    return (data?.historialPedidos ?? []).map((pedido) => ({
+      ...pedido,
+      _canal: resolveOperacionCanal(pedido),
+    }));
+  }, [data?.historialPedidos]);
+
   const copy = useMemo(() => {
     return {
       intro:
-        plan === 'pro' || plan === 'intelligence'
-          ? 'Tablero operativo del negocio. En este plan ya contás con gestión operativa ampliada para coordinar mostrador, cocina y, cuando aplica, mozo.'
-          : 'Tablero operativo del negocio. Acá monitoreás el estado general y bajás a los módulos internos para accionar.',
+        hasAdvancedOperations
+          ? 'Tablero operativo del negocio. En este plan ya contás con gestión operativa ampliada: operación activa, reporte rápido e historial operativo reciente.'
+          : 'Tablero operativo del negocio. Acá monitoreás la operación activa y bajás a los módulos internos para accionar.',
       localTitle: 'Operación activa del local',
       localDescription:
         businessMode === 'takeaway'
@@ -359,7 +409,7 @@ export default function AdminOperacionesPage() {
       statsInProgress: 'Local · en curso',
       statsReady: 'Local · listos',
     };
-  }, [businessMode, plan]);
+  }, [businessMode, hasAdvancedOperations]);
 
   const quickFlowText = useMemo(() => {
     if (businessMode === 'takeaway') {
@@ -372,88 +422,6 @@ export default function AdminOperacionesPage() {
 
     return 'En restaurante con Esencial, el flujo práctico es: cliente pide → cocina prepara → mostrador/caja concentra la gestión operativa final del salón.';
   }, [businessMode, waiterModeEnabled]);
-
-  if (cargando && !sessionData) {
-    return (
-      <main className="p-6">
-        <p>Cargando panel...</p>
-      </main>
-    );
-  }
-
-  if (!hasAdvancedOperations) {
-    return (
-      <main className="min-h-screen bg-slate-50 p-6">
-        <div className="mx-auto max-w-4xl">
-          <div className="rounded-3xl border border-blue-200 bg-white p-8 shadow-sm">
-            <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              Disponible desde Pro
-            </span>
-
-            <h1 className="mt-4 text-3xl font-bold text-slate-900">
-              Gestión operativa ampliada
-            </h1>
-
-            <p className="mt-3 leading-relaxed text-slate-600">
-              Tu plan actual es <strong>{planLabel}</strong>. El módulo de{' '}
-              <strong>Operaciones</strong> forma parte de <strong>Pro</strong> y{' '}
-              <strong>Intelligence</strong>, porque concentra una capa de control
-              operativo más amplia sobre el flujo diario del local.
-            </p>
-
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="font-semibold text-slate-900">
-                  Qué suma Pro en esta parte
-                </p>
-                <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                  <li>• Vista transversal de la operación</li>
-                  <li>• Más control sobre cocina, mostrador y salón</li>
-                  <li>• Modo mozo para restaurante</li>
-                  <li>• Mejor coordinación del flujo diario</li>
-                </ul>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="font-semibold text-slate-900">
-                  Lo que seguís teniendo ahora
-                </p>
-                <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                  <li>• Menú y productos</li>
-                  <li>• Cocina</li>
-                  <li>• Mostrador / caja</li>
-                  <li>• Operación base del local</li>
-                </ul>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link
-                href="/#precios"
-                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                Ver planes
-              </Link>
-
-              <Link
-                href="/admin"
-                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Volver al dashboard
-              </Link>
-
-              <Link
-                href="/mostrador"
-                className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
-              >
-                Ir a mostrador / caja
-              </Link>
-            </div>
-          </div>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <main className="p-6">
@@ -471,9 +439,11 @@ export default function AdminOperacionesPage() {
               Modo {businessModeLabel}
             </span>
 
-            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-              Gestión operativa ampliada
-            </span>
+            {hasAdvancedOperations ? (
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                Gestión operativa ampliada
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -621,21 +591,21 @@ export default function AdminOperacionesPage() {
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
               <p className="text-sm text-neutral-500">{copy.statsRequested}</p>
               <p className="mt-2 text-3xl font-semibold">
-                {data.resumen.salonSolicitados}
+                {data.resumen.localSolicitados ?? data.resumen.salonSolicitados}
               </p>
             </article>
 
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
               <p className="text-sm text-neutral-500">{copy.statsInProgress}</p>
               <p className="mt-2 text-3xl font-semibold">
-                {data.resumen.salonEnCurso}
+                {data.resumen.localEnCurso ?? data.resumen.salonEnCurso}
               </p>
             </article>
 
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
               <p className="text-sm text-neutral-500">{copy.statsReady}</p>
               <p className="mt-2 text-3xl font-semibold">
-                {data.resumen.salonListos}
+                {data.resumen.localListos ?? data.resumen.salonListos}
               </p>
             </article>
 
@@ -664,6 +634,168 @@ export default function AdminOperacionesPage() {
               </p>
             </article>
           </section>
+
+          {hasAdvancedOperations ? (
+            <section className="mt-8 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+              <article className="rounded-2xl border bg-white p-5 shadow-sm">
+                <div className="mb-4">
+                  <h2 className="text-lg font-medium">Reporte operativo rápido</h2>
+                  <p className="mt-1 text-sm text-neutral-600">
+                    Esta es la capa propia de Pro: lectura operativa del turno sin
+                    meterse todavía en analytics avanzados.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm text-slate-500">Pedidos activos local</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {data.reporteOperativo?.pedidosActivosLocal ?? 0}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm text-slate-500">Finalizados recientes</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {data.reporteOperativo?.pedidosFinalizadosRecientes ?? 0}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm text-slate-500">Cancelados recientes</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {data.reporteOperativo?.pedidosCanceladosRecientes ?? 0}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm text-slate-500">
+                      Ticket promedio reciente
+                    </p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {formatMoney(
+                        data.reporteOperativo?.ticketPromedioFinalizadosRecientes ?? 0
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm text-slate-500">Mesas listas para caja</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {data.reporteOperativo?.mesasListasParaCaja ?? 0}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm text-slate-500">Take away listos</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">
+                      {data.reporteOperativo?.takeawaysListos ?? 0}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  Pro se ve acá: más control operativo, más lectura del turno y más
+                  orden entre salón, cocina y caja.
+                </div>
+              </article>
+
+              <article className="rounded-2xl border bg-white p-5 shadow-sm">
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-medium">
+                      Historial operativo reciente
+                    </h2>
+                    <p className="mt-1 text-sm text-neutral-600">
+                      Últimos pedidos con estado final para seguir cierres,
+                      entregas y cancelaciones.
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                    Pro / Intelligence
+                  </span>
+                </div>
+
+                {historialPedidosConCanal.length === 0 ? (
+                  <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-neutral-600">
+                    Todavía no hay historial operativo reciente para mostrar.
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {historialPedidosConCanal.map((pedido) => {
+                      const canal = pedido._canal;
+                      const canalBadge = getCanalBadge(canal);
+
+                      return (
+                        <article
+                          key={pedido.id}
+                          className="rounded-xl border px-4 py-3"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className={canalBadge.className}>
+                                  {canalBadge.label}
+                                </span>
+
+                                <span
+                                  className={`rounded-full border px-2.5 py-1 text-xs font-medium ${(() => {
+                                    const estado = String(pedido.estado ?? '')
+                                      .trim()
+                                      .toLowerCase();
+
+                                    if (estado === 'cancelado') {
+                                      return 'border-rose-200 bg-rose-100 text-rose-800';
+                                    }
+
+                                    return 'border-emerald-200 bg-emerald-100 text-emerald-800';
+                                  })()}`}
+                                >
+                                  {formatEstadoLabel(pedido.estado)}
+                                </span>
+                              </div>
+
+                              <h3 className="mt-2 text-base font-semibold">
+                                {pedido.codigo_publico || `Pedido #${pedido.id}`}
+                              </h3>
+
+                              <p className="text-sm text-neutral-600">
+                                {getHistoryDetailLabel(pedido, canal)}
+                              </p>
+
+                              <p className="mt-1 text-xs text-neutral-500">
+                                {formatDate(pedido.creado_en)}
+                              </p>
+                            </div>
+
+                            <div className="text-right">
+                              <p className="text-sm text-neutral-500">Total</p>
+                              <p className="font-semibold">
+                                {formatMoney(pedido.total)}
+                              </p>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            </section>
+          ) : (
+            <section className="mt-8 rounded-2xl border border-blue-200 bg-blue-50 p-5">
+              <p className="font-medium text-blue-900">
+                La operación activa ya la ves desde Esencial
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-blue-900">
+                En <strong>Pro</strong>, este mismo tablero suma dos capas nuevas:
+                <strong> reporte operativo rápido</strong> e
+                <strong> historial operativo reciente</strong>. Ahí es donde
+                aparece la gestión operativa ampliada.
+              </p>
+            </section>
+          )}
 
           <section className="mt-8 grid gap-6 xl:grid-cols-2">
             <article className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -699,7 +831,7 @@ export default function AdminOperacionesPage() {
               ) : (
                 <div className="grid gap-3">
                   {localPedidosConCanal.map((pedido) => {
-                    const badge = getLocalBadge(pedido._canal);
+                    const badge = getCanalBadge(pedido._canal);
 
                     return (
                       <article
@@ -725,7 +857,8 @@ export default function AdminOperacionesPage() {
                               {getLocalSecondaryLabel(pedido, pedido._canal)}
                             </p>
 
-                            {pedido._canal === 'takeaway' && pedido.creado_en ? (
+                            {pedido._canal === 'takeaway' &&
+                            pedido.creado_en ? (
                               <p className="text-xs text-neutral-500">
                                 {formatDate(pedido.creado_en)}
                               </p>
