@@ -139,7 +139,7 @@ export default function AdminHome() {
       }
     }
 
-    cargarDashboard();
+    void cargarDashboard();
 
     return () => {
       activo = false;
@@ -165,6 +165,52 @@ export default function AdminHome() {
       ? 'Activo'
       : 'Bloqueado';
 
+  const hasAdvancedOperations =
+    plan === 'pro' || plan === 'intelligence';
+
+  const planSummary = useMemo(() => {
+    if (plan === 'intelligence') {
+      return {
+        title: 'Intelligence: operación + lectura ejecutiva',
+        description:
+          'Tenés toda la base operativa de Pro y además analytics avanzados para leer rendimiento, detectar patrones y tomar decisiones con más contexto.',
+        highlights: [
+          'Gestión operativa ampliada',
+          'Modo mozo en restaurante',
+          'Analytics avanzados y vista ejecutiva',
+        ],
+      };
+    }
+
+    if (plan === 'pro') {
+      return {
+        title: 'Pro: más control sobre la operación diaria',
+        description:
+          businessMode === 'restaurant'
+            ? 'Además de la base de Esencial, sumás modo mozo y una capa operativa más sólida para coordinar mejor salón, cocina y caja.'
+            : 'Además de la base de Esencial, ganás una operación más robusta para coordinar mejor pedidos, cocina y mostrador en el día a día.',
+        highlights: [
+          'Gestión operativa ampliada',
+          businessMode === 'restaurant'
+            ? 'Modo mozo para salón'
+            : 'Más orden operativo en take away',
+          'Analytics avanzados siguen en Intelligence',
+        ],
+      };
+    }
+
+    return {
+      title: 'Esencial: base operativa simple y clara',
+      description:
+        'Tenés menú digital, cocina, operación básica y el mismo sistema puede funcionar como restaurante o como take away. Pro agrega una capa operativa más amplia.',
+      highlights: [
+        'Menú digital y operación base',
+        'Restaurante o take away',
+        'Pro suma gestión operativa ampliada',
+      ],
+    };
+  }, [businessMode, plan]);
+
   const modulos = useMemo<DashboardModule[]>(() => {
     const modules: DashboardModule[] = [
       {
@@ -177,12 +223,22 @@ export default function AdminHome() {
         action: 'Abrir módulo',
       },
       {
+        key: 'operaciones',
+        title: 'Operaciones',
+        description: hasAdvancedOperations
+          ? 'Vista transversal para seguir la operación diaria con mayor control y coordinación entre los distintos frentes del local.'
+          : 'Vista general de la operación. Desde Pro gana más peso como parte de la gestión operativa ampliada.',
+        status: 'enabled',
+        href: '/admin/operaciones',
+        action: 'Abrir módulo',
+      },
+      {
         key: 'mostrador',
         title: 'Mostrador / Caja',
-          description:
-  businessMode === 'takeaway'
-    ? 'Pantalla central para operar pedidos, entrega, cobro y retiro en take away.'
-    : 'Pantalla central para operación diaria, apoyo al salón, cobro y cierre de cuenta.',
+        description:
+          businessMode === 'takeaway'
+            ? 'Pantalla central para operar pedidos, entrega, cobro y retiro en take away.'
+            : 'Pantalla central para operación diaria, apoyo al salón, cobro y cierre de cuenta.',
         status: 'enabled',
         href: '/mostrador',
         action: 'Abrir módulo',
@@ -206,9 +262,10 @@ export default function AdminHome() {
         key: 'mozo',
         title: 'Modo mozo',
         description:
-  businessMode === 'restaurant'
-    ? 'Vista de salón para atención de mesas y seguimiento operativo del mozo.'
-    : 'No aplica en take away porque no hay operación de salón ni mozos por mesa.',        status:
+          businessMode === 'restaurant'
+            ? 'Vista de salón para atención de mesas y seguimiento operativo del mozo.'
+            : 'No aplica en take away porque no hay operación de salón ni mozos por mesa.',
+        status:
           businessMode === 'takeaway'
             ? 'not_applicable'
             : capabilities.waiter_mode
@@ -256,12 +313,18 @@ export default function AdminHome() {
     businessMode,
     capabilities.analytics,
     capabilities.waiter_mode,
+    hasAdvancedOperations,
   ]);
 
   const nextStepText =
-  businessMode === 'restaurant'
-    ? 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Después podés seguir con mostrador, cocina, mesas y, si tu plan lo permite, modo mozo.'
-    : 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Después podés seguir con mostrador, cocina y el flujo público de take away.';
+    plan === 'pro'
+      ? businessMode === 'restaurant'
+        ? 'Ya tenés Pro: después de cargar el menú, podés seguir con mostrador, cocina, mesas y modo mozo para ordenar mejor la operación del salón.'
+        : 'Ya tenés Pro: después de cargar el menú, podés seguir con mostrador, cocina y una operación más ordenada para take away.'
+      : businessMode === 'restaurant'
+      ? 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Después podés seguir con mostrador, cocina y mesas. Si más adelante necesitás más control operativo, el siguiente paso natural es Pro.'
+      : 'Andá a “Menú / Productos” para cargar comidas, bebidas, cafetería y postres. Después podés seguir con mostrador, cocina y el flujo público de take away. Si más adelante necesitás más control operativo, el siguiente paso natural es Pro.';
+
   const getModuleCardClassName = (status: ModuleStatus) => {
     switch (status) {
       case 'enabled':
@@ -380,18 +443,51 @@ export default function AdminHome() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">{planSummary.title}</h2>
+            <p className="mt-1 text-sm leading-relaxed text-slate-600">
+              {planSummary.description}
+            </p>
+          </div>
+
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+            Plan {planLabel}
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {planSummary.highlights.map((item) => (
+            <div
+              key={item}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700"
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
         <h2 className="text-lg font-semibold">Accesos rápidos</h2>
         <p className="mt-1 text-sm text-slate-600">
           Atajos internos según la función y el modo de operación.
         </p>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <Link
             href="/admin/productos"
             className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
           >
             Menú / Productos
+          </Link>
+
+          <Link
+            href="/admin/operaciones"
+            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+          >
+            Operaciones
           </Link>
 
           <Link
@@ -556,6 +652,13 @@ export default function AdminHome() {
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
           >
             Ir a productos
+          </Link>
+
+          <Link
+            href="/admin/operaciones"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Ver operaciones
           </Link>
 
           <Link

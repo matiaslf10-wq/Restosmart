@@ -9,7 +9,7 @@ const LOGIN_HREF = '/login';
 function PhoneMockup() {
   return (
     <div className="relative mx-auto w-full max-w-[420px]">
-      <div className="rounded-[28px] border border-black/10 bg-white shadow-sm p-4">
+      <div className="rounded-[28px] border border-black/10 bg-white p-4 shadow-sm">
         <div className="rounded-[22px] border border-black/10 bg-gradient-to-b from-zinc-50 to-white p-4">
           <div className="flex items-center justify-between">
             <div className="h-2 w-24 rounded-full bg-zinc-200" />
@@ -80,21 +80,23 @@ function PhoneMockup() {
             </div>
 
             <div className="rounded-2xl border border-black/10 bg-white p-3">
-              <div className="text-xs text-zinc-500">Dashboard</div>
-              <div className="mt-0.5 text-sm font-semibold">Ventas y rendimiento</div>
+              <div className="text-xs text-zinc-500">Operación</div>
+              <div className="mt-0.5 text-sm font-semibold">
+                Más control del local
+              </div>
               <div className="mt-3 grid gap-2">
-                <div className="h-2 w-full rounded-full bg-zinc-100 overflow-hidden">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100">
                   <div className="h-full w-[68%] bg-blue-600/80" />
                 </div>
                 <div className="flex justify-between text-[11px] text-zinc-600">
-                  <span>Operación</span>
-                  <span>Decisiones</span>
+                  <span>Base</span>
+                  <span>Control</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-4 h-2 w-24 mx-auto rounded-full bg-zinc-200" />
+          <div className="mx-auto mt-4 h-2 w-24 rounded-full bg-zinc-200" />
         </div>
       </div>
 
@@ -160,53 +162,53 @@ export default function RestoSmartLanding() {
                 priority
               />
             </div>
-            <span className="font-semibold text-lg leading-none">RestoSmart</span>
+            <span className="text-lg font-semibold leading-none">RestoSmart</span>
           </div>
 
-          <nav className="hidden md:flex items-center gap-6 text-sm text-zinc-700">
-  <a href="#funciones" className="hover:text-zinc-900">
-    Funciones
-  </a>
-  <a href="#precios" className="hover:text-zinc-900">
-    Precios
-  </a>
-  <a href="#pasos" className="hover:text-zinc-900">
-    Cómo funciona
-  </a>
-  <a href="#faq" className="hover:text-zinc-900">
-    FAQ
-  </a>
+          <nav className="hidden items-center gap-6 text-sm text-zinc-700 md:flex">
+            <a href="#funciones" className="hover:text-zinc-900">
+              Funciones
+            </a>
+            <a href="#precios" className="hover:text-zinc-900">
+              Precios
+            </a>
+            <a href="#pasos" className="hover:text-zinc-900">
+              Cómo funciona
+            </a>
+            <a href="#faq" className="hover:text-zinc-900">
+              FAQ
+            </a>
 
-  <Link
-    href={LOGIN_HREF}
-    className="rounded-full border border-black/10 px-4 py-2 text-zinc-900 hover:bg-zinc-50"
-  >
-    Ingresar
-  </Link>
+            <Link
+              href={LOGIN_HREF}
+              className="rounded-full border border-black/10 px-4 py-2 text-zinc-900 hover:bg-zinc-50"
+            >
+              Ingresar
+            </Link>
 
-  <Link
-    href="/demo"
-    className="rounded-full bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-  >
-    Probar demo
-  </Link>
-</nav>
+            <Link
+              href="/demo"
+              className="rounded-full bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+            >
+              Probar demo
+            </Link>
+          </nav>
 
-<div className="flex items-center gap-2 md:hidden">
-  <Link
-    href={LOGIN_HREF}
-    className="rounded-full border border-black/10 px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
-  >
-    Ingresar
-  </Link>
+          <div className="flex items-center gap-2 md:hidden">
+            <Link
+              href={LOGIN_HREF}
+              className="rounded-full border border-black/10 px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+            >
+              Ingresar
+            </Link>
 
-  <Link
-    href="/demo"
-    className="rounded-full bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-  >
-    Probar demo
-  </Link>
-</div>
+            <Link
+              href="/demo"
+              className="rounded-full bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+            >
+              Probar demo
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -217,11 +219,11 @@ export default function RestoSmartLanding() {
               Un solo sistema · Restaurante o Take Away
             </div>
 
-            <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
+            <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
               RestoSmart
             </h1>
 
-            <p className="text-lg text-zinc-700 leading-relaxed">
+            <p className="text-lg leading-relaxed text-zinc-700">
               <span className="font-semibold">Software inteligente</span> para
               restaurantes, bares, cafés y take away.
               <br />
@@ -230,33 +232,33 @@ export default function RestoSmartLanding() {
               cómo trabaje tu negocio.
             </p>
 
-            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
-  <a
-    href="#precios"
-    className="rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-  >
-    Ver planes y precios
-  </a>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <a
+                href="#precios"
+                className="rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              >
+                Ver planes y precios
+              </a>
 
-  <Link
-    href={LOGIN_HREF}
-    className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
-  >
-    Ingresar al sistema
-  </Link>
+              <Link
+                href={LOGIN_HREF}
+                className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+              >
+                Ingresar al sistema
+              </Link>
 
-  <a
-    href="#contacto"
-    className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-  >
-    Quiero una propuesta
-  </a>
-</div>
+              <a
+                href="#contacto"
+                className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Quiero una propuesta
+              </a>
+            </div>
 
             <div className="grid grid-cols-3 gap-3 pt-2 text-center">
               {[
                 { k: 'Modo', v: 'Restaurante o take away' },
-                { k: 'Pedidos', v: 'Más ágiles' },
+                { k: 'Operación', v: 'Más orden diario' },
                 { k: 'Data', v: 'Decisiones' },
               ].map((x) => (
                 <div
@@ -277,7 +279,7 @@ export default function RestoSmartLanding() {
       <section className="border-t border-black/5 bg-zinc-50">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="max-w-2xl">
-            <h2 className="text-2xl md:text-3xl font-bold">
+            <h2 className="text-2xl font-bold md:text-3xl">
               Un solo sistema, dos formas de operar
             </h2>
             <p className="mt-2 text-zinc-700">
@@ -293,7 +295,7 @@ export default function RestoSmartLanding() {
               </div>
 
               <h3 className="mt-4 text-xl font-bold">Con mesas y salón</h3>
-              <p className="mt-2 text-sm text-zinc-700 leading-relaxed">
+              <p className="mt-2 text-sm leading-relaxed text-zinc-700">
                 Ideal para locales donde la identificación del pedido se organiza por
                 mesa y la experiencia del cliente arranca desde un QR en el salón.
               </p>
@@ -319,7 +321,7 @@ export default function RestoSmartLanding() {
               </div>
 
               <h3 className="mt-4 text-xl font-bold">Sin mesas, con retiro</h3>
-              <p className="mt-2 text-sm text-zinc-700 leading-relaxed">
+              <p className="mt-2 text-sm leading-relaxed text-zinc-700">
                 Ideal para negocios donde el pedido se identifica por cliente o por
                 número de orden y el retiro se resuelve en mostrador.
               </p>
@@ -345,49 +347,50 @@ export default function RestoSmartLanding() {
       <section id="funciones" className="border-t border-black/5 bg-zinc-50">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="max-w-2xl">
-            <h2 className="text-2xl md:text-3xl font-bold">
+            <h2 className="text-2xl font-bold md:text-3xl">
               Funciones de RestoSmart
             </h2>
             <p className="mt-2 text-zinc-700">
-              Tres planes para ordenar la operación y escalar cuando lo necesites.
+              Esencial ordena la base, Pro amplía la operación diaria e Intelligence
+              agrega analítica avanzada.
             </p>
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             {[
               {
-  title: 'Esencial',
-  desc: 'Vendé y operá con una base simple, clara y lista para usar.',
-  bullets: [
-    'Gestión de productos y categorías',
-    'Menú digital',
-    'Modo restaurante o take away',
-    'QR por mesa si operás con salón',
-    'Cocina y operación básica',
-  ],
-},
-{
-  title: 'Pro',
-  desc: 'Ganás más control sobre la operación diaria del local.',
-  bullets: [
-    'Todo lo de Esencial',
-    'Gestión operativa ampliada',
-    'Más control del flujo diario',
-    'Modo mozo para restaurante',
-    'Mejor coordinación del local',
-  ],
-},
-{
-  title: 'Intelligence',
-  desc: 'Optimizá el negocio con datos, KPIs e insights.',
-  bullets: [
-    'Todo lo de Pro',
-    'Analytics avanzados',
-    'KPIs operativos y comerciales',
-    'Vista ejecutiva',
-    'Mejores decisiones con datos',
-  ],
-},
+                title: 'Esencial',
+                desc: 'Vendé y operá con una base simple, clara y lista para usar.',
+                bullets: [
+                  'Gestión de productos y categorías',
+                  'Menú digital',
+                  'Modo restaurante o take away',
+                  'QR por mesa si operás con salón',
+                  'Cocina y operación básica',
+                ],
+              },
+              {
+                title: 'Pro',
+                desc: 'Ganás más control sobre la operación diaria del local.',
+                bullets: [
+                  'Todo lo de Esencial',
+                  'Gestión operativa ampliada',
+                  'Mostrador / caja como centro operativo',
+                  'Modo mozo para restaurante',
+                  'Más coordinación entre salón, cocina y caja',
+                ],
+              },
+              {
+                title: 'Intelligence',
+                desc: 'Optimizá el negocio con datos, KPIs e insights.',
+                bullets: [
+                  'Todo lo de Pro',
+                  'Analytics avanzados',
+                  'KPIs operativos y comerciales',
+                  'Vista ejecutiva',
+                  'Mejores decisiones con datos',
+                ],
+              },
             ].map((c) => (
               <div
                 key={c.title}
@@ -400,7 +403,7 @@ export default function RestoSmartLanding() {
                   </span>
                 </div>
 
-                <p className="mt-3 text-sm text-zinc-700 leading-relaxed">
+                <p className="mt-3 text-sm leading-relaxed text-zinc-700">
                   {c.desc}
                 </p>
 
@@ -423,7 +426,7 @@ export default function RestoSmartLanding() {
                   Add-on opcional
                 </div>
                 <h3 className="mt-3 text-xl font-bold">WhatsApp Delivery</h3>
-                <p className="mt-2 text-sm text-zinc-700 leading-relaxed">
+                <p className="mt-2 text-sm leading-relaxed text-zinc-700">
                   Se contrata aparte por restaurante. No forma parte de las
                   funcionalidades comunes de Esencial, Pro ni Intelligence.
                 </p>
@@ -451,10 +454,59 @@ export default function RestoSmartLanding() {
         </div>
       </section>
 
+      <section className="border-t border-black/5 bg-white">
+        <div className="mx-auto max-w-6xl px-5 py-14">
+          <div className="rounded-3xl border border-blue-200 bg-blue-50 p-6">
+            <div className="inline-flex rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700">
+              Plan Pro
+            </div>
+
+            <h2 className="mt-4 text-2xl font-bold md:text-3xl">
+              Más control operativo sin pasar todavía a analytics
+            </h2>
+
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-zinc-700">
+              Pro está pensado para negocios que ya no solo necesitan digitalizar la
+              base, sino también ordenar mejor el trabajo diario. Es el punto medio
+              entre una operación simple y una gestión con lectura analítica avanzada.
+            </p>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              {[
+                {
+                  title: 'Operación diaria',
+                  desc: 'Más orden en la coordinación entre cocina, mostrador y atención.',
+                },
+                {
+                  title: 'Salón',
+                  desc: 'En restaurante suma modo mozo para distribuir mejor la atención de mesas.',
+                },
+                {
+                  title: 'Escalabilidad',
+                  desc: 'Te deja mejor parado para después sumar analytics con Intelligence.',
+                },
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  className="rounded-2xl border border-blue-200 bg-white p-4"
+                >
+                  <div className="text-sm font-semibold text-zinc-900">
+                    {item.title}
+                  </div>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-700">
+                    {item.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="precios" className="border-t border-black/5 bg-white">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="max-w-2xl">
-            <h2 className="text-2xl md:text-3xl font-bold">Planes y precios</h2>
+            <h2 className="text-2xl font-bold md:text-3xl">Planes y precios</h2>
             <p className="mt-2 text-zinc-700">
               Elegí el plan que mejor se adapta a tu operación. WhatsApp Delivery se
               activa aparte como add-on opcional.
@@ -471,7 +523,8 @@ export default function RestoSmartLanding() {
               </div>
 
               <div className="mt-4 text-3xl font-bold text-blue-600">
-                $12.000 <span className="text-sm text-zinc-500 font-medium">/ mes</span>
+                $12.000{' '}
+                <span className="text-sm font-medium text-zinc-500">/ mes</span>
               </div>
               <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
                 <li>✔ Gestión de productos y categorías</li>
@@ -482,35 +535,42 @@ export default function RestoSmartLanding() {
               </ul>
             </div>
 
-            <div className="rounded-3xl border-2 border-blue-600 bg-white p-6 shadow-md relative">
+            <div className="relative rounded-3xl border-2 border-blue-600 bg-white p-6 shadow-md">
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-xs text-white">
                 Más elegido
               </div>
 
               <h3 className="text-lg font-bold">Pro</h3>
               <div className="mt-4 text-3xl font-bold text-blue-600">
-                $35.000 <span className="text-sm text-zinc-500 font-medium">/ mes</span>
+                $35.000{' '}
+                <span className="text-sm font-medium text-zinc-500">/ mes</span>
               </div>
               <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
                 <li>✔ Todo lo del plan Esencial</li>
-<li>✔ Gestión operativa ampliada</li>
-<li>✔ Más control del flujo diario</li>
-<li>✔ Modo mozo para restaurante</li>
-<li>✔ Más control del local</li>
+                <li>✔ Gestión operativa ampliada</li>
+                <li>✔ Más control del flujo diario</li>
+                <li>✔ Modo mozo para restaurante</li>
+                <li>✔ Más coordinación del local</li>
               </ul>
+
+              <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-800">
+                Ideal si necesitás más control operativo. Los analytics avanzados
+                recién aparecen en Intelligence.
+              </div>
             </div>
 
             <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
               <h3 className="text-lg font-bold">Intelligence</h3>
               <div className="mt-4 text-3xl font-bold text-blue-600">
-                $50.000 <span className="text-sm text-zinc-500 font-medium">/ mes</span>
+                $50.000{' '}
+                <span className="text-sm font-medium text-zinc-500">/ mes</span>
               </div>
               <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
                 <li>✔ Todo lo del plan Pro</li>
-<li>✔ Analytics avanzados</li>
-<li>✔ KPIs y rendimiento</li>
-<li>✔ Vista ejecutiva</li>
-<li>✔ Insights para optimizar el negocio</li>
+                <li>✔ Analytics avanzados</li>
+                <li>✔ KPIs y rendimiento</li>
+                <li>✔ Vista ejecutiva</li>
+                <li>✔ Insights para optimizar el negocio</li>
               </ul>
             </div>
           </div>
@@ -548,7 +608,7 @@ export default function RestoSmartLanding() {
       <section id="pasos" className="border-t border-black/5 bg-white">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="max-w-2xl">
-            <h2 className="text-2xl md:text-3xl font-bold">3 pasos simples</h2>
+            <h2 className="text-2xl font-bold md:text-3xl">3 pasos simples</h2>
             <p className="mt-2 text-zinc-700">
               Implementación rápida para empezar a ver resultados sin complicarte.
             </p>
@@ -577,12 +637,12 @@ export default function RestoSmartLanding() {
                 className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm"
               >
                 <div className="flex items-center gap-3">
-                  <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-600 text-white font-bold">
+                  <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-600 font-bold text-white">
                     {s.n}
                   </div>
                   <h3 className="text-lg font-bold">{s.title}</h3>
                 </div>
-                <p className="mt-3 text-sm text-zinc-700 leading-relaxed">
+                <p className="mt-3 text-sm leading-relaxed text-zinc-700">
                   {s.desc}
                 </p>
               </div>
@@ -595,8 +655,8 @@ export default function RestoSmartLanding() {
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="grid gap-8 md:grid-cols-2 md:items-center">
             <div>
-              <h2 className="text-2xl md:text-3xl font-bold">Quiénes somos</h2>
-              <p className="mt-3 text-zinc-700 leading-relaxed">
+              <h2 className="text-2xl font-bold md:text-3xl">Quiénes somos</h2>
+              <p className="mt-3 leading-relaxed text-zinc-700">
                 En <span className="font-semibold">RestoSmart</span> desarrollamos
                 soluciones tecnológicas para el sector gastronómico, combinando
                 software, análisis de datos y experiencia en negocio.
@@ -620,7 +680,7 @@ export default function RestoSmartLanding() {
 
             <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
               <div className="text-sm font-semibold">Lo que buscamos</div>
-              <p className="mt-2 text-sm text-zinc-700 leading-relaxed">
+              <p className="mt-2 text-sm leading-relaxed text-zinc-700">
                 Menos fricción operativa, más ventas, y decisiones claras basadas en
                 datos.
               </p>
@@ -648,7 +708,7 @@ export default function RestoSmartLanding() {
 
       <section id="faq" className="border-t border-black/5 bg-white">
         <div className="mx-auto max-w-4xl px-5 py-14">
-          <h2 className="text-2xl md:text-3xl font-bold">Preguntas frecuentes</h2>
+          <h2 className="text-2xl font-bold md:text-3xl">Preguntas frecuentes</h2>
 
           <div className="mt-8 grid gap-4">
             {[
@@ -673,6 +733,10 @@ export default function RestoSmartLanding() {
                 a: 'No. Take away no es un plan separado: es una forma de operar el negocio dentro del sistema.',
               },
               {
+                q: '¿Qué agrega Pro concretamente?',
+                a: 'Pro suma gestión operativa ampliada. En restaurante además habilita modo mozo. Es el plan pensado para ganar más control en la operación diaria, sin entrar todavía en analytics avanzados.',
+              },
+              {
                 q: '¿Qué pasa si se rompe o se pierde un QR?',
                 a: 'Se genera uno nuevo en segundos y lo reemplazás por el nuevo impreso.',
               },
@@ -693,13 +757,13 @@ export default function RestoSmartLanding() {
                 key={item.q}
                 className="group rounded-2xl border border-black/10 bg-white p-5 shadow-sm"
               >
-                <summary className="cursor-pointer list-none font-semibold text-zinc-900 flex items-center justify-between">
+                <summary className="flex cursor-pointer list-none items-center justify-between font-semibold text-zinc-900">
                   <span>{item.q}</span>
-                  <span className="ml-4 text-blue-600 group-open:rotate-45 transition-transform">
+                  <span className="ml-4 text-blue-600 transition-transform group-open:rotate-45">
                     +
                   </span>
                 </summary>
-                <p className="mt-3 text-sm text-zinc-700 leading-relaxed">
+                <p className="mt-3 text-sm leading-relaxed text-zinc-700">
                   {item.a}
                 </p>
               </details>
@@ -711,7 +775,7 @@ export default function RestoSmartLanding() {
       <section id="contacto" className="border-t border-black/5 bg-zinc-50">
         <div className="mx-auto max-w-6xl px-5 py-14">
           <div className="max-w-2xl">
-            <h2 className="text-2xl md:text-3xl font-bold">Contactenos</h2>
+            <h2 className="text-2xl font-bold md:text-3xl">Contáctenos</h2>
             <p className="mt-2 text-zinc-700">
               Contanos tu negocio y te brindamos el mejor plan para tu operación.
             </p>
@@ -728,7 +792,9 @@ export default function RestoSmartLanding() {
                   <input
                     className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
                     value={form.nombre}
-                    onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, nombre: e.target.value }))
+                    }
                     required
                   />
                 </div>
@@ -739,7 +805,9 @@ export default function RestoSmartLanding() {
                     type="email"
                     className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
                     value={form.email}
-                    onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, email: e.target.value }))
+                    }
                     required
                   />
                 </div>
@@ -749,7 +817,9 @@ export default function RestoSmartLanding() {
                   <input
                     className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
                     value={form.telefono}
-                    onChange={(e) => setForm((p) => ({ ...p, telefono: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, telefono: e.target.value }))
+                    }
                     placeholder="Ej: 11 1234-5678"
                   />
                 </div>
@@ -759,7 +829,9 @@ export default function RestoSmartLanding() {
                   <input
                     className="h-12 rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-blue-600"
                     value={form.negocio}
-                    onChange={(e) => setForm((p) => ({ ...p, negocio: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, negocio: e.target.value }))
+                    }
                     placeholder="Restaurante / bar / café / take away"
                   />
                 </div>
@@ -769,13 +841,15 @@ export default function RestoSmartLanding() {
                   <textarea
                     className="min-h-[140px] rounded-2xl border border-black/10 bg-white p-4 text-sm outline-none focus:border-blue-600"
                     value={form.mensaje}
-                    onChange={(e) => setForm((p) => ({ ...p, mensaje: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, mensaje: e.target.value }))
+                    }
                     placeholder="Contanos qué necesitás, cuántos locales tenés, si operás con mesas o take away y qué plan te interesa."
                     required
                   />
                 </div>
 
-                <div className="md:col-span-2 flex justify-center">
+                <div className="flex justify-center md:col-span-2">
                   <button
                     type="submit"
                     className="rounded-2xl bg-blue-600 px-8 py-3 text-sm font-semibold text-white hover:bg-blue-700"
@@ -785,7 +859,7 @@ export default function RestoSmartLanding() {
                 </div>
 
                 {sent && (
-                  <div className="md:col-span-2 text-center text-sm text-zinc-600">
+                  <div className="text-center text-sm text-zinc-600 md:col-span-2">
                     Si no se abrió tu correo, escribinos a{' '}
                     <a className="underline" href="mailto:contacto@restosmart.com">
                       contacto@restosmart.com
@@ -803,25 +877,25 @@ export default function RestoSmartLanding() {
           <h2 className="text-3xl font-bold">
             ¿Listo para transformar tu negocio gastronómico?
           </h2>
-          <p className="mt-4 text-blue-100 max-w-2xl mx-auto">
+          <p className="mx-auto mt-4 max-w-2xl text-blue-100">
             Implementá RestoSmart en pocos días y empezá a operar con más control,
             mejor experiencia y decisiones más claras.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-  <Link
-    href={LOGIN_HREF}
-    className="inline-block rounded-2xl border border-white/30 bg-white px-6 py-3 text-sm font-semibold text-blue-600 hover:bg-blue-50"
-  >
-    Ingresar al sistema
-  </Link>
+            <Link
+              href={LOGIN_HREF}
+              className="inline-block rounded-2xl border border-white/30 bg-white px-6 py-3 text-sm font-semibold text-blue-600 hover:bg-blue-50"
+            >
+              Ingresar al sistema
+            </Link>
 
-  <Link
-    href="/demo"
-    className="inline-block rounded-2xl border border-white/30 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
-  >
-    Probar demo
-  </Link>
-</div>
+            <Link
+              href="/demo"
+              className="inline-block rounded-2xl border border-white/30 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
+            >
+              Probar demo
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -836,15 +910,21 @@ export default function RestoSmartLanding() {
             <div className="flex flex-wrap gap-4 text-sm">
               <span className="text-zinc-400">Instagram (próximamente)</span>
               <a
-                className="text-zinc-700 hover:text-zinc-900 underline"
+                className="text-zinc-700 underline hover:text-zinc-900"
                 href="mailto:contacto@restosmart.com"
               >
                 E-mail
               </a>
-              <Link className="text-zinc-700 hover:text-zinc-900 underline" href="/privacidad">
+              <Link
+                className="text-zinc-700 underline hover:text-zinc-900"
+                href="/privacidad"
+              >
                 Política de privacidad
               </Link>
-              <Link className="text-zinc-700 hover:text-zinc-900 underline" href="/terminos">
+              <Link
+                className="text-zinc-700 underline hover:text-zinc-900"
+                href="/terminos"
+              >
                 Términos
               </Link>
             </div>
