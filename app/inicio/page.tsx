@@ -96,12 +96,14 @@ export default function InicioPage() {
           <QuickAccessCard
             href="/mostrador"
             title="🧾 Mostrador / Caja"
-            description="Pantalla central para operación diaria, cobro, entrega y cierre, tanto en salón como en take away."          />
+            description="Pantalla central para operación diaria, cobro, entrega y cierre, tanto en salón como en take away."
+          />
 
           <QuickAccessCard
             href="/mozo/mesas"
             title="🍽️ Mozo"
-            description="Acceso rápido al flujo de salón para visualizar mesas, pedidos y atención operativa del mozo."          />
+            description="Acceso rápido al flujo de salón para visualizar mesas, pedidos y atención operativa del mozo."
+          />
 
           <QuickAccessCard
             href="/admin/mesas"
@@ -114,6 +116,63 @@ export default function InicioPage() {
             title="📺 Pantalla de retiro"
             description="Pantalla pública para mostrar los pedidos take away listos para retirar por nombre y código."
           />
+        </section>
+
+        <section className="rounded-3xl border border-blue-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                Pro
+              </span>
+              <h2 className="mt-4 text-2xl font-bold text-slate-900">
+                Qué cambia con Pro
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
+                Pro no cambia el tipo de negocio: seguís pudiendo operar como
+                restaurante o como take away. Lo que suma es una capa de
+                <strong> gestión operativa ampliada</strong> para controlar mejor
+                el día a día del local.
+              </p>
+            </div>
+
+            <Link
+              href="/admin/configuracion"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Ver plan y configuración
+            </Link>
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">
+                Más control del flujo diario
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                Mejor coordinación entre cocina, mostrador/caja y atención.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">
+                Modo mozo en restaurante
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                En negocios con salón, Pro habilita una vista específica para la
+                atención de mesas.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">
+                Intelligence va un paso más allá
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                Los analytics avanzados, KPIs e insights siguen siendo parte de
+                Intelligence.
+              </p>
+            </div>
+          </div>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">

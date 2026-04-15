@@ -232,8 +232,8 @@ export default function AdminConfiguracionPage() {
     localForm.business_mode === 'takeaway'
       ? 'No aplica'
       : capabilities.waiter_mode
-      ? 'Activo'
-      : 'Bloqueado';
+        ? 'Activo'
+        : 'Bloqueado';
 
   const publicOrdering = useMemo(
     () => getPublicOrderingMeta(localForm.business_mode),
@@ -261,11 +261,28 @@ export default function AdminConfiguracionPage() {
   const takeawayQrBadge =
     localForm.business_mode === 'takeaway' ? 'QR PRINCIPAL' : 'QR OPCIONAL';
 
+  const planHelperText = useMemo(() => {
+    if (selectedPlan === 'esencial') {
+      return 'Esencial cubre la base comercial y operativa del local.';
+    }
+
+    if (selectedPlan === 'pro') {
+      return localForm.business_mode === 'restaurant'
+        ? 'Pro agrega gestión operativa ampliada y habilita modo mozo para restaurante.'
+        : 'Pro agrega gestión operativa ampliada para ordenar mejor el flujo diario, aunque el modo mozo no aplique en take away.';
+    }
+
+    return 'Intelligence incluye todo Pro y suma analytics avanzados para lectura ejecutiva del negocio.';
+  }, [localForm.business_mode, selectedPlan]);
+
   async function reloadSession() {
-    const sessionRes = await fetch(`/api/admin/session?tenant=${encodeURIComponent(tenantLabel)}`, {
-      method: 'GET',
-      cache: 'no-store',
-    });
+    const sessionRes = await fetch(
+      `/api/admin/session?tenant=${encodeURIComponent(tenantLabel)}`,
+      {
+        method: 'GET',
+        cache: 'no-store',
+      }
+    );
 
     const sessionJson = await sessionRes.json().catch(() => null);
 
@@ -289,10 +306,13 @@ export default function AdminConfiguracionPage() {
         setError('');
         setMensaje('');
 
-        const sessionRes = await fetch(`/api/admin/session?tenant=${encodeURIComponent(tenantLabel)}`, {
-          method: 'GET',
-          cache: 'no-store',
-        });
+        const sessionRes = await fetch(
+          `/api/admin/session?tenant=${encodeURIComponent(tenantLabel)}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          }
+        );
 
         const sessionJson = await sessionRes.json().catch(() => null);
 
@@ -413,12 +433,12 @@ export default function AdminConfiguracionPage() {
       }
     }
 
-    cargar();
+    void cargar();
 
     return () => {
       activo = false;
     };
-  }, []);
+  }, [tenantLabel]);
 
   function updateLocal<K extends keyof LocalConfig>(
     key: K,
@@ -716,6 +736,10 @@ export default function AdminConfiguracionPage() {
               </button>
             );
           })}
+        </div>
+
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          {planHelperText}
         </div>
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
