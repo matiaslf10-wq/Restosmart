@@ -63,6 +63,9 @@ type Producto = {
   categoria: string | null;
   imagen_url?: string | null;
   disponible?: boolean | null;
+  control_stock?: boolean | null;
+  stock_actual?: number | null;
+  permitir_sin_stock?: boolean | null;
 };
 
 type ItemCarrito = {
@@ -135,6 +138,34 @@ function formatTime(value: string) {
 
 function normalizeText(value: unknown) {
   return String(value ?? '').trim().toLowerCase();
+}
+
+function getStockDisponible(producto: Producto) {
+  if (!producto.control_stock) return null;
+  if (producto.permitir_sin_stock) return null;
+  return Math.max(Number(producto.stock_actual ?? 0), 0);
+}
+
+function isProductoAgotado(producto: Producto) {
+  const stockDisponible = getStockDisponible(producto);
+  return stockDisponible !== null && stockDisponible <= 0;
+}
+
+function getMaxCantidadCarrito(producto: Producto) {
+  const stockDisponible = getStockDisponible(producto);
+  return stockDisponible === null ? Number.MAX_SAFE_INTEGER : stockDisponible;
+}
+
+function getStockMessage(producto: Producto) {
+  if (!producto.control_stock) return null;
+  if (producto.permitir_sin_stock) return 'Stock flexible';
+
+  const stock = Math.max(Number(producto.stock_actual ?? 0), 0);
+
+  if (stock <= 0) return 'Sin stock';
+  if (stock <= 5) return `Disponibles: ${stock}`;
+
+  return null;
 }
 
 function parseKitchenMeta(comment: string | null | undefined) {
@@ -630,7 +661,9 @@ function MostradorPageContent() {
       supabase.from('mesas').select('id, numero, nombre'),
       supabase
         .from('productos')
-        .select('id, nombre, descripcion, precio, categoria, imagen_url, disponible')
+        .select(
+          'id, nombre, descripcion, precio, categoria, imagen_url, disponible, control_stock, stock_actual, permitir_sin_stock'
+        )
         .eq('disponible', true)
         .order('categoria', { ascending: true })
         .order('nombre', { ascending: true }),
@@ -734,7 +767,9 @@ function MostradorPageContent() {
       ).sort((a, b) => a.localeCompare(b));
 
       setCategorias(cats);
-      setCategoriaSeleccionada((prev) => prev ?? cats[0] ?? null);
+      setCategoriaSeleccionada((prev) =>
+        prev && cats.includes(prev) ? prev : (cats[0] ?? null)
+      );
     }
 
     setCargando(false);
@@ -773,6 +808,31 @@ function MostradorPageContent() {
     setManualOrderMode(businessMode === 'takeaway' ? 'takeaway' : 'salon');
   }, [businessMode]);
 
+  useEffect(() => {
+    setCarrito((prev) => {
+      const next: ItemCarrito[] = [];
+
+      for (const item of prev) {
+        const productoActual = productos.find((p) => p.id === item.producto.id);
+
+        if (!productoActual) continue;
+
+        const maxCantidad = getMaxCantidadCarrito(productoActual);
+        const cantidadNormalizada = Math.min(item.cantidad, maxCantidad);
+
+        if (cantidadNormalizada <= 0) continue;
+
+        next.push({
+          ...item,
+          producto: productoActual,
+          cantidad: cantidadNormalizada,
+        });
+      }
+
+      return next;
+    });
+  }, [productos]);
+
   const productosFiltrados =
     categoriaSeleccionada == null
       ? []
@@ -793,10 +853,23 @@ function MostradorPageContent() {
   );
 
   function agregarAlCarrito(producto: Producto) {
+    setError(null);
+
+    if (isProductoAgotado(producto)) {
+      setError(`"${producto.nombre}" está sin stock.`);
+      return;
+    }
+
     setCarrito((prev) => {
       const existente = prev.find((i) => i.producto.id === producto.id);
+      const maxCantidad = getMaxCantidadCarrito(producto);
 
       if (existente) {
+        if (existente.cantidad >= maxCantidad) {
+          setError(`No hay más stock disponible para "${producto.nombre}".`);
+          return prev;
+        }
+
         return prev.map((i) =>
           i.producto.id === producto.id
             ? { ...i, cantidad: i.cantidad + 1 }
@@ -817,14 +890,34 @@ function MostradorPageContent() {
   }
 
   function cambiarCantidad(productoId: number, cantidad: number) {
+    const itemActual = carrito.find((item) => item.producto.id === productoId);
+    if (!itemActual) return;
+
     if (cantidad <= 0) {
       setCarrito((prev) => prev.filter((i) => i.producto.id !== productoId));
       return;
     }
 
+    const maxCantidad = getMaxCantidadCarrito(itemActual.producto);
+    const cantidadAjustada = Math.min(cantidad, maxCantidad);
+
+    if (cantidadAjustada <= 0) {
+      setError(`"${itemActual.producto.nombre}" está sin stock.`);
+      setCarrito((prev) => prev.filter((i) => i.producto.id !== productoId));
+      return;
+    }
+
+    if (cantidadAjustada !== cantidad) {
+      setError(
+        `Solo hay ${maxCantidad} unidad(es) disponible(s) de "${itemActual.producto.nombre}".`
+      );
+    } else {
+      setError(null);
+    }
+
     setCarrito((prev) =>
       prev.map((i) =>
-        i.producto.id === productoId ? { ...i, cantidad } : i
+        i.producto.id === productoId ? { ...i, cantidad: cantidadAjustada } : i
       )
     );
   }
@@ -1522,55 +1615,81 @@ function MostradorPageContent() {
                     No hay productos disponibles en esta categoría.
                   </p>
                 ) : (
-                  productosFiltrados.map((producto) => (
-                    <article
-                      key={producto.id}
-                      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
-                    >
-                      <div className="flex gap-3 p-4">
-                        <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl bg-slate-100">
-                          {producto.imagen_url ? (
-                            <img
-                              src={producto.imagen_url}
-                              alt={producto.nombre}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-slate-400">
-                              Sin imagen
+                  productosFiltrados.map((producto) => {
+                    const agotado = isProductoAgotado(producto);
+                    const itemEnCarrito = carrito.find(
+                      (item) => item.producto.id === producto.id
+                    );
+                    const maxCantidad = getMaxCantidadCarrito(producto);
+                    const llegoAlMaximo =
+                      itemEnCarrito != null && itemEnCarrito.cantidad >= maxCantidad;
+                    const stockMessage = getStockMessage(producto);
+
+                    return (
+                      <article
+                        key={producto.id}
+                        className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                      >
+                        <div className="flex gap-3 p-4">
+                          <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl bg-slate-100">
+                            {producto.imagen_url ? (
+                              <img
+                                src={producto.imagen_url}
+                                alt={producto.nombre}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-slate-400">
+                                Sin imagen
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-1 flex-col justify-between">
+                            <div>
+                              <h3 className="font-semibold text-slate-900">
+                                {producto.nombre}
+                              </h3>
+                              {producto.descripcion ? (
+                                <p className="mt-1 text-sm text-slate-600">
+                                  {producto.descripcion}
+                                </p>
+                              ) : null}
+
+                              {stockMessage ? (
+                                <p
+                                  className={`mt-2 text-xs font-medium ${
+                                    agotado ? 'text-rose-700' : 'text-slate-500'
+                                  }`}
+                                >
+                                  {stockMessage}
+                                </p>
+                              ) : null}
                             </div>
-                          )}
-                        </div>
 
-                        <div className="flex flex-1 flex-col justify-between">
-                          <div>
-                            <h3 className="font-semibold text-slate-900">
-                              {producto.nombre}
-                            </h3>
-                            {producto.descripcion ? (
-                              <p className="mt-1 text-sm text-slate-600">
-                                {producto.descripcion}
+                            <div className="mt-3 flex items-center justify-between gap-3">
+                              <p className="font-bold text-slate-900">
+                                {formatMoney(producto.precio)}
                               </p>
-                            ) : null}
-                          </div>
 
-                          <div className="mt-3 flex items-center justify-between gap-3">
-                            <p className="font-bold text-slate-900">
-                              {formatMoney(producto.precio)}
-                            </p>
-
-                            <button
-                              type="button"
-                              onClick={() => agregarAlCarrito(producto)}
-                              className="rounded-xl bg-amber-500 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-600"
-                            >
-                              Agregar
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() => agregarAlCarrito(producto)}
+                                disabled={agotado || llegoAlMaximo}
+                                className={`rounded-xl px-3 py-2 text-sm font-semibold ${
+                                  agotado || llegoAlMaximo
+                                    ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                                    : 'bg-amber-500 text-white hover:bg-amber-600'
+                                }`}
+                              >
+                                {agotado ? 'Agotado' : llegoAlMaximo ? 'Máximo' : 'Agregar'}
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </article>
-                  ))
+                      </article>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1586,105 +1705,119 @@ function MostradorPageContent() {
                 </p>
               ) : (
                 <div className="mt-4 space-y-3">
-                  {carrito.map((item) => (
-                    <div
-                      key={item.producto.id}
-                      className="rounded-2xl border border-slate-200 px-3 py-3"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="font-medium text-slate-900">
-                          {item.producto.nombre}
-                        </span>
+                  {carrito.map((item) => {
+                    const maxCantidad = getMaxCantidadCarrito(item.producto);
+                    const tieneLimite = Number.isFinite(maxCantidad);
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              cambiarCantidad(item.producto.id, item.cantidad - 1)
-                            }
-                            className="h-8 w-8 rounded-full border bg-slate-100 text-slate-700"
-                          >
-                            -
-                          </button>
+                    return (
+                      <div
+                        key={item.producto.id}
+                        className="rounded-2xl border border-slate-200 px-3 py-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="font-medium text-slate-900">
+                              {item.producto.nombre}
+                            </span>
+                            {tieneLimite ? (
+                              <p className="text-xs text-slate-500">
+                                Máximo disponible: {maxCantidad}
+                              </p>
+                            ) : null}
+                          </div>
 
-                          <input
-                            type="number"
-                            min={1}
-                            value={item.cantidad}
-                            onChange={(e) =>
-                              cambiarCantidad(
-                                item.producto.id,
-                                Number(e.target.value)
-                              )
-                            }
-                            className="w-14 rounded border px-1 py-1 text-center text-sm"
-                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                cambiarCantidad(item.producto.id, item.cantidad - 1)
+                              }
+                              className="h-8 w-8 rounded-full border bg-slate-100 text-slate-700"
+                            >
+                              -
+                            </button>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              cambiarCantidad(item.producto.id, item.cantidad + 1)
-                            }
-                            className="h-8 w-8 rounded-full border bg-amber-100 text-amber-700"
-                          >
-                            +
-                          </button>
+                            <input
+                              type="number"
+                              min={1}
+                              max={tieneLimite ? maxCantidad : undefined}
+                              value={item.cantidad}
+                              onChange={(e) =>
+                                cambiarCantidad(
+                                  item.producto.id,
+                                  Number(e.target.value)
+                                )
+                              }
+                              className="w-14 rounded border px-1 py-1 text-center text-sm"
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                cambiarCantidad(item.producto.id, item.cantidad + 1)
+                              }
+                              disabled={item.cantidad >= maxCantidad}
+                              className="h-8 w-8 rounded-full border bg-amber-100 text-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              +
+                            </button>
+                          </div>
                         </div>
-                      </div>
 
-                      <textarea
-                        className="mt-3 w-full rounded border px-2 py-1 text-sm"
-                        placeholder="Notas del producto (opcional)"
-                        value={item.comentarios}
-                        onChange={(e) =>
-                          cambiarComentario(item.producto.id, e.target.value)
-                        }
-                      />
+                        <textarea
+                          className="mt-3 w-full rounded border px-2 py-1 text-sm"
+                          placeholder="Notas del producto (opcional)"
+                          value={item.comentarios}
+                          onChange={(e) =>
+                            cambiarComentario(item.producto.id, e.target.value)
+                          }
+                        />
 
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                            item.prepTarget === 'cocina'
-                              ? 'bg-sky-100 text-sky-800'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          {item.prepTarget === 'cocina'
-                            ? 'Se envía a cocina'
-                            : 'Se resuelve en mostrador'}
-                        </span>
-
-                        {item.prepTarget === 'mostrador' ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              cambiarPrepTargetCarrito(item.producto.id, 'cocina')
-                            }
-                            className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                              item.prepTarget === 'cocina'
+                                ? 'bg-sky-100 text-sky-800'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
                           >
-                            Enviar a cocina
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              cambiarPrepTargetCarrito(
-                                item.producto.id,
-                                'mostrador'
-                              )
-                            }
-                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            Resolver en mostrador
-                          </button>
-                        )}
-                      </div>
+                            {item.prepTarget === 'cocina'
+                              ? 'Se envía a cocina'
+                              : 'Se resuelve en mostrador'}
+                          </span>
 
-                      <p className="mt-2 text-right text-sm text-slate-700">
-                        Subtotal: {formatMoney(item.producto.precio * item.cantidad)}
-                      </p>
-                    </div>
-                  ))}
+                          {item.prepTarget === 'mostrador' ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                cambiarPrepTargetCarrito(item.producto.id, 'cocina')
+                              }
+                              className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
+                            >
+                              Enviar a cocina
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                cambiarPrepTargetCarrito(
+                                  item.producto.id,
+                                  'mostrador'
+                                )
+                              }
+                              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                              Resolver en mostrador
+                            </button>
+                          )}
+                        </div>
+
+                        <p className="mt-2 text-right text-sm text-slate-700">
+                          Subtotal: {formatMoney(item.producto.precio * item.cantidad)}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -2430,6 +2563,7 @@ function MostradorPageContent() {
     </main>
   );
 }
+
 export default function MostradorPage() {
   return (
     <Suspense
