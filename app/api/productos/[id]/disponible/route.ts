@@ -1,22 +1,46 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+
+const PRODUCTO_SELECT = `
+  id,
+  nombre,
+  descripcion,
+  precio,
+  categoria,
+  disponible,
+  imagen_url,
+  control_stock,
+  stock_actual,
+  permitir_sin_stock
+`;
 
 type Params = {
   params: Promise<{ id: string }>;
 };
 
+function normalizeBoolean(value: unknown) {
+  if (typeof value === 'boolean') return value;
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+
+  return false;
+}
+
 export async function PUT(req: Request, { params }: Params) {
   try {
     const { id } = await params;
     const body = await req.json();
+    const disponible = normalizeBoolean(body?.disponible);
 
-    const { disponible } = body;
-
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('productos')
       .update({ disponible })
       .eq('id', id)
-      .select('id, nombre, descripcion, precio, categoria, disponible, imagen_url')
+      .select(PRODUCTO_SELECT)
       .single();
 
     if (error) {

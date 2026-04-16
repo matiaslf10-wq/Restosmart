@@ -1,7 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+} from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { formatPlanLabel, type PlanCode } from '@/lib/plans';
 
 type Categoria = {
   id: number;
@@ -17,6 +23,9 @@ type Producto = {
   categoria: string | null;
   disponible: boolean | null;
   imagen_url?: string | null;
+  control_stock?: boolean | null;
+  stock_actual?: number | null;
+  permitir_sin_stock?: boolean | null;
 };
 
 type ProductoImagen = {
@@ -42,6 +51,16 @@ type FormProducto = {
   precio: string;
   categoria: string;
   disponible: boolean;
+  control_stock: boolean;
+  stock_actual: string;
+  permitir_sin_stock: boolean;
+};
+
+type AdminSessionPayload = {
+  plan?: PlanCode;
+  capabilities?: {
+    stock_control?: boolean;
+  };
 };
 
 function sanitizeFileName(name: string) {
@@ -81,6 +100,39 @@ function ensureOneCover(
   return { existing, pending };
 }
 
+function normalizeStockInput(value: string) {
+  const cleaned = value.replace(/[^\d]/g, '');
+  return cleaned;
+}
+
+function getStockLabel(producto: Producto) {
+  if (!producto.control_stock) {
+    return {
+      text: 'Sin control de stock',
+      className: 'bg-slate-100 text-slate-700',
+    };
+  }
+
+  const stock = Number(producto.stock_actual ?? 0);
+
+  if (stock <= 0) {
+    return producto.permitir_sin_stock
+      ? {
+          text: 'Stock 0 · vende igual',
+          className: 'bg-amber-100 text-amber-800',
+        }
+      : {
+          text: 'Sin stock',
+          className: 'bg-rose-100 text-rose-700',
+        };
+  }
+
+  return {
+    text: `Stock: ${stock}`,
+    className: 'bg-sky-100 text-sky-800',
+  };
+}
+
 const FALLBACK_CATEGORY_NAME = 'Otros';
 
 export default function AdminProductosPage() {
@@ -92,6 +144,9 @@ export default function AdminProductosPage() {
   const [eliminandoId, setEliminandoId] = useState<number | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
 
+  const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
+  const [stockControlEnabled, setStockControlEnabled] = useState(false);
+
   const [filtroCategoria, setFiltroCategoria] = useState<string>('todas');
   const [busqueda, setBusqueda] = useState('');
 
@@ -102,6 +157,9 @@ export default function AdminProductosPage() {
     precio: '',
     categoria: '',
     disponible: true,
+    control_stock: false,
+    stock_actual: '0',
+    permitir_sin_stock: false,
   });
 
   const [modoEdicion, setModoEdicion] = useState(false);
@@ -117,6 +175,30 @@ export default function AdminProductosPage() {
   const [nombreCategoriaEditando, setNombreCategoriaEditando] = useState('');
   const [guardandoCategoriaId, setGuardandoCategoriaId] = useState<number | null>(null);
   const [eliminandoCategoriaId, setEliminandoCategoriaId] = useState<number | null>(null);
+
+  const cargarSession = async () => {
+    try {
+      const res = await fetch('/api/admin/session', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      const raw = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(raw?.error || 'No se pudo cargar la sesión del admin.');
+      }
+
+      const session = (raw?.session as AdminSessionPayload | null) ?? null;
+
+      setCurrentPlan(session?.plan ?? 'esencial');
+      setStockControlEnabled(!!session?.capabilities?.stock_control);
+    } catch (error) {
+      console.error('Error cargando sesión admin:', error);
+      setCurrentPlan('esencial');
+      setStockControlEnabled(false);
+    }
+  };
 
   const cargarProductos = async () => {
     try {
@@ -158,11 +240,11 @@ export default function AdminProductosPage() {
     const cargarTodo = async () => {
       setCargando(true);
       setMensaje(null);
-      await Promise.all([cargarProductos(), cargarCategorias()]);
+      await Promise.all([cargarSession(), cargarProductos(), cargarCategorias()]);
       setCargando(false);
     };
 
-    cargarTodo();
+    void cargarTodo();
   }, []);
 
   const cargarImagenesProducto = async (productoId: number) => {
@@ -196,6 +278,9 @@ export default function AdminProductosPage() {
       precio: '',
       categoria: categorias[0]?.nombre ?? '',
       disponible: true,
+      control_stock: false,
+      stock_actual: '0',
+      permitir_sin_stock: false,
     });
     setModoEdicion(false);
     setProductoEditando(null);
@@ -204,11 +289,27 @@ export default function AdminProductosPage() {
     setCargandoImagenes(false);
   };
 
-  const onChangeForm = (field: keyof FormProducto, value: string | boolean) => {
-    setForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+  const onChangeForm = (
+    field: keyof FormProducto,
+    value: string | boolean
+  ) => {
+    setForm((prev) => {
+      const next = {
+        ...prev,
+        [field]: value,
+      };
+
+      if (field === 'control_stock' && value === false) {
+        next.stock_actual = '0';
+        next.permitir_sin_stock = false;
+      }
+
+      if (field === 'stock_actual' && typeof value === 'string') {
+        next.stock_actual = normalizeStockInput(value);
+      }
+
+      return next;
+    });
   };
 
   const comenzarEdicion = async (p: Producto) => {
@@ -221,6 +322,9 @@ export default function AdminProductosPage() {
       precio: String(p.precio),
       categoria: p.categoria ?? categorias[0]?.nombre ?? '',
       disponible: !!p.disponible,
+      control_stock: !!p.control_stock,
+      stock_actual: String(p.stock_actual ?? 0),
+      permitir_sin_stock: !!p.permitir_sin_stock,
     });
     setImagenesPendientes([]);
     await cargarImagenesProducto(p.id);
@@ -252,7 +356,7 @@ export default function AdminProductosPage() {
     });
   };
 
-  const onSelectFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onSelectFiles = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
 
@@ -293,7 +397,9 @@ export default function AdminProductosPage() {
       }
 
       const creada = body as Categoria;
-      setCategorias((prev) => [...prev, creada].sort((a, b) => (a.orden ?? 9999) - (b.orden ?? 9999)));
+      setCategorias((prev) =>
+        [...prev, creada].sort((a, b) => (a.orden ?? 9999) - (b.orden ?? 9999))
+      );
       setNuevaCategoria('');
       setMensaje('Categoría creada correctamente.');
 
@@ -364,55 +470,57 @@ export default function AdminProductosPage() {
   };
 
   const eliminarCategoria = async (cat: Categoria) => {
-  if (cat.nombre === FALLBACK_CATEGORY_NAME) {
-    setMensaje(`La categoría "${FALLBACK_CATEGORY_NAME}" no se puede eliminar.`);
-    return;
-  }
-
-  const confirmar = window.confirm(
-    `¿Eliminar la categoría "${cat.nombre}"?\n\nLos productos que la usen pasarán a "${FALLBACK_CATEGORY_NAME}".`
-  );
-
-  if (!confirmar) return;
-
-  setEliminandoCategoriaId(cat.id);
-  setMensaje(null);
-
-  try {
-    const res = await fetch(`/api/categorias/${cat.id}`, {
-      method: 'DELETE',
-    });
-
-    const body = await res.json();
-
-    if (!res.ok) {
-      throw new Error(body?.error || 'No se pudo eliminar la categoría.');
+    if (cat.nombre === FALLBACK_CATEGORY_NAME) {
+      setMensaje(`La categoría "${FALLBACK_CATEGORY_NAME}" no se puede eliminar.`);
+      return;
     }
 
-    setCategorias((prev) => prev.filter((c) => c.id !== cat.id));
-
-    setProductos((prev) =>
-      prev.map((p) =>
-        p.categoria === cat.nombre
-          ? { ...p, categoria: FALLBACK_CATEGORY_NAME }
-          : p
-      )
+    const confirmar = window.confirm(
+      `¿Eliminar la categoría "${cat.nombre}"?\n\nLos productos que la usen pasarán a "${FALLBACK_CATEGORY_NAME}".`
     );
 
-    setForm((prev) =>
-      prev.categoria === cat.nombre
-        ? { ...prev, categoria: FALLBACK_CATEGORY_NAME }
-        : prev
-    );
+    if (!confirmar) return;
 
-    setMensaje(`Categoría eliminada. Los productos pasaron a "${FALLBACK_CATEGORY_NAME}".`);
-  } catch (error: any) {
-    console.error(error);
-    setMensaje(error?.message ?? 'No se pudo eliminar la categoría.');
-  } finally {
-    setEliminandoCategoriaId(null);
-  }
-};
+    setEliminandoCategoriaId(cat.id);
+    setMensaje(null);
+
+    try {
+      const res = await fetch(`/api/categorias/${cat.id}`, {
+        method: 'DELETE',
+      });
+
+      const body = await res.json();
+
+      if (!res.ok) {
+        throw new Error(body?.error || 'No se pudo eliminar la categoría.');
+      }
+
+      setCategorias((prev) => prev.filter((c) => c.id !== cat.id));
+
+      setProductos((prev) =>
+        prev.map((p) =>
+          p.categoria === cat.nombre
+            ? { ...p, categoria: FALLBACK_CATEGORY_NAME }
+            : p
+        )
+      );
+
+      setForm((prev) =>
+        prev.categoria === cat.nombre
+          ? { ...prev, categoria: FALLBACK_CATEGORY_NAME }
+          : prev
+      );
+
+      setMensaje(
+        `Categoría eliminada. Los productos pasaron a "${FALLBACK_CATEGORY_NAME}".`
+      );
+    } catch (error: any) {
+      console.error(error);
+      setMensaje(error?.message ?? 'No se pudo eliminar la categoría.');
+    } finally {
+      setEliminandoCategoriaId(null);
+    }
+  };
 
   const subirImagenes = async (productoId: number) => {
     if (imagenesPendientes.length === 0) {
@@ -485,10 +593,7 @@ export default function AdminProductosPage() {
       }
     }
 
-    const portadaUrl =
-      portada?.image_url ??
-      productoEditando?.imagen_url ??
-      null;
+    const portadaUrl = portada?.image_url ?? productoEditando?.imagen_url ?? null;
 
     const { error: errorProducto } = await supabase
       .from('productos')
@@ -510,6 +615,16 @@ export default function AdminProductosPage() {
       return;
     }
 
+    const controlStock = !!form.control_stock;
+    const stockActualRaw = form.stock_actual.trim() === '' ? '0' : form.stock_actual.trim();
+    const stockActual = Number(stockActualRaw);
+
+    if (controlStock && (!Number.isInteger(stockActual) || stockActual < 0)) {
+      setMensaje('El stock actual debe ser un número entero mayor o igual a 0.');
+      setGuardando(false);
+      return;
+    }
+
     const payload = {
       nombre: form.nombre.trim(),
       descripcion: form.descripcion.trim() || null,
@@ -517,6 +632,9 @@ export default function AdminProductosPage() {
       categoria: form.categoria || null,
       disponible: form.disponible,
       imagen_url: productoEditando?.imagen_url ?? null,
+      control_stock: controlStock,
+      stock_actual: controlStock ? stockActual : 0,
+      permitir_sin_stock: controlStock ? form.permitir_sin_stock : false,
     };
 
     if (!payload.nombre) {
@@ -541,8 +659,10 @@ export default function AdminProductosPage() {
           body: JSON.stringify(payload),
         });
 
+        const body = await res.json().catch(() => null);
+
         if (!res.ok) {
-          throw new Error('No se pudo actualizar el producto.');
+          throw new Error(body?.error || 'No se pudo actualizar el producto.');
         }
 
         productoId = form.id;
@@ -556,11 +676,13 @@ export default function AdminProductosPage() {
           }),
         });
 
+        const body = await res.json().catch(() => null);
+
         if (!res.ok) {
-          throw new Error('No se pudo crear el producto.');
+          throw new Error(body?.error || 'No se pudo crear el producto.');
         }
 
-        const data = (await res.json()) as Producto;
+        const data = body as Producto;
         productoId = data.id;
       }
 
@@ -583,12 +705,13 @@ export default function AdminProductosPage() {
       );
 
       resetForm();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error guardando producto:', error);
       setMensaje(
-        modoEdicion
-          ? 'No se pudo actualizar el producto.'
-          : 'No se pudo crear el producto.'
+        error?.message ||
+          (modoEdicion
+            ? 'No se pudo actualizar el producto.'
+            : 'No se pudo crear el producto.')
       );
     } finally {
       setGuardando(false);
@@ -651,18 +774,18 @@ export default function AdminProductosPage() {
         body: JSON.stringify({ disponible: nuevoEstado }),
       });
 
-      if (!res.ok) {
-        throw new Error('No se pudo cambiar la disponibilidad.');
-      }
+      const data = (await res.json().catch(() => null)) as Producto | { error?: string } | null;
 
-      const data = (await res.json()) as Producto;
+      if (!res.ok || !data || 'error' in data) {
+        throw new Error((data as any)?.error || 'No se pudo cambiar la disponibilidad.');
+      }
 
       setProductos((prev) =>
         prev.map((prod) => (prod.id === p.id ? data : prod))
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error cambiando disponibilidad:', error);
-      setMensaje('No se pudo cambiar la disponibilidad.');
+      setMensaje(error?.message || 'No se pudo cambiar la disponibilidad.');
     }
   };
 
@@ -682,11 +805,17 @@ export default function AdminProductosPage() {
   return (
     <div className="space-y-6">
       <section className="flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="text-2xl font-bold">Menú / Productos</h1>
+        <div>
+          <h1 className="text-2xl font-bold">Menú / Productos</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Plan actual: <strong>{formatPlanLabel(currentPlan)}</strong>
+          </p>
+        </div>
+
         <button
           onClick={async () => {
             setCargando(true);
-            await Promise.all([cargarProductos(), cargarCategorias()]);
+            await Promise.all([cargarSession(), cargarProductos(), cargarCategorias()]);
             setCargando(false);
           }}
           className="px-3 py-1 rounded-lg text-sm bg-slate-800 text-white hover:bg-slate-700"
@@ -729,71 +858,71 @@ export default function AdminProductosPage() {
           )}
 
           {categorias.map((cat) => {
-  const esFallback = cat.nombre === FALLBACK_CATEGORY_NAME;
+            const esFallback = cat.nombre === FALLBACK_CATEGORY_NAME;
 
-  return (
-    <div
-      key={cat.id}
-      className="border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 flex items-center gap-2 flex-wrap"
-    >
-      {editandoCategoriaId === cat.id ? (
-        <>
-          <input
-            type="text"
-            value={nombreCategoriaEditando}
-            onChange={(e) => setNombreCategoriaEditando(e.target.value)}
-            className="border border-slate-300 rounded px-2 py-1 text-sm"
-          />
-          <button
-            onClick={() => guardarCategoriaEditada(cat.id)}
-            disabled={guardandoCategoriaId === cat.id}
-            className="text-xs px-2 py-1 rounded bg-slate-900 text-white"
-          >
-            {guardandoCategoriaId === cat.id ? 'Guardando...' : 'Guardar'}
-          </button>
-          <button
-            onClick={() => {
-              setEditandoCategoriaId(null);
-              setNombreCategoriaEditando('');
-            }}
-            className="text-xs px-2 py-1 rounded border border-slate-300"
-          >
-            Cancelar
-          </button>
-        </>
-      ) : (
-        <>
-          <span className="text-sm font-medium">{cat.nombre}</span>
+            return (
+              <div
+                key={cat.id}
+                className="border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 flex items-center gap-2 flex-wrap"
+              >
+                {editandoCategoriaId === cat.id ? (
+                  <>
+                    <input
+                      type="text"
+                      value={nombreCategoriaEditando}
+                      onChange={(e) => setNombreCategoriaEditando(e.target.value)}
+                      className="border border-slate-300 rounded px-2 py-1 text-sm"
+                    />
+                    <button
+                      onClick={() => guardarCategoriaEditada(cat.id)}
+                      disabled={guardandoCategoriaId === cat.id}
+                      className="text-xs px-2 py-1 rounded bg-slate-900 text-white"
+                    >
+                      {guardandoCategoriaId === cat.id ? 'Guardando...' : 'Guardar'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditandoCategoriaId(null);
+                        setNombreCategoriaEditando('');
+                      }}
+                      className="text-xs px-2 py-1 rounded border border-slate-300"
+                    >
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm font-medium">{cat.nombre}</span>
 
-          {esFallback && (
-  <span className="text-[11px] px-2 py-1 rounded-full bg-slate-200 text-slate-700">
-    Categoría protegida
-  </span>
-)}
+                    {esFallback && (
+                      <span className="text-[11px] px-2 py-1 rounded-full bg-slate-200 text-slate-700">
+                        Categoría protegida
+                      </span>
+                    )}
 
-          {!esFallback && (
-  <button
-    onClick={() => iniciarEdicionCategoria(cat)}
-    className="text-xs px-2 py-1 rounded border border-slate-300 bg-white"
-  >
-    Editar
-  </button>
-)}
+                    {!esFallback && (
+                      <button
+                        onClick={() => iniciarEdicionCategoria(cat)}
+                        className="text-xs px-2 py-1 rounded border border-slate-300 bg-white"
+                      >
+                        Editar
+                      </button>
+                    )}
 
-          {!esFallback && (
-            <button
-              onClick={() => eliminarCategoria(cat)}
-              disabled={eliminandoCategoriaId === cat.id}
-              className="text-xs px-2 py-1 rounded border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-60"
-            >
-              {eliminandoCategoriaId === cat.id ? 'Eliminando...' : 'Eliminar'}
-            </button>
-          )}
-        </>
-      )}
-    </div>
-  );
-})}
+                    {!esFallback && (
+                      <button
+                        onClick={() => eliminarCategoria(cat)}
+                        disabled={eliminandoCategoriaId === cat.id}
+                        className="text-xs px-2 py-1 rounded border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                      >
+                        {eliminandoCategoriaId === cat.id ? 'Eliminando...' : 'Eliminar'}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -811,6 +940,14 @@ export default function AdminProductosPage() {
             </button>
           )}
         </div>
+
+        {!stockControlEnabled ? (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            El <strong>control real de stock</strong> está disponible desde{' '}
+            <strong>Pro</strong>. En tu plan actual podés seguir cargando productos y
+            disponibilidad manual.
+          </div>
+        ) : null}
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
@@ -876,6 +1013,72 @@ export default function AdminProductosPage() {
               </label>
             </div>
           </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">
+              Control de stock
+            </h3>
+            <p className="mt-1 text-xs text-slate-600">
+              Cuando está activo, el sistema puede validar stock real al vender.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              id="control_stock"
+              type="checkbox"
+              checked={form.control_stock}
+              onChange={(e) => onChangeForm('control_stock', e.target.checked)}
+              disabled={!stockControlEnabled}
+            />
+            <label htmlFor="control_stock" className="text-sm text-slate-700">
+              Activar control real de stock
+            </label>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="grid gap-2">
+              <span className="text-xs font-medium text-slate-700">
+                Stock actual
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={form.stock_actual}
+                onChange={(e) => onChangeForm('stock_actual', e.target.value)}
+                disabled={!stockControlEnabled || !form.control_stock}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                placeholder="0"
+              />
+            </label>
+
+            <div className="flex items-center gap-2 pt-6">
+              <input
+                id="permitir_sin_stock"
+                type="checkbox"
+                checked={form.permitir_sin_stock}
+                onChange={(e) =>
+                  onChangeForm('permitir_sin_stock', e.target.checked)
+                }
+                disabled={!stockControlEnabled || !form.control_stock}
+              />
+              <label
+                htmlFor="permitir_sin_stock"
+                className="text-sm text-slate-700"
+              >
+                Permitir vender aunque llegue a 0
+              </label>
+            </div>
+          </div>
+
+          {stockControlEnabled && form.control_stock ? (
+            <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+              Con esta opción activa, el producto puede quedar automáticamente sin
+              stock al venderse si no permitís ventas con stock 0.
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-2 pt-2">
@@ -1029,73 +1232,91 @@ export default function AdminProductosPage() {
         )}
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {productosFiltrados.map((p) => (
-            <article
-              key={p.id}
-              className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex flex-col gap-2"
-            >
-              <div className="flex items-start gap-3">
-                {p.imagen_url ? (
-                  <img
-                    src={p.imagen_url}
-                    alt={p.nombre}
-                    className="w-16 h-16 rounded-lg object-cover border border-slate-200"
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-100 flex items-center justify-center text-[11px] text-slate-400 text-center px-1">
-                    Sin foto
-                  </div>
-                )}
+          {productosFiltrados.map((p) => {
+            const stockBadge = getStockLabel(p);
 
-                <div className="flex-1">
-                  <div className="flex justify-between gap-2">
-                    <h3 className="font-semibold text-slate-900">{p.nombre}</h3>
-                    <span className="text-sm font-bold">${p.precio}</span>
-                  </div>
-
-                  <p className="text-xs text-slate-500">
-                    {p.categoria ?? FALLBACK_CATEGORY_NAME}
-                  </p>
-
-                  {p.descripcion && (
-                    <p className="mt-1 text-sm text-slate-700 line-clamp-2">
-                      {p.descripcion}
-                    </p>
+            return (
+              <article
+                key={p.id}
+                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex flex-col gap-2"
+              >
+                <div className="flex items-start gap-3">
+                  {p.imagen_url ? (
+                    <img
+                      src={p.imagen_url}
+                      alt={p.nombre}
+                      className="w-16 h-16 rounded-lg object-cover border border-slate-200"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-100 flex items-center justify-center text-[11px] text-slate-400 text-center px-1">
+                      Sin foto
+                    </div>
                   )}
+
+                  <div className="flex-1">
+                    <div className="flex justify-between gap-2">
+                      <h3 className="font-semibold text-slate-900">{p.nombre}</h3>
+                      <span className="text-sm font-bold">${p.precio}</span>
+                    </div>
+
+                    <p className="text-xs text-slate-500">
+                      {p.categoria ?? FALLBACK_CATEGORY_NAME}
+                    </p>
+
+                    {p.descripcion && (
+                      <p className="mt-1 text-sm text-slate-700 line-clamp-2">
+                        {p.descripcion}
+                      </p>
+                    )}
+
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span
+                        className={`px-2 py-1 rounded-full text-[11px] font-medium ${stockBadge.className}`}
+                      >
+                        {stockBadge.text}
+                      </span>
+
+                      {p.control_stock && p.permitir_sin_stock ? (
+                        <span className="px-2 py-1 rounded-full text-[11px] font-medium bg-violet-100 text-violet-800">
+                          Backorder
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex items-center justify-between gap-2 mt-1">
-                <button
-                  onClick={() => toggleDisponible(p)}
-                  className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    p.disponible
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-slate-200 text-slate-700'
-                  }`}
-                >
-                  {p.disponible ? 'Visible en menú' : 'Oculto'}
-                </button>
-
-                <div className="flex gap-2">
+                <div className="flex items-center justify-between gap-2 mt-1">
                   <button
-                    onClick={() => comenzarEdicion(p)}
-                    className="px-2 py-1 rounded-md bg-slate-100 border border-slate-300 text-xs hover:bg-slate-200"
+                    onClick={() => toggleDisponible(p)}
+                    className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      p.disponible
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
                   >
-                    Editar
+                    {p.disponible ? 'Visible en menú' : 'Oculto'}
                   </button>
 
-                  <button
-                    onClick={() => eliminarProducto(p.id)}
-                    disabled={eliminandoId === p.id}
-                    className="px-2 py-1 rounded-md bg-rose-100 text-rose-700 border border-rose-200 text-xs hover:bg-rose-200 disabled:opacity-60"
-                  >
-                    {eliminandoId === p.id ? 'Eliminando...' : 'Eliminar'}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => comenzarEdicion(p)}
+                      className="px-2 py-1 rounded-md bg-slate-100 border border-slate-300 text-xs hover:bg-slate-200"
+                    >
+                      Editar
+                    </button>
+
+                    <button
+                      onClick={() => eliminarProducto(p.id)}
+                      disabled={eliminandoId === p.id}
+                      className="px-2 py-1 rounded-md bg-rose-100 text-rose-700 border border-rose-200 text-xs hover:bg-rose-200 disabled:opacity-60"
+                    >
+                      {eliminandoId === p.id ? 'Eliminando...' : 'Eliminar'}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       </section>
     </div>
