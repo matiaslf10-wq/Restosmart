@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRestaurantContext } from '@/lib/tenant';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const SIN_MESA_ID = 0;
-
-function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { auth: { persistSession: false } });
-}
+const STOCK_CONFLICT_PREFIX = 'STOCK_CONFLICT:';
 
 type RestaurantContext = {
   id: string | number;
@@ -57,6 +52,26 @@ type CreatePedidoBody = {
   cliente_telefono?: string | null;
   direccion_entrega?: string | null;
   items: PedidoItemInput[];
+};
+
+type ProductoStockRow = {
+  id: number;
+  nombre: string;
+  disponible: boolean | null;
+  control_stock: boolean | null;
+  stock_actual: number | null;
+  permitir_sin_stock: boolean | null;
+};
+
+type AggregatedProductRequest = {
+  producto_id: number;
+  cantidad: number;
+};
+
+type AppliedStockAdjustment = {
+  producto_id: number;
+  previous_stock: number;
+  previous_disponible: boolean | null;
 };
 
 function normalizePlan(plan: unknown): 'esencial' | 'pro' | 'intelligence' {
@@ -195,7 +210,176 @@ function getInitialPedidoEstado(params: {
   return 'solicitado';
 }
 
-async function resolveRestaurantContext(sb: ReturnType<typeof supabaseAdmin>) {
+function planHasStockControl(plan: 'esencial' | 'pro' | 'intelligence') {
+  return plan === 'pro' || plan === 'intelligence';
+}
+
+function aggregateRequestedProducts(items: SanitizedPedidoItemInput[]) {
+  const map = new Map<number, number>();
+
+  for (const item of items) {
+    const current = map.get(item.producto_id) ?? 0;
+    map.set(item.producto_id, current + item.cantidad);
+  }
+
+  return Array.from(map.entries()).map(([producto_id, cantidad]) => ({
+    producto_id,
+    cantidad,
+  })) as AggregatedProductRequest[];
+}
+
+async function loadProductsForStock(
+  productoIds: number[]
+): Promise<Map<number, ProductoStockRow>> {
+  const { data, error } = await supabaseAdmin
+    .from('productos')
+    .select(
+      'id, nombre, disponible, control_stock, stock_actual, permitir_sin_stock'
+    )
+    .in('id', productoIds);
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data ?? []) as ProductoStockRow[];
+  const map = new Map<number, ProductoStockRow>();
+
+  for (const row of rows) {
+    map.set(Number(row.id), row);
+  }
+
+  return map;
+}
+
+function validateStockAvailability(
+  requestedProducts: AggregatedProductRequest[],
+  productsMap: Map<number, ProductoStockRow>
+) {
+  const missingProducts: number[] = [];
+  const insufficientProducts: Array<{
+    nombre: string;
+    solicitado: number;
+    disponible: number;
+  }> = [];
+
+  for (const requested of requestedProducts) {
+    const product = productsMap.get(requested.producto_id);
+
+    if (!product) {
+      missingProducts.push(requested.producto_id);
+      continue;
+    }
+
+    const controlStock = !!product.control_stock;
+    const permitirSinStock = !!product.permitir_sin_stock;
+    const stockActual = Number(product.stock_actual ?? 0);
+
+    if (controlStock && !permitirSinStock && stockActual < requested.cantidad) {
+      insufficientProducts.push({
+        nombre: product.nombre,
+        solicitado: requested.cantidad,
+        disponible: stockActual,
+      });
+    }
+  }
+
+  return {
+    missingProducts,
+    insufficientProducts,
+  };
+}
+
+async function rollbackPedidoCreation(pedidoId: number) {
+  try {
+    await supabaseAdmin.from('items_pedido').delete().eq('pedido_id', pedidoId);
+    await supabaseAdmin.from('pedidos').delete().eq('id', pedidoId);
+  } catch (error) {
+    console.error('Rollback de pedido fallido:', error);
+  }
+}
+
+async function rollbackStockAdjustments(
+  adjustments: AppliedStockAdjustment[]
+) {
+  for (const adjustment of adjustments) {
+    try {
+      await supabaseAdmin
+        .from('productos')
+        .update({
+          stock_actual: adjustment.previous_stock,
+          disponible: adjustment.previous_disponible,
+        })
+        .eq('id', adjustment.producto_id);
+    } catch (error) {
+      console.error(
+        `No se pudo revertir stock del producto ${adjustment.producto_id}:`,
+        error
+      );
+    }
+  }
+}
+
+async function applyStockAdjustments(params: {
+  requestedProducts: AggregatedProductRequest[];
+  productsMap: Map<number, ProductoStockRow>;
+}) {
+  const { requestedProducts, productsMap } = params;
+  const appliedAdjustments: AppliedStockAdjustment[] = [];
+
+  for (const requested of requestedProducts) {
+    const product = productsMap.get(requested.producto_id);
+
+    if (!product || !product.control_stock) {
+      continue;
+    }
+
+    const previousStock = Number(product.stock_actual ?? 0);
+    const previousDisponible = product.disponible ?? null;
+    const permitirSinStock = !!product.permitir_sin_stock;
+
+    const nextStock = permitirSinStock
+      ? Math.max(previousStock - requested.cantidad, 0)
+      : previousStock - requested.cantidad;
+
+    const nextDisponible = permitirSinStock
+      ? previousDisponible
+      : nextStock > 0
+      ? previousDisponible
+      : false;
+
+    const { data, error } = await supabaseAdmin
+      .from('productos')
+      .update({
+        stock_actual: nextStock,
+        disponible: nextDisponible,
+      })
+      .eq('id', requested.producto_id)
+      .eq('control_stock', true)
+      .eq('permitir_sin_stock', permitirSinStock)
+      .eq('stock_actual', previousStock)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data?.id) {
+      throw new Error(`${STOCK_CONFLICT_PREFIX}${product.nombre}`);
+    }
+
+    appliedAdjustments.push({
+      producto_id: requested.producto_id,
+      previous_stock: previousStock,
+      previous_disponible: previousDisponible,
+    });
+  }
+
+  return appliedAdjustments;
+}
+
+async function resolveRestaurantContext() {
   const ctx = await getRestaurantContext().catch(() => null);
 
   if (ctx?.id) {
@@ -205,7 +389,7 @@ async function resolveRestaurantContext(sb: ReturnType<typeof supabaseAdmin>) {
   const defaultTenantId = process.env.DEFAULT_TENANT_ID?.trim();
 
   if (defaultTenantId) {
-    const bySlug = await sb
+    const bySlug = await supabaseAdmin
       .from('restaurants')
       .select('id, slug, plan')
       .eq('slug', defaultTenantId)
@@ -216,7 +400,7 @@ async function resolveRestaurantContext(sb: ReturnType<typeof supabaseAdmin>) {
     }
   }
 
-  const fallback = await sb
+  const fallback = await supabaseAdmin
     .from('restaurants')
     .select('id, slug, plan')
     .order('id', { ascending: true })
@@ -230,8 +414,8 @@ async function resolveRestaurantContext(sb: ReturnType<typeof supabaseAdmin>) {
   return null;
 }
 
-async function resolveBusinessMode(sb: ReturnType<typeof supabaseAdmin>) {
-  const result = await sb
+async function resolveBusinessMode() {
+  const result = await supabaseAdmin
     .from('configuracion_local')
     .select('business_mode')
     .order('id', { ascending: true })
@@ -251,7 +435,6 @@ async function resolveBusinessMode(sb: ReturnType<typeof supabaseAdmin>) {
 }
 
 async function resolveMesaIdForPedido(
-  sb: ReturnType<typeof supabaseAdmin>,
   rawMesaId: number,
   tipoServicio: TipoServicio
 ) {
@@ -269,7 +452,7 @@ async function resolveMesaIdForPedido(
     };
   }
 
-  const { data: mesa, error: mesaError } = await sb
+  const { data: mesa, error: mesaError } = await supabaseAdmin
     .from('mesas')
     .select('id')
     .eq('id', rawMesaId)
@@ -370,11 +553,10 @@ function extractTakeawayDataFromItems(items: PedidoItemInput[]) {
 
 export async function GET() {
   try {
-    const sb = supabaseAdmin();
-    const ctx = await resolveRestaurantContext(sb);
-    const businessMode = await resolveBusinessMode(sb);
+    const ctx = await resolveRestaurantContext();
+    const businessMode = await resolveBusinessMode();
 
-    const { data, error } = await sb
+    const { data, error } = await supabaseAdmin
       .from('pedidos')
       .select('*')
       .order('creado_en', { ascending: false })
@@ -411,11 +593,11 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as Partial<CreatePedidoBody>;
-    const sb = supabaseAdmin();
 
-    const restaurant = await resolveRestaurantContext(sb);
+    const restaurant = await resolveRestaurantContext();
     const plan = normalizePlan(restaurant?.plan);
-    const businessMode = await resolveBusinessMode(sb);
+    const businessMode = await resolveBusinessMode();
+    const stockControlEnabled = planHasStockControl(plan);
 
     const rawMesaId = Number(body?.mesa_id);
     const total = Number(body?.total ?? 0);
@@ -498,11 +680,46 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const mesaResolution = await resolveMesaIdForPedido(
-      sb,
-      rawMesaId,
-      tipoServicio
-    );
+    const requestedProducts = aggregateRequestedProducts(items);
+    const productoIds = requestedProducts.map((item) => item.producto_id);
+
+    let productsMap = new Map<number, ProductoStockRow>();
+
+    if (stockControlEnabled) {
+      productsMap = await loadProductsForStock(productoIds);
+
+      const { missingProducts, insufficientProducts } = validateStockAvailability(
+        requestedProducts,
+        productsMap
+      );
+
+      if (missingProducts.length > 0) {
+        return NextResponse.json(
+          {
+            error: `No se encontraron algunos productos del pedido: ${missingProducts.join(', ')}.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (insufficientProducts.length > 0) {
+        const detail = insufficientProducts
+          .map(
+            (item) =>
+              `${item.nombre} (solicitado: ${item.solicitado}, disponible: ${item.disponible})`
+          )
+          .join('; ');
+
+        return NextResponse.json(
+          {
+            error: `Stock insuficiente para completar el pedido: ${detail}.`,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    const mesaResolution = await resolveMesaIdForPedido(rawMesaId, tipoServicio);
 
     if (!mesaResolution.ok) {
       return mesaResolution.response;
@@ -517,7 +734,6 @@ export async function POST(request: NextRequest) {
     });
 
     const hasKitchenItems = items.some((item) => item.prep_target === 'cocina');
-
     const estadoInicial = hasKitchenItems ? 'en_preparacion' : estadoBase;
 
     const payloadPedido = {
@@ -544,7 +760,7 @@ export async function POST(request: NextRequest) {
       direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
     };
 
-    const { data: pedido, error: pedidoError } = await sb
+    const { data: pedido, error: pedidoError } = await supabaseAdmin
       .from('pedidos')
       .insert(payloadPedido)
       .select()
@@ -571,14 +787,14 @@ export async function POST(request: NextRequest) {
           : normalizeOptionalText(item.comentarios),
     }));
 
-    const { error: itemsError } = await sb
+    const { error: itemsError } = await supabaseAdmin
       .from('items_pedido')
       .insert(payloadItems);
 
     if (itemsError) {
       console.error('POST /api/pedidos - error creando items', itemsError);
 
-      await sb.from('pedidos').delete().eq('id', pedido.id);
+      await rollbackPedidoCreation(Number(pedido.id));
 
       return NextResponse.json(
         {
@@ -587,6 +803,43 @@ export async function POST(request: NextRequest) {
         },
         { status: 500 }
       );
+    }
+
+    let appliedAdjustments: AppliedStockAdjustment[] = [];
+
+    if (stockControlEnabled) {
+      try {
+        appliedAdjustments = await applyStockAdjustments({
+          requestedProducts,
+          productsMap,
+        });
+      } catch (error) {
+        console.error('POST /api/pedidos - error aplicando stock', error);
+
+        await rollbackStockAdjustments(appliedAdjustments);
+        await rollbackPedidoCreation(Number(pedido.id));
+
+        const message =
+          error instanceof Error ? error.message : 'No se pudo actualizar el stock.';
+
+        if (message.startsWith(STOCK_CONFLICT_PREFIX)) {
+          const productName = message.replace(STOCK_CONFLICT_PREFIX, '').trim();
+
+          return NextResponse.json(
+            {
+              error: `El stock cambió mientras se procesaba el pedido${productName ? ` para "${productName}"` : ''}. Reintentá con la información actualizada.`,
+            },
+            { status: 409 }
+          );
+        }
+
+        return NextResponse.json(
+          {
+            error: 'No se pudo actualizar el stock del pedido.',
+          },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json(
@@ -611,6 +864,8 @@ export async function POST(request: NextRequest) {
               ? 'delivery'
               : 'restaurant',
           has_kitchen_items: hasKitchenItems,
+          stock_control_applied: stockControlEnabled,
+          stock_updates: appliedAdjustments.length,
         },
       },
       { status: 201 }
