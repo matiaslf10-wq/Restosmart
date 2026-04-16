@@ -786,23 +786,14 @@ export default function AdminProductosPage() {
 
     const data = raw as Producto;
 
-    setProductos((prev) =>
-      prev.map((prod) => (prod.id === p.id ? data : prod))
-    );
+    setProductos((prev) => {
+      return prev.map((prod) => (prod.id === p.id ? data : prod));
+    });
   } catch (error: any) {
     console.error('Error cambiando disponibilidad:', error);
     setMensaje(error?.message || 'No se pudo cambiar la disponibilidad.');
   }
 };
-
-      setProductos((prev) =>
-        prev.map((prod) => (prod.id === p.id ? data : prod))
-      );
-    } catch (error: any) {
-      console.error('Error cambiando disponibilidad:', error);
-      setMensaje(error?.message || 'No se pudo cambiar la disponibilidad.');
-    }
-  };
 
   const productosFiltrados = useMemo(() => {
     return productos.filter((p) => {
