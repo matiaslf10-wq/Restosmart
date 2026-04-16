@@ -11,7 +11,10 @@ const PRODUCTO_SELECT = `
   precio,
   categoria,
   disponible,
-  imagen_url
+  imagen_url,
+  control_stock,
+  stock_actual,
+  permitir_sin_stock
 `;
 
 function isTruthy(value: string | null) {
@@ -67,6 +70,13 @@ export async function POST(req: Request) {
     const disponible =
       typeof body?.disponible === 'boolean' ? body.disponible : true;
     const imagen_url = String(body?.imagen_url ?? '').trim() || null;
+    const control_stock =
+      typeof body?.control_stock === 'boolean' ? body.control_stock : false;
+    const stock_actual = Number(body?.stock_actual ?? 0);
+    const permitir_sin_stock =
+      typeof body?.permitir_sin_stock === 'boolean'
+        ? body.permitir_sin_stock
+        : true;
 
     if (!nombre) {
       return NextResponse.json(
@@ -82,6 +92,13 @@ export async function POST(req: Request) {
       );
     }
 
+    if (!Number.isFinite(stock_actual) || stock_actual < 0) {
+      return NextResponse.json(
+        { error: 'El stock actual es inválido.' },
+        { status: 400 }
+      );
+    }
+
     const { data, error } = await supabaseAdmin
       .from('productos')
       .insert([
@@ -92,6 +109,9 @@ export async function POST(req: Request) {
           categoria,
           disponible,
           imagen_url,
+          control_stock,
+          stock_actual: control_stock ? stock_actual : 0,
+          permitir_sin_stock: control_stock ? permitir_sin_stock : true,
         },
       ])
       .select(PRODUCTO_SELECT)

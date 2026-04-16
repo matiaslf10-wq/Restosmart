@@ -158,7 +158,7 @@ export default function AdminProductosPage() {
     categoria: '',
     disponible: true,
     control_stock: false,
-    stock_actual: '0',
+    stock_actual: '',
     permitir_sin_stock: false,
   });
 
@@ -271,23 +271,23 @@ export default function AdminProductosPage() {
   };
 
   const resetForm = () => {
-    setForm({
-      id: null,
-      nombre: '',
-      descripcion: '',
-      precio: '',
-      categoria: categorias[0]?.nombre ?? '',
-      disponible: true,
-      control_stock: false,
-      stock_actual: '0',
-      permitir_sin_stock: false,
-    });
-    setModoEdicion(false);
-    setProductoEditando(null);
-    setImagenesExistentes([]);
-    setImagenesPendientes([]);
-    setCargandoImagenes(false);
-  };
+  setForm({
+    id: null,
+    nombre: '',
+    descripcion: '',
+    precio: '',
+    categoria: categorias[0]?.nombre ?? '',
+    disponible: true,
+    control_stock: false,
+    stock_actual: '',
+    permitir_sin_stock: false,
+  });
+  setModoEdicion(false);
+  setProductoEditando(null);
+  setImagenesExistentes([]);
+  setImagenesPendientes([]);
+  setCargandoImagenes(false);
+};
 
   const onChangeForm = (
     field: keyof FormProducto,
@@ -313,22 +313,25 @@ export default function AdminProductosPage() {
   };
 
   const comenzarEdicion = async (p: Producto) => {
-    setModoEdicion(true);
-    setProductoEditando(p);
-    setForm({
-      id: p.id,
-      nombre: p.nombre,
-      descripcion: p.descripcion ?? '',
-      precio: String(p.precio),
-      categoria: p.categoria ?? categorias[0]?.nombre ?? '',
-      disponible: !!p.disponible,
-      control_stock: !!p.control_stock,
-      stock_actual: String(p.stock_actual ?? 0),
-      permitir_sin_stock: !!p.permitir_sin_stock,
-    });
-    setImagenesPendientes([]);
-    await cargarImagenesProducto(p.id);
-  };
+  setModoEdicion(true);
+  setProductoEditando(p);
+  setForm({
+    id: p.id,
+    nombre: p.nombre,
+    descripcion: p.descripcion ?? '',
+    precio: String(p.precio),
+    categoria: p.categoria ?? categorias[0]?.nombre ?? '',
+    disponible: !!p.disponible,
+    control_stock: !!p.control_stock,
+    stock_actual:
+      p.stock_actual !== null && p.stock_actual !== undefined
+        ? String(p.stock_actual)
+        : '',
+    permitir_sin_stock: !!p.permitir_sin_stock,
+  });
+  setImagenesPendientes([]);
+  await cargarImagenesProducto(p.id);
+};
 
   const seleccionarPortadaExistente = (id: number) => {
     setImagenesExistentes((prev) =>
@@ -625,17 +628,26 @@ export default function AdminProductosPage() {
       return;
     }
 
-    const payload = {
-      nombre: form.nombre.trim(),
-      descripcion: form.descripcion.trim() || null,
-      precio: precioNumber,
-      categoria: form.categoria || null,
-      disponible: form.disponible,
-      imagen_url: productoEditando?.imagen_url ?? null,
-      control_stock: controlStock,
-      stock_actual: controlStock ? stockActual : 0,
-      permitir_sin_stock: controlStock ? form.permitir_sin_stock : false,
-    };
+    const stockActualNumber =
+  form.stock_actual.trim() === '' ? 0 : Number(form.stock_actual);
+
+if (!Number.isFinite(stockActualNumber) || stockActualNumber < 0) {
+  setMensaje('El stock actual debe ser un número válido mayor o igual a 0.');
+  setGuardando(false);
+  return;
+}
+
+const payload = {
+  nombre: form.nombre.trim(),
+  descripcion: form.descripcion.trim() || null,
+  precio: precioNumber,
+  categoria: form.categoria || null,
+  disponible: form.disponible,
+  imagen_url: productoEditando?.imagen_url ?? null,
+  control_stock: form.control_stock,
+  stock_actual: form.control_stock ? stockActualNumber : 0,
+  permitir_sin_stock: form.control_stock ? form.permitir_sin_stock : true,
+};
 
     if (!payload.nombre) {
       setMensaje('El nombre es obligatorio.');
@@ -1031,53 +1043,47 @@ export default function AdminProductosPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              id="control_stock"
-              type="checkbox"
-              checked={form.control_stock}
-              onChange={(e) => onChangeForm('control_stock', e.target.checked)}
-              disabled={!stockControlEnabled}
-            />
-            <label htmlFor="control_stock" className="text-sm text-slate-700">
-              Activar control real de stock
-            </label>
-          </div>
+          <div className="mt-3 flex items-center gap-2">
+  <input
+    id="control_stock"
+    type="checkbox"
+    checked={form.control_stock}
+    onChange={(e) => onChangeForm('control_stock', e.target.checked)}
+  />
+  <label htmlFor="control_stock" className="text-xs text-slate-700">
+    Controlar stock real
+  </label>
+</div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="grid gap-2">
-              <span className="text-xs font-medium text-slate-700">
-                Stock actual
-              </span>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={form.stock_actual}
-                onChange={(e) => onChangeForm('stock_actual', e.target.value)}
-                disabled={!stockControlEnabled || !form.control_stock}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                placeholder="0"
-              />
-            </label>
+{form.control_stock ? (
+  <div className="mt-3 space-y-2">
+    <label className="block text-xs font-medium text-slate-700">
+      Stock actual
+    </label>
+    <input
+      type="number"
+      min={0}
+      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+      value={form.stock_actual}
+      onChange={(e) => onChangeForm('stock_actual', e.target.value)}
+      placeholder="Ej: 15"
+    />
 
-            <div className="flex items-center gap-2 pt-6">
-              <input
-                id="permitir_sin_stock"
-                type="checkbox"
-                checked={form.permitir_sin_stock}
-                onChange={(e) =>
-                  onChangeForm('permitir_sin_stock', e.target.checked)
-                }
-                disabled={!stockControlEnabled || !form.control_stock}
-              />
-              <label
-                htmlFor="permitir_sin_stock"
-                className="text-sm text-slate-700"
-              >
-                Permitir vender aunque llegue a 0
-              </label>
-            </div>
-          </div>
+    <div className="flex items-center gap-2">
+      <input
+        id="permitir_sin_stock"
+        type="checkbox"
+        checked={form.permitir_sin_stock}
+        onChange={(e) =>
+          onChangeForm('permitir_sin_stock', e.target.checked)
+        }
+      />
+      <label htmlFor="permitir_sin_stock" className="text-xs text-slate-700">
+        Permitir vender aunque se quede sin stock
+      </label>
+    </div>
+  </div>
+) : null}
 
           {stockControlEnabled && form.control_stock ? (
             <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
