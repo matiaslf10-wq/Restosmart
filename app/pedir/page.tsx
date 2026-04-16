@@ -149,36 +149,80 @@ export default function PedirPage() {
   }, []);
 
   useEffect(() => {
-    let activo = true;
+  let activo = true;
 
-    async function cargar() {
-      try {
-        setCargando(true);
-        setMensaje(null);
-        setError(null);
+  async function cargar() {
+    try {
+      setCargando(true);
+      setMensaje(null);
+      setError(null);
 
-        await Promise.all([cargarConfig(), cargarProductos()]);
-      } catch (err) {
-        console.error(err);
-        if (!activo) return;
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'No se pudo cargar la pantalla de retiro.'
+      const [configRes, productosRes] = await Promise.all([
+        supabase
+          .from('configuracion_local')
+          .select('nombre_local, direccion, horario_atencion, business_mode')
+          .order('id', { ascending: true })
+          .limit(1)
+          .maybeSingle(),
+        fetch('/api/productos?soloDisponibles=1', {
+          method: 'GET',
+          cache: 'no-store',
+        }),
+      ]);
+
+      if (!activo) return;
+
+      if (configRes.error) {
+        console.warn(
+          'No se pudo cargar configuracion_local en /pedir:',
+          configRes.error
         );
-      } finally {
-        if (activo) {
-          setCargando(false);
-        }
+      } else {
+        setLocalConfig((configRes.data as LocalPublicConfig | null) ?? null);
+      }
+
+      const productosBody = await productosRes.json().catch(() => null);
+
+      if (!productosRes.ok) {
+        throw new Error(
+          productosBody?.error || 'No se pudieron cargar los productos.'
+        );
+      }
+
+      const listaProductos = (productosBody as Producto[]) ?? [];
+      setProductos(listaProductos);
+
+      const cats = Array.from(
+        new Set(
+          listaProductos
+            .map((p) => p.categoria)
+            .filter((c): c is string => !!c && c.trim() !== '')
+        )
+      ).sort((a, b) => a.localeCompare(b));
+
+      setCategorias(cats);
+      setCategoriaSeleccionada(cats[0] ?? null);
+    } catch (err) {
+      console.error(err);
+      if (!activo) return;
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo cargar la pantalla de retiro.'
+      );
+    } finally {
+      if (activo) {
+        setCargando(false);
       }
     }
+  }
 
-    void cargar();
+  void cargar();
 
-    return () => {
-      activo = false;
-    };
-  }, [cargarConfig, cargarProductos]);
+  return () => {
+    activo = false;
+  };
+}, []);
 
   const productosFiltrados =
     categoriaSeleccionada == null
