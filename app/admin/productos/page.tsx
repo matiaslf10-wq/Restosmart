@@ -764,21 +764,36 @@ export default function AdminProductosPage() {
   };
 
   const toggleDisponible = async (p: Producto) => {
-    const nuevoEstado = !p.disponible;
-    setMensaje(null);
+  const nuevoEstado = !p.disponible;
+  setMensaje(null);
 
-    try {
-      const res = await fetch(`/api/productos/${p.id}/disponible`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ disponible: nuevoEstado }),
-      });
+  try {
+    const res = await fetch(`/api/productos/${p.id}/disponible`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disponible: nuevoEstado }),
+    });
 
-      const data = (await res.json().catch(() => null)) as Producto | { error?: string } | null;
+    const raw = await res.json().catch(() => null);
 
-      if (!res.ok || !data || 'error' in data) {
-        throw new Error((data as any)?.error || 'No se pudo cambiar la disponibilidad.');
-      }
+    if (!res.ok) {
+      throw new Error(raw?.error || 'No se pudo cambiar la disponibilidad.');
+    }
+
+    if (!raw || typeof raw !== 'object' || !('id' in raw)) {
+      throw new Error('La respuesta del servidor no tiene un producto válido.');
+    }
+
+    const data = raw as Producto;
+
+    setProductos((prev) =>
+      prev.map((prod) => (prod.id === p.id ? data : prod))
+    );
+  } catch (error: any) {
+    console.error('Error cambiando disponibilidad:', error);
+    setMensaje(error?.message || 'No se pudo cambiar la disponibilidad.');
+  }
+};
 
       setProductos((prev) =>
         prev.map((prod) => (prod.id === p.id ? data : prod))
