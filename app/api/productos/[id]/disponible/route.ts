@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 const PRODUCTO_SELECT = `
   id,
   nombre,
@@ -33,24 +36,38 @@ function normalizeBoolean(value: unknown) {
 export async function PUT(req: Request, { params }: Params) {
   try {
     const { id } = await params;
+    const productoId = Number(id);
+
+    if (!Number.isFinite(productoId) || productoId <= 0) {
+      return NextResponse.json(
+        { error: 'ID de producto inválido.' },
+        { status: 400 }
+      );
+    }
+
     const body = await req.json();
     const disponible = normalizeBoolean(body?.disponible);
 
     const { data, error } = await supabaseAdmin
       .from('productos')
       .update({ disponible })
-      .eq('id', id)
+      .eq('id', productoId)
       .select(PRODUCTO_SELECT)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Producto no encontrado.' },
-          { status: 404 }
-        );
-      }
-      throw error;
+      console.error('PUT /api/productos/[id]/disponible - Supabase error:', error);
+      return NextResponse.json(
+        { error: error.message || 'No se pudo actualizar la disponibilidad.' },
+        { status: 500 }
+      );
+    }
+
+    if (!data) {
+      return NextResponse.json(
+        { error: 'Producto no encontrado.' },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json(data);
