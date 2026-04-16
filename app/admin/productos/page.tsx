@@ -201,18 +201,25 @@ export default function AdminProductosPage() {
   };
 
   const cargarProductos = async () => {
-    try {
-      const res = await fetch('/api/productos', { cache: 'no-store' });
-      if (!res.ok) throw new Error('No se pudieron cargar los productos.');
+  try {
+    const res = await fetch('/api/productos', { cache: 'no-store' });
+    const raw = await res.json().catch(() => null);
 
-      const data = (await res.json()) as Producto[];
-      setProductos(data ?? []);
-    } catch (error) {
-      console.error('Error cargando productos:', error);
-      setMensaje('No se pudieron cargar los productos.');
-      setProductos([]);
+    if (!res.ok) {
+      throw new Error(raw?.error || 'No se pudieron cargar los productos.');
     }
-  };
+
+    if (!Array.isArray(raw)) {
+      throw new Error('La respuesta de /api/productos no es válida.');
+    }
+
+    setProductos(raw as Producto[]);
+  } catch (error: any) {
+    console.error('Error cargando productos:', error);
+    setMensaje(error?.message || 'No se pudieron cargar los productos.');
+    setProductos([]);
+  }
+};
 
   const cargarCategorias = async () => {
     try {
