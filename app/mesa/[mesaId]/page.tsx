@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -14,6 +14,10 @@ type Producto = {
   precio: number;
   categoria: string | null;
   imagen_url: string | null;
+  disponible?: boolean | null;
+  control_stock?: boolean | null;
+  stock_actual?: number | null;
+  permitir_sin_stock?: boolean | null;
 };
 
 type ItemCarrito = {
@@ -33,6 +37,34 @@ type PedidoCreado = {
   estado: string;
   mesa_id: number;
 };
+
+function getStockDisponible(producto: Producto) {
+  if (!producto.control_stock) return null;
+  if (producto.permitir_sin_stock) return null;
+  return Math.max(Number(producto.stock_actual ?? 0), 0);
+}
+
+function isProductoAgotado(producto: Producto) {
+  const stockDisponible = getStockDisponible(producto);
+  return stockDisponible !== null && stockDisponible <= 0;
+}
+
+function getMaxCantidadCarrito(producto: Producto) {
+  const stockDisponible = getStockDisponible(producto);
+  return stockDisponible === null ? Number.MAX_SAFE_INTEGER : stockDisponible;
+}
+
+function getStockMessage(producto: Producto) {
+  if (!producto.control_stock) return null;
+  if (producto.permitir_sin_stock) return 'Stock flexible';
+
+  const stock = Math.max(Number(producto.stock_actual ?? 0), 0);
+
+  if (stock <= 0) return 'Sin stock';
+  if (stock <= 5) return `Disponibles: ${stock}`;
+
+  return null;
+}
 
 export default function MesaPage() {
   const params = useParams();
@@ -56,6 +88,76 @@ export default function MesaPage() {
 
   const mesaValida = Number.isFinite(mesaRutaId) && mesaRutaId > DELIVERY_MESA_ID;
 
+  const cargarMesa = useCallback(async () => {
+    if (!mesaValida) {
+      setMesa(null);
+      return;
+    }
+
+    const { data: mesaData, error: mesaError } = await supabase
+      .from('mesas')
+      .select('id, numero, nombre')
+      .eq('id', mesaRutaId)
+      .maybeSingle();
+
+    if (mesaError) {
+      console.error('Error cargando mesa:', {
+        message: mesaError.message,
+        details: (mesaError as any)?.details,
+        hint: (mesaError as any)?.hint,
+        code: (mesaError as any)?.code,
+        raw: mesaError,
+      });
+      setMensaje('No se pudo cargar la mesa.');
+      setMesa(null);
+      return;
+    }
+
+    setMesa((mesaData as Mesa | null) ?? null);
+  }, [mesaRutaId, mesaValida]);
+
+  const cargarProductos = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('productos')
+      .select(
+        'id, nombre, descripcion, precio, categoria, imagen_url, disponible, control_stock, stock_actual, permitir_sin_stock'
+      )
+      .eq('disponible', true)
+      .order('categoria', { ascending: true })
+      .order('nombre', { ascending: true });
+
+    if (error) {
+      console.error('Error cargando productos:', {
+        message: error.message,
+        details: (error as any)?.details,
+        hint: (error as any)?.hint,
+        code: (error as any)?.code,
+        raw: error,
+      });
+      setMensaje('No se pudieron cargar los productos.');
+      setProductos([]);
+      setCategorias([]);
+      setCategoriaSeleccionada(null);
+      return;
+    }
+
+    const lista = (data as Producto[]) ?? [];
+    setProductos(lista);
+
+    const cats = Array.from(
+      new Set(
+        lista
+          .map((p) => p.categoria)
+          .filter((c): c is string => !!c && c.trim() !== '')
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+    setCategorias(cats);
+    setCategoriaSeleccionada((prev) =>
+      prev && cats.includes(prev) ? prev : (cats[0] ?? null)
+    );
+  }, []);
+
   useEffect(() => {
     const cargarDatosIniciales = async () => {
       if (!mesaValida) {
@@ -66,65 +168,14 @@ export default function MesaPage() {
       setCargando(true);
 
       try {
-        const [{ data: mesaData, error: mesaError }, { data, error }] =
-          await Promise.all([
-            supabase
-              .from('mesas')
-              .select('id, numero, nombre')
-              .eq('id', mesaRutaId)
-              .maybeSingle(),
-            supabase
-              .from('productos')
-              .select('*')
-              .eq('disponible', true)
-              .order('categoria', { ascending: true })
-              .order('nombre', { ascending: true }),
-          ]);
-
-        if (mesaError) {
-          console.error('Error cargando mesa:', {
-            message: mesaError.message,
-            details: (mesaError as any)?.details,
-            hint: (mesaError as any)?.hint,
-            code: (mesaError as any)?.code,
-            raw: mesaError,
-          });
-          setMensaje('No se pudo cargar la mesa.');
-        } else {
-          setMesa((mesaData as Mesa | null) ?? null);
-        }
-
-        if (error) {
-          console.error('Error cargando productos:', {
-            message: error.message,
-            details: (error as any)?.details,
-            hint: (error as any)?.hint,
-            code: (error as any)?.code,
-            raw: error,
-          });
-          setMensaje('No se pudieron cargar los productos.');
-        } else {
-          const lista = (data as Producto[]) ?? [];
-          setProductos(lista);
-
-          const cats = Array.from(
-            new Set(
-              lista
-                .map((p) => p.categoria)
-                .filter((c): c is string => !!c && c.trim() !== '')
-            )
-          ).sort((a, b) => a.localeCompare(b));
-
-          setCategorias(cats);
-          setCategoriaSeleccionada(cats[0] ?? null);
-        }
+        await Promise.all([cargarMesa(), cargarProductos()]);
       } finally {
         setCargando(false);
       }
     };
 
-    cargarDatosIniciales();
-  }, [mesaRutaId, mesaValida]);
+    void cargarDatosIniciales();
+  }, [cargarMesa, cargarProductos, mesaValida]);
 
   useEffect(() => {
     if (!mesa?.id) return;
@@ -170,25 +221,57 @@ export default function MesaPage() {
   }, [mesa?.id]);
 
   const agregarAlCarrito = (producto: Producto) => {
+    if (isProductoAgotado(producto)) {
+      setMensaje(`"${producto.nombre}" está sin stock.`);
+      return;
+    }
+
     setCarrito((prev) => {
       const existente = prev.find((i) => i.producto.id === producto.id);
+      const maxCantidad = getMaxCantidadCarrito(producto);
+
       if (existente) {
+        if (existente.cantidad >= maxCantidad) {
+          setMensaje(`No hay más stock disponible para "${producto.nombre}".`);
+          return prev;
+        }
+
         return prev.map((i) =>
           i.producto.id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i
         );
       }
+
       return [...prev, { producto, cantidad: 1, comentarios: '' }];
     });
   };
 
   const cambiarCantidad = (productoId: number, cantidad: number) => {
+    const itemActual = carrito.find((item) => item.producto.id === productoId);
+    if (!itemActual) return;
+
     if (cantidad <= 0) {
       setCarrito((prev) => prev.filter((i) => i.producto.id !== productoId));
-    } else {
-      setCarrito((prev) =>
-        prev.map((i) => (i.producto.id === productoId ? { ...i, cantidad } : i))
-      );
+      return;
     }
+
+    const maxCantidad = getMaxCantidadCarrito(itemActual.producto);
+    const cantidadAjustada = Math.min(cantidad, maxCantidad);
+
+    if (cantidadAjustada <= 0) {
+      setMensaje(`"${itemActual.producto.nombre}" está sin stock.`);
+      setCarrito((prev) => prev.filter((i) => i.producto.id !== productoId));
+      return;
+    }
+
+    if (cantidadAjustada !== cantidad) {
+      setMensaje(`Solo hay ${maxCantidad} unidad(es) disponible(s) de "${itemActual.producto.nombre}".`);
+    }
+
+    setCarrito((prev) =>
+      prev.map((i) =>
+        i.producto.id === productoId ? { ...i, cantidad: cantidadAjustada } : i
+      )
+    );
   };
 
   const cambiarComentario = (productoId: number, texto: string) => {
@@ -197,9 +280,9 @@ export default function MesaPage() {
     );
   };
 
-  const total = carrito.reduce(
-    (acc, item) => acc + item.producto.precio * item.cantidad,
-    0
+  const total = useMemo(
+    () => carrito.reduce((acc, item) => acc + item.producto.precio * item.cantidad, 0),
+    [carrito]
   );
 
   const getMensajePedidoCreado = (
@@ -270,6 +353,7 @@ export default function MesaPage() {
       }
 
       setCarrito([]);
+      await cargarProductos();
       return body.pedido as PedidoCreado;
     } finally {
       setEnviando(false);
@@ -524,44 +608,69 @@ export default function MesaPage() {
 
           {categoriaSeleccionada != null && productosFiltrados.length > 0 && (
             <div className="space-y-3">
-              {productosFiltrados.map((p) => (
-                <article
-                  key={p.id}
-                  className="border border-slate-200 rounded-xl bg-white shadow-sm flex gap-3 overflow-hidden"
-                >
-                  <div className="w-24 h-24 bg-slate-100 flex-shrink-0">
-                    {p.imagen_url ? (
-                      <img
-                        src={p.imagen_url}
-                        alt={p.nombre}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-xs text-slate-400 px-1 text-center">
-                        Sin imagen
-                      </div>
-                    )}
-                  </div>
+              {productosFiltrados.map((p) => {
+                const agotado = isProductoAgotado(p);
+                const itemEnCarrito = carrito.find((item) => item.producto.id === p.id);
+                const maxCantidad = getMaxCantidadCarrito(p);
+                const llegoAlMaximo =
+                  itemEnCarrito != null && itemEnCarrito.cantidad >= maxCantidad;
+                const stockMessage = getStockMessage(p);
 
-                  <div className="flex-1 px-3 py-2 flex flex-col justify-between">
-                    <div>
-                      <h3 className="font-semibold">{p.nombre}</h3>
-                      {p.descripcion && (
-                        <p className="text-sm text-slate-600">{p.descripcion}</p>
+                return (
+                  <article
+                    key={p.id}
+                    className="border border-slate-200 rounded-xl bg-white shadow-sm flex gap-3 overflow-hidden"
+                  >
+                    <div className="w-24 h-24 bg-slate-100 flex-shrink-0">
+                      {p.imagen_url ? (
+                        <img
+                          src={p.imagen_url}
+                          alt={p.nombre}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-xs text-slate-400 px-1 text-center">
+                          Sin imagen
+                        </div>
                       )}
                     </div>
-                    <div className="mt-1 flex items-center justify-between">
-                      <p className="font-bold">${p.precio}</p>
-                      <button
-                        className="px-3 py-1 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
-                        onClick={() => agregarAlCarrito(p)}
-                      >
-                        Agregar
-                      </button>
+
+                    <div className="flex-1 px-3 py-2 flex flex-col justify-between">
+                      <div>
+                        <h3 className="font-semibold">{p.nombre}</h3>
+                        {p.descripcion && (
+                          <p className="text-sm text-slate-600">{p.descripcion}</p>
+                        )}
+
+                        {stockMessage ? (
+                          <p
+                            className={`mt-1 text-xs font-medium ${
+                              agotado ? 'text-rose-700' : 'text-slate-500'
+                            }`}
+                          >
+                            {stockMessage}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-1 flex items-center justify-between">
+                        <p className="font-bold">${p.precio}</p>
+                        <button
+                          className={`px-3 py-1 rounded-lg text-sm ${
+                            agotado || llegoAlMaximo
+                              ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          }`}
+                          onClick={() => agregarAlCarrito(p)}
+                          disabled={agotado || llegoAlMaximo}
+                        >
+                          {agotado ? 'Agotado' : llegoAlMaximo ? 'Máximo' : 'Agregar'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
             </div>
           )}
         </section>
@@ -572,76 +681,88 @@ export default function MesaPage() {
             <p className="text-sm text-slate-600">El carrito está vacío.</p>
           )}
 
-          {carrito.map((item) => (
-            <div
-              key={item.producto.id}
-              className="bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm space-y-2"
-            >
-              <div className="flex justify-between items-start gap-2">
-                <span className="font-medium">{item.producto.nombre}</span>
+          {carrito.map((item) => {
+            const maxCantidad = getMaxCantidadCarrito(item.producto);
+            const tieneLimite = Number.isFinite(maxCantidad);
 
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        cambiarCantidad(item.producto.id, item.cantidad - 1)
-                      }
-                      className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 border border-slate-300 text-base font-bold hover:bg-slate-200"
-                      title="Restar una unidad"
-                      aria-label={`Restar una unidad de ${item.producto.nombre}`}
-                    >
-                      -
-                    </button>
-
-                    <input
-                      type="number"
-                      min={1}
-                      value={item.cantidad}
-                      onChange={(e) =>
-                        cambiarCantidad(item.producto.id, Number(e.target.value))
-                      }
-                      className="w-14 border border-slate-300 rounded px-1 py-1 text-sm text-center"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        cambiarCantidad(item.producto.id, item.cantidad + 1)
-                      }
-                      className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300 text-base font-bold hover:bg-emerald-200"
-                      title="Sumar una unidad"
-                      aria-label={`Sumar una unidad a ${item.producto.nombre}`}
-                    >
-                      +
-                    </button>
+            return (
+              <div
+                key={item.producto.id}
+                className="bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm space-y-2"
+              >
+                <div className="flex justify-between items-start gap-2">
+                  <div>
+                    <span className="font-medium">{item.producto.nombre}</span>
+                    {tieneLimite ? (
+                      <p className="text-xs text-slate-500">
+                        Máximo disponible: {maxCantidad}
+                      </p>
+                    ) : null}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => cambiarCantidad(item.producto.id, 0)}
-                    className="w-8 h-8 rounded-full bg-rose-100 text-rose-700 border border-rose-200 text-sm font-bold hover:bg-rose-200"
-                    title="Eliminar producto"
-                    aria-label={`Eliminar ${item.producto.nombre}`}
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          cambiarCantidad(item.producto.id, item.cantidad - 1)
+                        }
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 border border-slate-300 text-base font-bold hover:bg-slate-200"
+                        title="Restar una unidad"
+                        aria-label={`Restar una unidad de ${item.producto.nombre}`}
+                      >
+                        -
+                      </button>
 
-              <textarea
-                className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
-                placeholder="Notas (ej: sin sal, bien jugoso...)"
-                value={item.comentarios}
-                onChange={(e) =>
-                  cambiarComentario(item.producto.id, e.target.value)
-                }
-              />
-              <p className="text-right text-sm">
-                Subtotal: ${item.producto.precio * item.cantidad}
-              </p>
-            </div>
-          ))}
+                      <input
+                        type="number"
+                        min={1}
+                        max={tieneLimite ? maxCantidad : undefined}
+                        value={item.cantidad}
+                        onChange={(e) =>
+                          cambiarCantidad(item.producto.id, Number(e.target.value))
+                        }
+                        className="w-14 border border-slate-300 rounded px-1 py-1 text-sm text-center"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          cambiarCantidad(item.producto.id, item.cantidad + 1)
+                        }
+                        disabled={item.cantidad >= maxCantidad}
+                        className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300 text-base font-bold hover:bg-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Sumar una unidad"
+                        aria-label={`Sumar una unidad a ${item.producto.nombre}`}
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => cambiarCantidad(item.producto.id, 0)}
+                      className="w-8 h-8 rounded-full bg-rose-100 text-rose-700 border border-rose-200 text-sm font-bold hover:bg-rose-200"
+                      title="Eliminar producto"
+                      aria-label={`Eliminar ${item.producto.nombre}`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+
+                <textarea
+                  className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
+                  placeholder="Notas (ej: sin sal, bien jugoso...)"
+                  value={item.comentarios}
+                  onChange={(e) => cambiarComentario(item.producto.id, e.target.value)}
+                />
+                <p className="text-right text-sm">
+                  Subtotal: ${item.producto.precio * item.cantidad}
+                </p>
+              </div>
+            );
+          })}
 
           {hayItemsEnCarrito && (
             <div className="space-y-1">

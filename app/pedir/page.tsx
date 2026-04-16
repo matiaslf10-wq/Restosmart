@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatBusinessModeLabel, type BusinessMode } from '@/lib/plans';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -13,6 +13,9 @@ type Producto = {
   categoria: string | null;
   imagen_url: string | null;
   disponible?: boolean | null;
+  control_stock?: boolean | null;
+  stock_actual?: number | null;
+  permitir_sin_stock?: boolean | null;
 };
 
 type ItemCarrito = {
@@ -50,6 +53,34 @@ function normalizeBusinessModeForPublic(value: unknown): BusinessMode {
     : 'restaurant';
 }
 
+function getStockDisponible(producto: Producto) {
+  if (!producto.control_stock) return null;
+  if (producto.permitir_sin_stock) return null;
+  return Math.max(Number(producto.stock_actual ?? 0), 0);
+}
+
+function isProductoAgotado(producto: Producto) {
+  const stockDisponible = getStockDisponible(producto);
+  return stockDisponible !== null && stockDisponible <= 0;
+}
+
+function getMaxCantidadCarrito(producto: Producto) {
+  const stockDisponible = getStockDisponible(producto);
+  return stockDisponible === null ? Number.MAX_SAFE_INTEGER : stockDisponible;
+}
+
+function getStockMessage(producto: Producto) {
+  if (!producto.control_stock) return null;
+  if (producto.permitir_sin_stock) return 'Stock flexible';
+
+  const stock = Math.max(Number(producto.stock_actual ?? 0), 0);
+
+  if (stock <= 0) return 'Sin stock';
+  if (stock <= 5) return `Disponibles: ${stock}`;
+
+  return null;
+}
+
 export default function PedirPage() {
   const [localConfig, setLocalConfig] = useState<LocalPublicConfig | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -70,6 +101,53 @@ export default function PedirPage() {
   const isTakeawayMode = businessMode === 'takeaway';
   const isRestaurantMode = businessMode === 'restaurant';
 
+  const cargarConfig = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('configuracion_local')
+      .select('nombre_local, direccion, horario_atencion, business_mode')
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('No se pudo cargar configuracion_local en /pedir:', error);
+      return;
+    }
+
+    setLocalConfig((data as LocalPublicConfig | null) ?? null);
+  }, []);
+
+  const cargarProductos = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('productos')
+      .select(
+        'id, nombre, descripcion, precio, categoria, imagen_url, disponible, control_stock, stock_actual, permitir_sin_stock'
+      )
+      .eq('disponible', true)
+      .order('categoria', { ascending: true })
+      .order('nombre', { ascending: true });
+
+    if (error) {
+      throw new Error('No se pudieron cargar los productos.');
+    }
+
+    const listaProductos = (data as Producto[]) ?? [];
+    setProductos(listaProductos);
+
+    const cats = Array.from(
+      new Set(
+        listaProductos
+          .map((p) => p.categoria)
+          .filter((c): c is string => !!c && c.trim() !== '')
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+    setCategorias(cats);
+    setCategoriaSeleccionada((prev) =>
+      prev && cats.includes(prev) ? prev : (cats[0] ?? null)
+    );
+  }, []);
+
   useEffect(() => {
     let activo = true;
 
@@ -79,51 +157,7 @@ export default function PedirPage() {
         setMensaje(null);
         setError(null);
 
-        const [configRes, productosRes] = await Promise.all([
-          supabase
-            .from('configuracion_local')
-            .select('nombre_local, direccion, horario_atencion, business_mode')
-            .order('id', { ascending: true })
-            .limit(1)
-            .maybeSingle(),
-          supabase
-            .from('productos')
-            .select(
-              'id, nombre, descripcion, precio, categoria, imagen_url, disponible'
-            )
-            .eq('disponible', true)
-            .order('categoria', { ascending: true })
-            .order('nombre', { ascending: true }),
-        ]);
-
-        if (!activo) return;
-
-        if (configRes.error) {
-          console.warn(
-            'No se pudo cargar configuracion_local en /pedir:',
-            configRes.error
-          );
-        } else {
-          setLocalConfig((configRes.data as LocalPublicConfig | null) ?? null);
-        }
-
-        if (productosRes.error) {
-          throw new Error('No se pudieron cargar los productos.');
-        }
-
-        const listaProductos = (productosRes.data as Producto[]) ?? [];
-        setProductos(listaProductos);
-
-        const cats = Array.from(
-          new Set(
-            listaProductos
-              .map((p) => p.categoria)
-              .filter((c): c is string => !!c && c.trim() !== '')
-          )
-        ).sort((a, b) => a.localeCompare(b));
-
-        setCategorias(cats);
-        setCategoriaSeleccionada(cats[0] ?? null);
+        await Promise.all([cargarConfig(), cargarProductos()]);
       } catch (err) {
         console.error(err);
         if (!activo) return;
@@ -139,12 +173,12 @@ export default function PedirPage() {
       }
     }
 
-    cargar();
+    void cargar();
 
     return () => {
       activo = false;
     };
-  }, []);
+  }, [cargarConfig, cargarProductos]);
 
   const productosFiltrados =
     categoriaSeleccionada == null
@@ -152,10 +186,23 @@ export default function PedirPage() {
       : productos.filter((p) => p.categoria === categoriaSeleccionada);
 
   function agregarAlCarrito(producto: Producto) {
+    setError(null);
+
+    if (isProductoAgotado(producto)) {
+      setError(`"${producto.nombre}" está sin stock.`);
+      return;
+    }
+
     setCarrito((prev) => {
       const existente = prev.find((i) => i.producto.id === producto.id);
+      const maxCantidad = getMaxCantidadCarrito(producto);
 
       if (existente) {
+        if (existente.cantidad >= maxCantidad) {
+          setError(`No hay más stock disponible para "${producto.nombre}".`);
+          return prev;
+        }
+
         return prev.map((i) =>
           i.producto.id === producto.id
             ? { ...i, cantidad: i.cantidad + 1 }
@@ -168,14 +215,32 @@ export default function PedirPage() {
   }
 
   function cambiarCantidad(productoId: number, cantidad: number) {
+    const itemActual = carrito.find((item) => item.producto.id === productoId);
+    if (!itemActual) return;
+
     if (cantidad <= 0) {
       setCarrito((prev) => prev.filter((i) => i.producto.id !== productoId));
       return;
     }
 
+    const maxCantidad = getMaxCantidadCarrito(itemActual.producto);
+    const cantidadAjustada = Math.min(cantidad, maxCantidad);
+
+    if (cantidadAjustada <= 0) {
+      setError(`"${itemActual.producto.nombre}" está sin stock.`);
+      setCarrito((prev) => prev.filter((i) => i.producto.id !== productoId));
+      return;
+    }
+
+    if (cantidadAjustada !== cantidad) {
+      setError(`Solo hay ${maxCantidad} unidad(es) disponible(s) de "${itemActual.producto.nombre}".`);
+    } else {
+      setError(null);
+    }
+
     setCarrito((prev) =>
       prev.map((i) =>
-        i.producto.id === productoId ? { ...i, cantidad } : i
+        i.producto.id === productoId ? { ...i, cantidad: cantidadAjustada } : i
       )
     );
   }
@@ -252,6 +317,7 @@ export default function PedirPage() {
 
       setCarrito([]);
       setClienteNombre('');
+      await cargarProductos();
       setMensaje(
         formaPago === 'efectivo'
           ? `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado para pagar al retirar.`
@@ -464,55 +530,79 @@ export default function PedirPage() {
 
               {categoriaSeleccionada != null && productosFiltrados.length > 0 && (
                 <div className="grid gap-4 md:grid-cols-2">
-                  {productosFiltrados.map((p) => (
-                    <article
-                      key={p.id}
-                      className="overflow-hidden rounded-3xl border bg-white shadow-sm"
-                    >
-                      <div className="flex gap-3 p-4">
-                        <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-2xl bg-slate-100">
-                          {p.imagen_url ? (
-                            <img
-                              src={p.imagen_url}
-                              alt={p.nombre}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-slate-400">
-                              Sin imagen
+                  {productosFiltrados.map((p) => {
+                    const agotado = isProductoAgotado(p);
+                    const itemEnCarrito = carrito.find((item) => item.producto.id === p.id);
+                    const maxCantidad = getMaxCantidadCarrito(p);
+                    const llegoAlMaximo =
+                      itemEnCarrito != null && itemEnCarrito.cantidad >= maxCantidad;
+                    const stockMessage = getStockMessage(p);
+
+                    return (
+                      <article
+                        key={p.id}
+                        className="overflow-hidden rounded-3xl border bg-white shadow-sm"
+                      >
+                        <div className="flex gap-3 p-4">
+                          <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-2xl bg-slate-100">
+                            {p.imagen_url ? (
+                              <img
+                                src={p.imagen_url}
+                                alt={p.nombre}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-slate-400">
+                                Sin imagen
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-1 flex-col justify-between">
+                            <div>
+                              <h3 className="font-semibold text-slate-900">
+                                {p.nombre}
+                              </h3>
+                              {p.descripcion ? (
+                                <p className="mt-1 text-sm text-slate-600">
+                                  {p.descripcion}
+                                </p>
+                              ) : null}
+
+                              {stockMessage ? (
+                                <p
+                                  className={`mt-2 text-xs font-medium ${
+                                    agotado ? 'text-rose-700' : 'text-slate-500'
+                                  }`}
+                                >
+                                  {stockMessage}
+                                </p>
+                              ) : null}
                             </div>
-                          )}
-                        </div>
 
-                        <div className="flex flex-1 flex-col justify-between">
-                          <div>
-                            <h3 className="font-semibold text-slate-900">
-                              {p.nombre}
-                            </h3>
-                            {p.descripcion ? (
-                              <p className="mt-1 text-sm text-slate-600">
-                                {p.descripcion}
+                            <div className="mt-3 flex items-center justify-between gap-3">
+                              <p className="font-bold text-slate-900">
+                                {formatMoney(p.precio)}
                               </p>
-                            ) : null}
-                          </div>
 
-                          <div className="mt-3 flex items-center justify-between gap-3">
-                            <p className="font-bold text-slate-900">
-                              {formatMoney(p.precio)}
-                            </p>
-
-                            <button
-                              type="button"
-                              onClick={() => agregarAlCarrito(p)}
-                              className="rounded-xl bg-amber-500 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-600"
-                            >
-                              Agregar
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() => agregarAlCarrito(p)}
+                                disabled={agotado || llegoAlMaximo}
+                                className={`rounded-xl px-3 py-2 text-sm font-semibold ${
+                                  agotado || llegoAlMaximo
+                                    ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                                    : 'bg-amber-500 text-white hover:bg-amber-600'
+                                }`}
+                              >
+                                {agotado ? 'Agotado' : llegoAlMaximo ? 'Máximo' : 'Agregar'}
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </article>
-                  ))}
+                      </article>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -530,66 +620,80 @@ export default function PedirPage() {
                 </p>
               ) : (
                 <div className="mt-4 space-y-3">
-                  {carrito.map((item) => (
-                    <div
-                      key={item.producto.id}
-                      className="rounded-2xl border px-3 py-3"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="font-medium text-slate-900">
-                          {item.producto.nombre}
-                        </span>
+                  {carrito.map((item) => {
+                    const maxCantidad = getMaxCantidadCarrito(item.producto);
+                    const tieneLimite = Number.isFinite(maxCantidad);
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              cambiarCantidad(item.producto.id, item.cantidad - 1)
-                            }
-                            className="h-8 w-8 rounded-full border bg-slate-100 text-slate-700"
-                          >
-                            -
-                          </button>
+                    return (
+                      <div
+                        key={item.producto.id}
+                        className="rounded-2xl border px-3 py-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="font-medium text-slate-900">
+                              {item.producto.nombre}
+                            </span>
+                            {tieneLimite ? (
+                              <p className="text-xs text-slate-500">
+                                Máximo disponible: {maxCantidad}
+                              </p>
+                            ) : null}
+                          </div>
 
-                          <input
-                            type="number"
-                            min={1}
-                            value={item.cantidad}
-                            onChange={(e) =>
-                              cambiarCantidad(
-                                item.producto.id,
-                                Number(e.target.value)
-                              )
-                            }
-                            className="w-14 rounded border px-1 py-1 text-center text-sm"
-                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                cambiarCantidad(item.producto.id, item.cantidad - 1)
+                              }
+                              className="h-8 w-8 rounded-full border bg-slate-100 text-slate-700"
+                            >
+                              -
+                            </button>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              cambiarCantidad(item.producto.id, item.cantidad + 1)
-                            }
-                            className="h-8 w-8 rounded-full border bg-amber-100 text-amber-700"
-                          >
-                            +
-                          </button>
+                            <input
+                              type="number"
+                              min={1}
+                              max={tieneLimite ? maxCantidad : undefined}
+                              value={item.cantidad}
+                              onChange={(e) =>
+                                cambiarCantidad(
+                                  item.producto.id,
+                                  Number(e.target.value)
+                                )
+                              }
+                              className="w-14 rounded border px-1 py-1 text-center text-sm"
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                cambiarCantidad(item.producto.id, item.cantidad + 1)
+                              }
+                              disabled={item.cantidad >= maxCantidad}
+                              className="h-8 w-8 rounded-full border bg-amber-100 text-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              +
+                            </button>
+                          </div>
                         </div>
+
+                        <textarea
+                          className="mt-3 w-full rounded border px-2 py-1 text-sm"
+                          placeholder="Notas del producto (opcional)"
+                          value={item.comentarios}
+                          onChange={(e) =>
+                            cambiarComentario(item.producto.id, e.target.value)
+                          }
+                        />
+
+                        <p className="mt-2 text-right text-sm text-slate-700">
+                          Subtotal: {formatMoney(item.producto.precio * item.cantidad)}
+                        </p>
                       </div>
-
-                      <textarea
-                        className="mt-3 w-full rounded border px-2 py-1 text-sm"
-                        placeholder="Notas del producto (opcional)"
-                        value={item.comentarios}
-                        onChange={(e) =>
-                          cambiarComentario(item.producto.id, e.target.value)
-                        }
-                      />
-
-                      <p className="mt-2 text-right text-sm text-slate-700">
-                        Subtotal: {formatMoney(item.producto.precio * item.cantidad)}
-                      </p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
