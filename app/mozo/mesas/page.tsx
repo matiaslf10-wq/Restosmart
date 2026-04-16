@@ -34,6 +34,7 @@ type Pedido = {
   medio_pago?: string | null;
   estado_pago?: string | null;
   efectivo_aprobado?: boolean | null;
+  pasado_a_caja?: boolean | null;
   items: ItemPedido[];
 };
 
@@ -633,6 +634,7 @@ export default function MesasMozoPage() {
           medio_pago,
           estado_pago,
           efectivo_aprobado,
+          pasado_a_caja,
           items_pedido (
             id,
             cantidad,
@@ -665,6 +667,7 @@ export default function MesasMozoPage() {
           medio_pago: p.medio_pago ?? null,
           estado_pago: p.estado_pago ?? null,
           efectivo_aprobado: p.efectivo_aprobado ?? null,
+          pasado_a_caja: p.pasado_a_caja ?? false,
           items: p.items_pedido ?? [],
         };
 
@@ -837,6 +840,10 @@ export default function MesasMozoPage() {
     return 'ninguna';
   };
 
+  const mesaFuePasadaACaja = (mesa: MesaConCuenta) => {
+    return mesa.pedidos.some((pedido) => !!pedido.pasado_a_caja);
+  };
+
   const clasesMesaPorEstado = (estado: EstadoMesa) => {
     switch (estado) {
       case 'libre':
@@ -907,10 +914,43 @@ export default function MesasMozoPage() {
     const mesa = mesas.find((m) => m.id === mesaId);
     if (!mesa) return;
 
+    if (mesa.pedidos.length === 0) {
+      setMensaje(`La ${getMesaDisplayName(mesa)} no tiene pedidos activos.`);
+      return;
+    }
+
+    if (mesaFuePasadaACaja(mesa)) {
+      setMensaje(`${getMesaDisplayName(mesa)} ya fue pasada a caja.`);
+      return;
+    }
+
     setPasandoACajaMesaId(mesaId);
     setMensaje(null);
 
-    router.push(`/mostrador?focusMesaId=${mesaId}`);
+    try {
+      const idsPedidos = mesa.pedidos.map((pedido) => pedido.id);
+
+      const { error } = await supabase
+        .from('pedidos')
+        .update({ pasado_a_caja: true })
+        .in('id', idsPedidos);
+
+      if (error) {
+        console.error('No se pudo pasar la mesa a caja:', error);
+        setMensaje('No se pudo pasar la mesa a caja.');
+        return;
+      }
+
+      setMensaje(
+        `${getMesaDisplayName(mesa)} pasada a caja correctamente. Ya podés resolverla desde mostrador.`
+      );
+      await cargarDatos();
+    } catch (error) {
+      console.error('Error inesperado al pasar a caja:', error);
+      setMensaje('Ocurrió un error inesperado al pasar la mesa a caja.');
+    } finally {
+      setPasandoACajaMesaId(null);
+    }
   };
 
   const cancelarPedido = async (pedidoId: number) => {
@@ -1166,6 +1206,7 @@ export default function MesasMozoPage() {
             const resumen = resumenCantidades(mesa);
             const formaPago = formaPagoMesa(mesa);
             const mesaUrl = getMesaPublicUrl(mesa.id);
+            const yaPasadaACaja = mesaFuePasadaACaja(mesa);
 
             return (
               <article
@@ -1184,6 +1225,12 @@ export default function MesasMozoPage() {
 
                   <div className="flex flex-col items-end gap-1">
                     {badgeMesaPorEstado(estado)}
+
+                    {yaPasadaACaja && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-200 text-violet-900 px-2 py-[2px] text-[11px] font-medium">
+                        Caja
+                      </span>
+                    )}
 
                     {formaPago === 'efectivo' && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-700 text-emerald-50 px-2 py-[2px] text-[11px] font-medium">
@@ -1280,6 +1327,14 @@ export default function MesasMozoPage() {
                           </span>
                         </div>
 
+                        {p.pasado_a_caja ? (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 text-violet-800 px-2 py-[2px] text-[11px] font-medium">
+                              Pasado a caja
+                            </span>
+                          </div>
+                        ) : null}
+
                         <ul className="mt-1 space-y-[2px]">
                           {p.items.map((item) => (
                             <li key={item.id} className="flex flex-col">
@@ -1356,12 +1411,15 @@ export default function MesasMozoPage() {
                       }}
                       disabled={
                         mesa.pedidos.length === 0 ||
-                        pasandoACajaMesaId === mesa.id
+                        pasandoACajaMesaId === mesa.id ||
+                        yaPasadaACaja
                       }
                       className="px-3 py-1 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-60"
                     >
                       {pasandoACajaMesaId === mesa.id
-                        ? 'Abriendo caja...'
+                        ? 'Pasando...'
+                        : yaPasadaACaja
+                        ? 'Ya pasada'
                         : 'Pasar a caja'}
                     </button>
                   </div>
