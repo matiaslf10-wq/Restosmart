@@ -1,8 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
 
 const PRODUCTO_SELECT = `
   id,
@@ -17,41 +14,36 @@ const PRODUCTO_SELECT = `
   permitir_sin_stock
 `;
 
-function isTruthy(value: string | null) {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'si';
+function normalizeBoolean(value: unknown, fallback = false) {
+  if (typeof value === 'boolean') return value;
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+
+  return fallback;
 }
 
-export async function GET(request: NextRequest) {
-  try {
-    const soloDisponibles = isTruthy(
-      request.nextUrl.searchParams.get('soloDisponibles')
-    );
+function normalizeNumber(value: unknown, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
 
-    let query = supabaseAdmin
+export async function GET() {
+  try {
+    const { data, error } = await supabaseAdmin
       .from('productos')
       .select(PRODUCTO_SELECT)
       .order('categoria', { ascending: true })
       .order('nombre', { ascending: true });
 
-    if (soloDisponibles) {
-      query = query.eq('disponible', true);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('GET /api/productos - Supabase error:', error);
-      return NextResponse.json(
-        { error: error.message || 'No se pudieron cargar los productos.' },
-        { status: 500 }
-      );
-    }
+    if (error) throw error;
 
     return NextResponse.json(data ?? []);
   } catch (error) {
-    console.error('GET /api/productos - unexpected error:', error);
+    console.error('Error obteniendo productos:', error);
     return NextResponse.json(
       { error: 'No se pudieron cargar los productos.' },
       { status: 500 }
@@ -63,71 +55,51 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const nombre = String(body?.nombre ?? '').trim();
-    const descripcion = String(body?.descripcion ?? '').trim() || null;
-    const precio = Number(body?.precio);
-    const categoria = String(body?.categoria ?? '').trim() || null;
-    const disponible =
-      typeof body?.disponible === 'boolean' ? body.disponible : true;
-    const imagen_url = String(body?.imagen_url ?? '').trim() || null;
-    const control_stock =
-      typeof body?.control_stock === 'boolean' ? body.control_stock : false;
-    const stock_actual = Number(body?.stock_actual ?? 0);
-    const permitir_sin_stock =
-      typeof body?.permitir_sin_stock === 'boolean'
-        ? body.permitir_sin_stock
-        : true;
+    const control_stock = normalizeBoolean(body?.control_stock, false);
+    const stock_actual = control_stock
+      ? Math.max(0, Math.trunc(normalizeNumber(body?.stock_actual, 0)))
+      : 0;
+    const permitir_sin_stock = control_stock
+      ? normalizeBoolean(body?.permitir_sin_stock, false)
+      : true;
 
-    if (!nombre) {
+    const payload = {
+      nombre: String(body?.nombre ?? '').trim(),
+      descripcion: body?.descripcion ? String(body.descripcion).trim() : null,
+      precio: normalizeNumber(body?.precio, 0),
+      categoria: body?.categoria ? String(body.categoria).trim() : null,
+      disponible: normalizeBoolean(body?.disponible, true),
+      imagen_url: body?.imagen_url ? String(body.imagen_url).trim() : null,
+      control_stock,
+      stock_actual,
+      permitir_sin_stock,
+    };
+
+    if (!payload.nombre) {
       return NextResponse.json(
         { error: 'El nombre es obligatorio.' },
         { status: 400 }
       );
     }
 
-    if (!Number.isFinite(precio) || precio < 0) {
+    if (!payload.categoria) {
       return NextResponse.json(
-        { error: 'El precio es inválido.' },
-        { status: 400 }
-      );
-    }
-
-    if (!Number.isFinite(stock_actual) || stock_actual < 0) {
-      return NextResponse.json(
-        { error: 'El stock actual es inválido.' },
+        { error: 'La categoría es obligatoria.' },
         { status: 400 }
       );
     }
 
     const { data, error } = await supabaseAdmin
       .from('productos')
-      .insert([
-        {
-          nombre,
-          descripcion,
-          precio,
-          categoria,
-          disponible,
-          imagen_url,
-          control_stock,
-          stock_actual: control_stock ? stock_actual : 0,
-          permitir_sin_stock: control_stock ? permitir_sin_stock : true,
-        },
-      ])
+      .insert([payload])
       .select(PRODUCTO_SELECT)
       .single();
 
-    if (error) {
-      console.error('POST /api/productos - Supabase error:', error);
-      return NextResponse.json(
-        { error: error.message || 'No se pudo crear el producto.' },
-        { status: 500 }
-      );
-    }
+    if (error) throw error;
 
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
-    console.error('POST /api/productos - unexpected error:', error);
+    console.error('Error creando producto:', error);
     return NextResponse.json(
       { error: 'No se pudo crear el producto.' },
       { status: 500 }
