@@ -46,6 +46,7 @@ type Pedido = {
   forma_pago?: 'efectivo' | 'virtual' | null;
   paga_efectivo?: boolean | null;
   efectivo_aprobado?: boolean | null;
+  pasado_a_caja?: boolean | null;
   items: ItemPedido[];
 };
 
@@ -97,6 +98,7 @@ type MesaActiva = {
   nombre: string;
   pedidos: Pedido[];
   totalMesa: number;
+  pasadaACaja: boolean;
 };
 
 type FiltroEstado = 'todos' | 'pendiente' | 'en_preparacion' | 'listo';
@@ -643,12 +645,13 @@ function MostradorPageContent() {
         forma_pago,
         paga_efectivo,
         efectivo_aprobado,
+        pasado_a_caja,
         items_pedido (
           id,
           cantidad,
           comentarios,
           producto:productos ( id, nombre, precio )
-        )
+        )  
       `
     )
     .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
@@ -673,34 +676,35 @@ function MostradorPageContent() {
     setPedidos([]);
   } else {
     const formateados: Pedido[] = ((pedidosData ?? []) as any[]).map((p) => ({
-      id: p.id,
-      mesa_id: p.mesa_id,
-      creado_en: p.creado_en,
-      estado: p.estado,
-      total: p.total ?? 0,
-      codigo_publico: p.codigo_publico ?? null,
-      origen: p.origen ?? null,
-      tipo_servicio: p.tipo_servicio ?? null,
-      cliente_nombre: p.cliente_nombre ?? null,
-      medio_pago: p.medio_pago ?? null,
-      estado_pago: p.estado_pago ?? null,
-      forma_pago: p.forma_pago ?? null,
-      paga_efectivo: p.paga_efectivo ?? null,
-      efectivo_aprobado: p.efectivo_aprobado ?? null,
-      items: ((p.items_pedido ?? []) as any[]).map((item) => {
-        const parsed = parseKitchenMeta(item.comentarios);
+  id: p.id,
+  mesa_id: p.mesa_id,
+  creado_en: p.creado_en,
+  estado: p.estado,
+  total: p.total ?? 0,
+  codigo_publico: p.codigo_publico ?? null,
+  origen: p.origen ?? null,
+  tipo_servicio: p.tipo_servicio ?? null,
+  cliente_nombre: p.cliente_nombre ?? null,
+  medio_pago: p.medio_pago ?? null,
+  estado_pago: p.estado_pago ?? null,
+  forma_pago: p.forma_pago ?? null,
+  paga_efectivo: p.paga_efectivo ?? null,
+  efectivo_aprobado: p.efectivo_aprobado ?? null,
+  pasado_a_caja: p.pasado_a_caja ?? false,
+  items: ((p.items_pedido ?? []) as any[]).map((item) => {
+    const parsed = parseKitchenMeta(item.comentarios);
 
-        return {
-          id: item.id,
-          cantidad: item.cantidad,
-          comentarios: item.comentarios ?? null,
-          comentarioVisible: parsed.comentarioVisible,
-          prepTarget: parsed.prepTarget,
-          kitchenState: parsed.kitchenState,
-          producto: item.producto ?? null,
-        };
-      }),
-    }));
+    return {
+      id: item.id,
+      cantidad: item.cantidad,
+      comentarios: item.comentarios ?? null,
+      comentarioVisible: parsed.comentarioVisible,
+      prepTarget: parsed.prepTarget,
+      kitchenState: parsed.kitchenState,
+      producto: item.producto ?? null,
+    };
+  }),
+}));
 
     setPedidos(formateados);
 
@@ -974,29 +978,33 @@ function MostradorPageContent() {
         );
 
         return {
-          id: mesaId,
-          numero: mesaRef?.numero ?? null,
-          nombre: mesaRef?.nombre?.trim() || `Mesa ID ${mesaId}`,
-          pedidos: pedidosMesa.sort((a, b) => {
-            const timeA = new Date(a.creado_en).getTime();
-            const timeB = new Date(b.creado_en).getTime();
-            return timeA - timeB;
-          }),
-          totalMesa,
-        };
+  id: mesaId,
+  numero: mesaRef?.numero ?? null,
+  nombre: mesaRef?.nombre?.trim() || `Mesa ID ${mesaId}`,
+  pedidos: pedidosMesa.sort((a, b) => {
+    const timeA = new Date(a.creado_en).getTime();
+    const timeB = new Date(b.creado_en).getTime();
+    return timeA - timeB;
+  }),
+  totalMesa,
+  pasadaACaja: pedidosMesa.some((pedido) => pedido.pasado_a_caja),
+};
       })
       .sort((a, b) => {
-        if (focusMesaId != null) {
-          if (a.id === focusMesaId && b.id !== focusMesaId) return -1;
-          if (b.id === focusMesaId && a.id !== focusMesaId) return 1;
-        }
+  if (a.pasadaACaja && !b.pasadaACaja) return -1;
+  if (!a.pasadaACaja && b.pasadaACaja) return 1;
 
-        const aNumero = a.numero ?? Number.MAX_SAFE_INTEGER;
-        const bNumero = b.numero ?? Number.MAX_SAFE_INTEGER;
+  if (focusMesaId != null) {
+    if (a.id === focusMesaId && b.id !== focusMesaId) return -1;
+    if (b.id === focusMesaId && a.id !== focusMesaId) return 1;
+  }
 
-        if (aNumero !== bNumero) return aNumero - bNumero;
-        return a.id - b.id;
-      });
+  const aNumero = a.numero ?? Number.MAX_SAFE_INTEGER;
+  const bNumero = b.numero ?? Number.MAX_SAFE_INTEGER;
+
+  if (aNumero !== bNumero) return aNumero - bNumero;
+  return a.id - b.id;
+});
   }, [focusMesaId, mesasMap, pedidosLocal]);
 
   const takeawayResumen = useMemo(() => {
@@ -1192,9 +1200,9 @@ function MostradorPageContent() {
     const ids = mesa.pedidos.map((pedido) => pedido.id);
 
     const { error: updateError } = await supabase
-      .from('pedidos')
-      .update({ estado: 'cerrado' })
-      .in('id', ids);
+  .from('pedidos')
+  .update({ estado: 'cerrado', pasado_a_caja: false })
+  .in('id', ids);
 
     if (updateError) {
       console.error('No se pudo cerrar la cuenta de la mesa:', updateError);
@@ -2239,11 +2247,11 @@ function MostradorPageContent() {
               <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
                 {mesasSalonFiltradas.map((mesa) => {
                   const estadoMesa = calcularEstadoMesa(mesa);
-                  const mesaTienePedidoNuevo = mesa.pedidos.some((pedido) =>
-                    recentPedidoIdsSet.has(pedido.id)
-                  );
-                  const isFocusedMesa = focusMesaId != null && mesa.id === focusMesaId;
-
+const mesaTienePedidoNuevo = mesa.pedidos.some((pedido) =>
+  recentPedidoIdsSet.has(pedido.id)
+);
+const isFocusedMesa = focusMesaId != null && mesa.id === focusMesaId;
+const isPassedToCash = mesa.pasadaACaja;
                   const visiblePedidos = mesa.pedidos;
 
                   return (
@@ -2264,11 +2272,11 @@ function MostradorPageContent() {
                           <div className="flex flex-wrap items-center gap-1">
                             {getMesaEstadoBadge(estadoMesa)}
 
-                            {isFocusedMesa ? (
-                              <span className="rounded-full bg-amber-600 px-2 py-1 text-[10px] font-semibold text-white">
-                                PASADA A CAJA
-                              </span>
-                            ) : null}
+                            {(isPassedToCash || isFocusedMesa) ? (
+  <span className="rounded-full bg-amber-600 px-2 py-1 text-[10px] font-semibold text-white">
+    PASADA A CAJA
+  </span>
+) : null}
 
                             {mesaTienePedidoNuevo ? (
                               <span className="rounded-full bg-violet-700 px-2 py-1 text-[10px] font-semibold text-white">

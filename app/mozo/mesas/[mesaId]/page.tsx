@@ -371,13 +371,26 @@ export default function MozoMesaPage() {
   };
 
   const pasarACaja = async () => {
-    if (!mesaId) return;
+  if (!mesaId) return;
 
-    setDerivandoACaja(true);
-    setMensaje(null);
+  setDerivandoACaja(true);
+  setMensaje(null);
 
-    router.push(`/mostrador?focusMesaId=${mesaId}`);
-  };
+  const { error } = await supabase
+    .from('pedidos')
+    .update({ pasado_a_caja: true })
+    .eq('mesa_id', mesaId)
+    .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
+
+  if (error) {
+    console.error('No se pudo pasar la mesa a caja:', error);
+    setMensaje('No se pudo derivar la mesa a caja.');
+    setDerivandoACaja(false);
+    return;
+  }
+
+  router.push(`/mostrador?focusMesaId=${mesaId}`);
+};
 
   if (checkingAccess) {
     return (
