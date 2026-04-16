@@ -1,16 +1,42 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+const PRODUCTO_SELECT = `
+  id,
+  nombre,
+  descripcion,
+  precio,
+  categoria,
+  disponible,
+  imagen_url
+`;
+
+function isTruthy(value: string | null) {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'si';
+}
+
+export async function GET(request: NextRequest) {
   try {
-    const { data, error } = await supabaseAdmin
+    const soloDisponibles = isTruthy(
+      request.nextUrl.searchParams.get('soloDisponibles')
+    );
+
+    let query = supabaseAdmin
       .from('productos')
-      .select('id, nombre, descripcion, precio, categoria, disponible, imagen_url')
+      .select(PRODUCTO_SELECT)
       .order('categoria', { ascending: true })
       .order('nombre', { ascending: true });
+
+    if (soloDisponibles) {
+      query = query.eq('disponible', true);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('GET /api/productos - Supabase error:', error);
@@ -35,8 +61,7 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const nombre = String(body?.nombre ?? '').trim();
-    const descripcion =
-      String(body?.descripcion ?? '').trim() || null;
+    const descripcion = String(body?.descripcion ?? '').trim() || null;
     const precio = Number(body?.precio);
     const categoria = String(body?.categoria ?? '').trim() || null;
     const disponible =
@@ -69,7 +94,7 @@ export async function POST(req: Request) {
           imagen_url,
         },
       ])
-      .select('id, nombre, descripcion, precio, categoria, disponible, imagen_url')
+      .select(PRODUCTO_SELECT)
       .single();
 
     if (error) {

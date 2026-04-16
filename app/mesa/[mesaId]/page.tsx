@@ -159,23 +159,74 @@ export default function MesaPage() {
   }, []);
 
   useEffect(() => {
-    const cargarDatosIniciales = async () => {
-      if (!mesaValida) {
-        setCargando(false);
-        return;
+  const cargarDatosIniciales = async () => {
+    if (!mesaValida) {
+      setCargando(false);
+      return;
+    }
+
+    setCargando(true);
+
+    try {
+      const mesaPromise = supabase
+        .from('mesas')
+        .select('id, numero, nombre')
+        .eq('id', mesaRutaId)
+        .maybeSingle();
+
+      const productosPromise = fetch('/api/productos?soloDisponibles=1', {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      const [{ data: mesaData, error: mesaError }, productosRes] =
+        await Promise.all([mesaPromise, productosPromise]);
+
+      if (mesaError) {
+        console.error('Error cargando mesa:', {
+          message: mesaError.message,
+          details: (mesaError as any)?.details,
+          hint: (mesaError as any)?.hint,
+          code: (mesaError as any)?.code,
+          raw: mesaError,
+        });
+        setMensaje('No se pudo cargar la mesa.');
+      } else {
+        setMesa((mesaData as Mesa | null) ?? null);
       }
 
-      setCargando(true);
+      const productosBody = await productosRes.json().catch(() => null);
 
-      try {
-        await Promise.all([cargarMesa(), cargarProductos()]);
-      } finally {
-        setCargando(false);
+      if (!productosRes.ok) {
+        console.error('Error cargando productos por API:', {
+          status: productosRes.status,
+          body: productosBody,
+        });
+        setMensaje(
+          productosBody?.error || 'No se pudieron cargar los productos.'
+        );
+      } else {
+        const lista = (productosBody as Producto[]) ?? [];
+        setProductos(lista);
+
+        const cats = Array.from(
+          new Set(
+            lista
+              .map((p) => p.categoria)
+              .filter((c): c is string => !!c && c.trim() !== '')
+          )
+        ).sort((a, b) => a.localeCompare(b));
+
+        setCategorias(cats);
+        setCategoriaSeleccionada(cats[0] ?? null);
       }
-    };
+    } finally {
+      setCargando(false);
+    }
+  };
 
-    void cargarDatosIniciales();
-  }, [cargarMesa, cargarProductos, mesaValida]);
+  void cargarDatosIniciales();
+}, [mesaRutaId, mesaValida]);
 
   useEffect(() => {
     if (!mesa?.id) return;
