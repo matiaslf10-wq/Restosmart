@@ -627,157 +627,175 @@ function MostradorPageContent() {
   setCargando(true);
   setError(null);
 
-  const pedidosPromise = supabase
-    .from('pedidos')
-    .select(
-      `
-        id,
-        mesa_id,
-        creado_en,
-        estado,
-        total,
-        codigo_publico,
-        origen,
-        tipo_servicio,
-        cliente_nombre,
-        medio_pago,
-        estado_pago,
-        forma_pago,
-        paga_efectivo,
-        efectivo_aprobado,
-        pasado_a_caja,
-        items_pedido (
+  try {
+    const pedidosPromise = supabase
+      .from('pedidos')
+      .select(
+        `
           id,
-          cantidad,
-          comentarios,
-          producto:productos ( id, nombre, precio )
-        )  
-      `
-    )
-    .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
-    .order('creado_en', { ascending: false });
-
-  const mesasPromise = supabase.from('mesas').select('id, numero, nombre');
-
-  const productosPromise = fetch('/api/productos?soloDisponibles=1', {
-    method: 'GET',
-    cache: 'no-store',
-  });
-
-  const [
-    { data: pedidosData, error: pedidosError },
-    { data: mesasData, error: mesasError },
-    productosRes,
-  ] = await Promise.all([pedidosPromise, mesasPromise, productosPromise]);
-
-  if (pedidosError) {
-    console.error('Error cargando pedidos en mostrador:', pedidosError);
-    setError('No se pudieron cargar los pedidos de mostrador.');
-    setPedidos([]);
-  } else {
-    const formateados: Pedido[] = ((pedidosData ?? []) as any[]).map((p) => ({
-  id: p.id,
-  mesa_id: p.mesa_id,
-  creado_en: p.creado_en,
-  estado: p.estado,
-  total: p.total ?? 0,
-  codigo_publico: p.codigo_publico ?? null,
-  origen: p.origen ?? null,
-  tipo_servicio: p.tipo_servicio ?? null,
-  cliente_nombre: p.cliente_nombre ?? null,
-  medio_pago: p.medio_pago ?? null,
-  estado_pago: p.estado_pago ?? null,
-  forma_pago: p.forma_pago ?? null,
-  paga_efectivo: p.paga_efectivo ?? null,
-  efectivo_aprobado: p.efectivo_aprobado ?? null,
-  pasado_a_caja: p.pasado_a_caja ?? false,
-  items: ((p.items_pedido ?? []) as any[]).map((item) => {
-    const parsed = parseKitchenMeta(item.comentarios);
-
-    return {
-      id: item.id,
-      cantidad: item.cantidad,
-      comentarios: item.comentarios ?? null,
-      comentarioVisible: parsed.comentarioVisible,
-      prepTarget: parsed.prepTarget,
-      kitchenState: parsed.kitchenState,
-      producto: item.producto ?? null,
-    };
-  }),
-}));
-
-    setPedidos(formateados);
-
-    const currentIds = new Set(formateados.map((pedido) => pedido.id));
-
-    if (!didInitialPedidosLoadRef.current) {
-      knownPedidoIdsRef.current = currentIds;
-      didInitialPedidosLoadRef.current = true;
-    } else {
-      const newIds = formateados
-        .map((pedido) => pedido.id)
-        .filter((id) => !knownPedidoIdsRef.current.has(id));
-
-      if (newIds.length > 0) {
-        marcarPedidosComoNuevos(newIds);
-        void reproducirSonidoNuevoPedido();
-      }
-
-      knownPedidoIdsRef.current = currentIds;
-    }
-  }
-
-  if (mesasError) {
-    console.error('Error cargando mesas en mostrador:', mesasError);
-  } else {
-    const mesasTodas = ((mesasData ?? []) as MesaRef[])
-      .filter((mesa) => mesa.id >= DELIVERY_MESA_ID)
-      .sort(sortMesas);
-
-    const mesasParaSelector = dedupeMesasForSelector(mesasTodas);
-
-    const map: Record<number, MesaRef> = {};
-    for (const mesa of mesasTodas) {
-      map[mesa.id] = mesa;
-    }
-
-    setMesasMap(map);
-    setMesasList(mesasParaSelector);
-
-    if (focusMesaId != null) {
-      const mesaExiste = mesasParaSelector.some((mesa) => mesa.id === focusMesaId);
-      if (mesaExiste) {
-        setManualMesaId(String(focusMesaId));
-      }
-    } else if (mesasParaSelector.length > 0 && !manualMesaId) {
-      setManualMesaId(String(mesasParaSelector[0].id));
-    }
-  }
-
-  const productosBody = await productosRes.json().catch(() => null);
-
-  if (!productosRes.ok) {
-    console.error('Error cargando productos en mostrador por API:', {
-      status: productosRes.status,
-      body: productosBody,
-    });
-  } else {
-    const listaProductos = (productosBody ?? []) as Producto[];
-    setProductos(listaProductos);
-
-    const cats = Array.from(
-      new Set(
-        listaProductos
-          .map((p) => p.categoria)
-          .filter((c): c is string => !!c && c.trim() !== '')
+          mesa_id,
+          creado_en,
+          estado,
+          total,
+          codigo_publico,
+          origen,
+          tipo_servicio,
+          cliente_nombre,
+          medio_pago,
+          estado_pago,
+          forma_pago,
+          paga_efectivo,
+          efectivo_aprobado,
+          pasado_a_caja,
+          items_pedido (
+            id,
+            cantidad,
+            comentarios,
+            producto:productos ( id, nombre, precio )
+          )
+        `
       )
-    ).sort((a, b) => a.localeCompare(b));
+      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
+      .order('creado_en', { ascending: false });
 
-    setCategorias(cats);
-    setCategoriaSeleccionada((prev) => prev ?? cats[0] ?? null);
+    const mesasPromise = supabase
+      .from('mesas')
+      .select('id, numero, nombre');
+
+    const productosPromise = fetch('/api/productos?soloDisponibles=1', {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    const [
+      { data: pedidosData, error: pedidosError },
+      { data: mesasData, error: mesasError },
+      productosRes,
+    ] = await Promise.all([pedidosPromise, mesasPromise, productosPromise]);
+
+    if (pedidosError) {
+      console.error('Error cargando pedidos en mostrador:', pedidosError);
+      setError('No se pudieron cargar los pedidos de mostrador.');
+      setPedidos([]);
+    } else {
+      const formateados: Pedido[] = ((pedidosData ?? []) as any[]).map((p) => ({
+        id: p.id,
+        mesa_id: p.mesa_id,
+        creado_en: p.creado_en,
+        estado: p.estado,
+        total: p.total ?? 0,
+        codigo_publico: p.codigo_publico ?? null,
+        origen: p.origen ?? null,
+        tipo_servicio: p.tipo_servicio ?? null,
+        cliente_nombre: p.cliente_nombre ?? null,
+        medio_pago: p.medio_pago ?? null,
+        estado_pago: p.estado_pago ?? null,
+        forma_pago: p.forma_pago ?? null,
+        paga_efectivo: p.paga_efectivo ?? null,
+        efectivo_aprobado: p.efectivo_aprobado ?? null,
+        pasado_a_caja: p.pasado_a_caja ?? false,
+        items: ((p.items_pedido ?? []) as any[]).map((item) => {
+          const parsed = parseKitchenMeta(item.comentarios);
+
+          return {
+            id: item.id,
+            cantidad: item.cantidad,
+            comentarios: item.comentarios ?? null,
+            comentarioVisible: parsed.comentarioVisible,
+            prepTarget: parsed.prepTarget,
+            kitchenState: parsed.kitchenState,
+            producto: item.producto ?? null,
+          };
+        }),
+      }));
+
+      setPedidos(formateados);
+
+      const currentIds = new Set(formateados.map((pedido) => pedido.id));
+
+      if (!didInitialPedidosLoadRef.current) {
+        knownPedidoIdsRef.current = currentIds;
+        didInitialPedidosLoadRef.current = true;
+      } else {
+        const newIds = formateados
+          .map((pedido) => pedido.id)
+          .filter((id) => !knownPedidoIdsRef.current.has(id));
+
+        if (newIds.length > 0) {
+          marcarPedidosComoNuevos(newIds);
+          void reproducirSonidoNuevoPedido();
+        }
+
+        knownPedidoIdsRef.current = currentIds;
+      }
+    }
+
+    if (mesasError) {
+      console.error('Error cargando mesas en mostrador:', mesasError);
+    } else {
+      const mesasTodas = ((mesasData ?? []) as MesaRef[])
+        .filter((mesa) => mesa.id >= DELIVERY_MESA_ID)
+        .sort(sortMesas);
+
+      const mesasParaSelector = dedupeMesasForSelector(mesasTodas);
+
+      const map: Record<number, MesaRef> = {};
+      for (const mesa of mesasTodas) {
+        map[mesa.id] = mesa;
+      }
+
+      setMesasMap(map);
+      setMesasList(mesasParaSelector);
+
+      if (focusMesaId != null) {
+        const mesaExiste = mesasParaSelector.some(
+          (mesa) => mesa.id === focusMesaId
+        );
+
+        if (mesaExiste) {
+          setManualMesaId(String(focusMesaId));
+        }
+      } else if (mesasParaSelector.length > 0 && !manualMesaId) {
+        setManualMesaId(String(mesasParaSelector[0].id));
+      }
+    }
+
+    const productosBody = await productosRes.json().catch(() => null);
+
+    if (!productosRes.ok) {
+      console.error('Error cargando productos en mostrador por API:', {
+        status: productosRes.status,
+        body: productosBody,
+      });
+
+      setError('No se pudieron cargar los productos para mostrador.');
+      setProductos([]);
+      setCategorias([]);
+      setCategoriaSeleccionada(null);
+    } else {
+      const listaProductos = (productosBody ?? []) as Producto[];
+      setProductos(listaProductos);
+
+      const cats = Array.from(
+        new Set(
+          listaProductos
+            .map((p) => p.categoria)
+            .filter((c): c is string => !!c && c.trim() !== '')
+        )
+      ).sort((a, b) => a.localeCompare(b));
+
+      setCategorias(cats);
+      setCategoriaSeleccionada((prev) => {
+        if (prev && cats.includes(prev)) return prev;
+        return cats[0] ?? null;
+      });
+    }
+  } catch (err) {
+    console.error('Error inesperado cargando mostrador:', err);
+    setError('Ocurrió un error inesperado al cargar mostrador.');
+  } finally {
+    setCargando(false);
   }
-
-  setCargando(false);
 }, [
   focusMesaId,
   manualMesaId,
