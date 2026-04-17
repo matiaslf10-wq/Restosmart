@@ -153,13 +153,20 @@ export function hasAddon(
   return !!addons?.[addon];
 }
 
+export function canAccessAnalytics(plan: PlanCode): boolean {
+  return (
+    hasFeature(plan, 'analytics_advanced') ||
+    hasFeature(plan, 'analytics_executive')
+  );
+}
+
 export function getCapabilityMap(
   plan: PlanCode,
   addons: Partial<Record<AddonKey, boolean>> | null | undefined,
   businessMode: BusinessMode = 'restaurant'
 ): CapabilityMap {
   return {
-    analytics: hasFeature(plan, 'analytics_advanced'),
+    analytics: canAccessAnalytics(plan),
     delivery: hasAddon(addons, 'whatsapp_delivery'),
     waiter_mode:
       businessMode === 'restaurant' && hasFeature(plan, 'waiter_mode'),

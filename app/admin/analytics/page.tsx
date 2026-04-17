@@ -3,15 +3,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { formatPlanLabel, type PlanCode } from '@/lib/plans';
+import {
+  canAccessAnalytics,
+  formatPlanLabel,
+  type PlanCode,
+} from '@/lib/plans';
 
 type RowPedidosHora = { hora: string; pedidos: number };
+
 type RowTopProductos = {
   producto_id: number;
   producto_nombre: string;
   unidades: number;
   ingresos: number;
 };
+
 type RowTiemposPedido = {
   pedido_id: number;
   mesa_id: number;
@@ -23,12 +29,85 @@ type RowTiemposPedido = {
   min_total_hasta_listo: number | null;
 };
 
+type PedidoAnalyticsRow = {
+  id: number;
+  estado: string | null;
+  creado_en: string;
+  items_pedido?: unknown[] | null;
+};
+
+const CLOSED_STATUSES = new Set(['cerrado', 'entregado', 'finalizado']);
+const CANCELLED_STATUSES = new Set(['cancelado', 'cancelada']);
+
 function toIsoStartOfDayAR(localDate: string) {
-  return new Date(localDate + 'T00:00:00-03:00').toISOString();
+  return new Date(`${localDate}T00:00:00-03:00`).toISOString();
 }
 
 function toIsoEndOfDayAR(localDate: string) {
-  return new Date(localDate + 'T23:59:59.999-03:00').toISOString();
+  return new Date(`${localDate}T23:59:59.999-03:00`).toISOString();
+}
+
+function formatCurrency(value: number | null | undefined) {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString('es-AR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+}
+
+function formatHourBucket(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function safeRound(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function getItemCantidad(item: unknown): number {
+  if (!item || typeof item !== 'object') return 0;
+  return Number((item as { cantidad?: unknown }).cantidad ?? 0);
+}
+
+function getProductoPrecio(item: unknown): number {
+  if (!item || typeof item !== 'object') return 0;
+
+  const producto = (item as { producto?: unknown }).producto;
+
+  if (Array.isArray(producto)) {
+    return Number(
+      (producto[0] as { precio?: number | null } | undefined)?.precio ?? 0
+    );
+  }
+
+  if (producto && typeof producto === 'object') {
+    return Number((producto as { precio?: number | null }).precio ?? 0);
+  }
+
+  return 0;
 }
 
 export default function AdminAnalyticsPage() {
@@ -67,8 +146,17 @@ export default function AdminAnalyticsPage() {
 
   const isoDesde = useMemo(() => toIsoStartOfDayAR(desde), [desde]);
   const isoHasta = useMemo(() => toIsoEndOfDayAR(hasta), [hasta]);
+  const rangoInvalido = useMemo(() => desde > hasta, [desde, hasta]);
 
   const cargar = async () => {
+    if (rangoInvalido) {
+      setErrorMsg(
+        'El rango es inválido: la fecha Desde no puede ser mayor que Hasta.'
+      );
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setErrorMsg(null);
 
@@ -91,34 +179,44 @@ export default function AdminAnalyticsPage() {
 
       if (errPedidosRango) throw errPedidosRango;
 
-      const lista = (pedidosRango ?? []) as any[];
+      const lista = (pedidosRango ?? []) as unknown as PedidoAnalyticsRow[];
 
       const total = lista.length;
-      const cerrados = lista.filter((p) => p.estado === 'cerrado').length;
-      const cancelados = lista.filter((p) => p.estado === 'cancelado').length;
+
+      const cerrados = lista.filter((pedido) =>
+        CLOSED_STATUSES.has(String(pedido.estado ?? '').toLowerCase())
+      ).length;
+
+      const cancelados = lista.filter((pedido) =>
+        CANCELLED_STATUSES.has(String(pedido.estado ?? '').toLowerCase())
+      ).length;
 
       const ingresos = lista
-        .filter((p) => p.estado === 'cerrado')
-        .reduce((acc: number, p: any) => {
-          const items = p.items_pedido ?? [];
-          const subtotal = items.reduce((a: number, it: any) => {
-            const precio = it.producto?.precio ?? 0;
-            const cant = it.cantidad ?? 0;
-            return a + precio * cant;
-          }, 0);
-          return acc + subtotal;
-        }, 0);
+  .filter((pedido) =>
+    CLOSED_STATUSES.has(String(pedido.estado ?? '').toLowerCase())
+  )
+  .reduce((accPedido: number, pedido) => {
+    const items: unknown[] = Array.isArray(pedido.items_pedido)
+      ? pedido.items_pedido
+      : [];
+
+    const subtotalPedido: number = items.reduce(
+      (accItem: number, item: unknown) => {
+        const cantidad = getItemCantidad(item);
+        const precio = getProductoPrecio(item);
+        return accItem + cantidad * precio;
+      },
+      0
+    );
+
+    return accPedido + subtotalPedido;
+  }, 0);
 
       setKpiPedidosTotal(total);
       setKpiPedidosCerrados(cerrados);
       setKpiPedidosCancelados(cancelados);
       setKpiIngresos(ingresos);
-
-      if (cerrados > 0) {
-        setKpiTicketProm(Math.round((ingresos / cerrados) * 100) / 100);
-      } else {
-        setKpiTicketProm(null);
-      }
+      setKpiTicketProm(cerrados > 0 ? safeRound(ingresos / cerrados) : null);
 
       const r1 = await supabase
         .from('vw_pedidos_por_hora')
@@ -128,7 +226,7 @@ export default function AdminAnalyticsPage() {
         .order('hora', { ascending: true });
 
       if (r1.error) throw r1.error;
-      setPedidosHora((r1.data ?? []) as any);
+      setPedidosHora((r1.data ?? []) as RowPedidosHora[]);
 
       const r2 = await supabase.rpc('fn_top_productos_rango', {
         p_desde: isoDesde,
@@ -137,7 +235,7 @@ export default function AdminAnalyticsPage() {
       });
 
       if (r2.error) throw r2.error;
-      setTopProductos((r2.data ?? []) as any);
+      setTopProductos((r2.data ?? []) as RowTopProductos[]);
 
       const r3 = await supabase
         .from('vw_tiempos_pedido')
@@ -158,10 +256,15 @@ export default function AdminAnalyticsPage() {
         .order('creado_en', { ascending: false });
 
       if (r3.error) throw r3.error;
-      setTiempos((r3.data ?? []) as any);
-    } catch (err: any) {
+      setTiempos((r3.data ?? []) as RowTiemposPedido[]);
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message?: string }).message ?? 'Error cargando analytics')
+          : 'Error cargando analytics';
+
       console.error(err);
-      setErrorMsg(err?.message ?? 'Error cargando analytics');
+      setErrorMsg(message);
     } finally {
       setLoading(false);
     }
@@ -188,7 +291,10 @@ export default function AdminAnalyticsPage() {
         if (!active) return;
 
         const plan = (session?.plan ?? 'esencial') as PlanCode;
-        const enabled = !!session?.capabilities?.analytics;
+        const enabled =
+          typeof session?.capabilities?.analytics === 'boolean'
+            ? session.capabilities.analytics
+            : canAccessAnalytics(plan);
 
         setCurrentPlan(plan);
         setCanViewAnalytics(enabled);
@@ -215,31 +321,55 @@ export default function AdminAnalyticsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  const promedio = (vals: (number | null)[]) => {
-    const xs = vals.filter(
-      (v): v is number => typeof v === 'number' && !Number.isNaN(v)
+  const promedio = (values: (number | null)[]) => {
+    const xs = values.filter(
+      (value): value is number =>
+        typeof value === 'number' && !Number.isNaN(value)
     );
+
     if (xs.length === 0) return null;
-    const s = xs.reduce((a, b) => a + b, 0);
-    return Math.round((s / xs.length) * 100) / 100;
+
+    const total = xs.reduce((acc, value) => acc + value, 0);
+    return safeRound(total / xs.length);
   };
 
   const promMozo = useMemo(
     () => promedio(tiempos.map((t) => t.min_mozo_confirma)),
     [tiempos]
   );
+
   const promCola = useMemo(
     () => promedio(tiempos.map((t) => t.min_espera_cocina)),
     [tiempos]
   );
+
   const promPrep = useMemo(
     () => promedio(tiempos.map((t) => t.min_preparacion)),
     [tiempos]
   );
+
   const promTotal = useMemo(
     () => promedio(tiempos.map((t) => t.min_total_hasta_listo)),
     [tiempos]
   );
+
+  const porcentajeCancelacion = useMemo(() => {
+    if (kpiPedidosTotal === 0) return null;
+    return safeRound((kpiPedidosCancelados / kpiPedidosTotal) * 100);
+  }, [kpiPedidosCancelados, kpiPedidosTotal]);
+
+  const horaPico = useMemo(() => {
+    if (pedidosHora.length === 0) return null;
+
+    return pedidosHora.reduce<RowPedidosHora | null>((max, row) => {
+      if (!max) return row;
+      return row.pedidos > max.pedidos ? row : max;
+    }, null);
+  }, [pedidosHora]);
+
+  const productoLider = useMemo(() => {
+    return topProductos.length > 0 ? topProductos[0] : null;
+  }, [topProductos]);
 
   const outliers = useMemo(() => {
     return tiempos
@@ -251,10 +381,106 @@ export default function AdminAnalyticsPage() {
       .slice(0, 10);
   }, [tiempos]);
 
+  const estadoOperacion = useMemo(() => {
+    if (kpiPedidosTotal === 0) {
+      return {
+        label: 'Sin datos suficientes',
+        tone: 'border-slate-200 bg-slate-50 text-slate-700',
+        description:
+          'Todavía no hay suficientes pedidos en el rango para elaborar una lectura operativa.',
+      };
+    }
+
+    const cancelacionAlta = (porcentajeCancelacion ?? 0) >= 12;
+    const demoraAlta = (promTotal ?? 0) >= 25;
+    const demoraMedia = (promTotal ?? 0) >= 18;
+
+    if (cancelacionAlta || demoraAlta) {
+      return {
+        label: 'Atención',
+        tone: 'border-rose-200 bg-rose-50 text-rose-700',
+        description:
+          'Hay señales de fricción operativa: revisá demoras, carga de cocina y causas de cancelación.',
+      };
+    }
+
+    if (demoraMedia) {
+      return {
+        label: 'Estable con margen de mejora',
+        tone: 'border-amber-200 bg-amber-50 text-amber-700',
+        description:
+          'La operación está funcionando, pero los tiempos podrían optimizarse para sostener mejor la rotación.',
+      };
+    }
+
+    return {
+      label: 'Saludable',
+      tone: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      description:
+        'Los indicadores del período muestran una operación ordenada y sin alertas fuertes.',
+    };
+  }, [kpiPedidosTotal, porcentajeCancelacion, promTotal]);
+
+  const insights = useMemo(() => {
+    const items: string[] = [];
+
+    if (productoLider) {
+      items.push(
+        `El producto más fuerte del período fue ${productoLider.producto_nombre}, con ${productoLider.unidades} unidades y ${formatCurrency(productoLider.ingresos)} de ingresos.`
+      );
+    }
+
+    if (horaPico) {
+      items.push(
+        `La franja con mayor demanda fue ${formatHourBucket(horaPico.hora)}, con ${horaPico.pedidos} pedidos.`
+      );
+    }
+
+    if (porcentajeCancelacion != null) {
+      if (porcentajeCancelacion >= 12) {
+        items.push(
+          `La cancelación está en ${porcentajeCancelacion}%, un nivel alto para seguir de cerca.`
+        );
+      } else if (porcentajeCancelacion >= 6) {
+        items.push(
+          `La cancelación está en ${porcentajeCancelacion}%, en una zona intermedia que conviene monitorear.`
+        );
+      } else {
+        items.push(
+          `La cancelación está en ${porcentajeCancelacion}%, un valor sano para la operación.`
+        );
+      }
+    }
+
+    if (promTotal != null) {
+      if (promTotal >= 25) {
+        items.push(
+          `El tiempo promedio total hasta listo es ${promTotal} min, con una demora alta para este rango.`
+        );
+      } else if (promTotal >= 18) {
+        items.push(
+          `El tiempo promedio total hasta listo es ${promTotal} min, aceptable pero con margen de mejora.`
+        );
+      } else {
+        items.push(
+          `El tiempo promedio total hasta listo es ${promTotal} min, una señal positiva de fluidez operativa.`
+        );
+      }
+    }
+
+    if (items.length === 0) {
+      items.push(
+        'Todavía no hay suficiente información para generar lecturas ejecutivas del período seleccionado.'
+      );
+    }
+
+    return items.slice(0, 4);
+  }, [horaPico, porcentajeCancelacion, productoLider, promTotal]);
+
   if (checkingAccess) {
     return (
       <main className="min-h-screen bg-slate-50 px-4 py-6">
-        <div className="max-w-6xl mx-auto">
+        <div className="mx-auto max-w-6xl">
           <p className="text-slate-600">Verificando acceso a analytics…</p>
         </div>
       </main>
@@ -264,9 +490,9 @@ export default function AdminAnalyticsPage() {
   if (!canViewAnalytics) {
     return (
       <main className="min-h-screen bg-slate-50 px-4 py-6">
-        <div className="max-w-4xl mx-auto">
+        <div className="mx-auto max-w-4xl">
           <div className="rounded-3xl border border-blue-200 bg-white p-8 shadow-sm">
-            <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 border border-blue-200">
+            <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
               Disponible en Intelligence
             </span>
 
@@ -274,7 +500,7 @@ export default function AdminAnalyticsPage() {
               Analytics avanzados
             </h1>
 
-            <p className="mt-3 text-slate-600 leading-relaxed">
+            <p className="mt-3 leading-relaxed text-slate-600">
               Tu plan actual es <strong>{formatPlanLabel(currentPlan)}</strong>.
               Los reportes avanzados, KPIs ejecutivos y análisis de rendimiento
               forman parte de <strong>Intelligence</strong>.
@@ -289,17 +515,18 @@ export default function AdminAnalyticsPage() {
                   <li>• KPIs operativos y comerciales</li>
                   <li>• Ranking de productos</li>
                   <li>• Tiempos de preparación y outliers</li>
-                  <li>• Vista ejecutiva para decisiones</li>
+                  <li>• Lectura ejecutiva para decisiones</li>
                 </ul>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <p className="font-semibold text-slate-900">
-                  Próximo paso sugerido
+                  Qué resuelve este módulo
                 </p>
                 <p className="mt-3 text-sm text-slate-700">
-                  Si querés, después de este bloque te dejo también el copy de
-                  upgrade para esta pantalla y para la landing.
+                  Te permite ver qué vendés más, dónde se te traba la operación,
+                  cuándo se concentra la demanda y qué señales conviene atacar
+                  primero.
                 </p>
               </div>
             </div>
@@ -311,6 +538,7 @@ export default function AdminAnalyticsPage() {
               >
                 Ver planes
               </a>
+
               <button
                 onClick={() => router.push('/admin')}
                 className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -326,23 +554,29 @@ export default function AdminAnalyticsPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6">
-      <div className="max-w-6xl mx-auto space-y-5">
+      <div className="mx-auto max-w-6xl space-y-5">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
+            <div className="mb-2">
+              <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+                Intelligence activo
+              </span>
+            </div>
+
             <h1 className="text-2xl font-bold text-slate-900">Analytics</h1>
             <p className="text-sm text-slate-600">
-              Descriptivo + diagnóstico (y base lista para predictivo liviano).
+              KPIs operativos y lectura ejecutiva basados en pedidos reales.
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex flex-wrap items-end gap-2">
             <label className="text-sm">
               <span className="block text-xs text-slate-500">Desde</span>
               <input
                 type="date"
                 value={desde}
                 onChange={(e) => setDesde(e.target.value)}
-                className="border border-slate-300 rounded-lg px-2 py-1 bg-white"
+                className="rounded-lg border border-slate-300 bg-white px-2 py-1"
               />
             </label>
 
@@ -352,21 +586,28 @@ export default function AdminAnalyticsPage() {
                 type="date"
                 value={hasta}
                 onChange={(e) => setHasta(e.target.value)}
-                className="border border-slate-300 rounded-lg px-2 py-1 bg-white"
+                className="rounded-lg border border-slate-300 bg-white px-2 py-1"
               />
             </label>
 
             <button
               onClick={cargar}
-              className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
+              disabled={loading || rangoInvalido}
+              className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Actualizar
+              {loading ? 'Actualizando…' : 'Actualizar'}
             </button>
           </div>
         </header>
 
+        {rangoInvalido && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            Revisá el rango: la fecha Desde no puede ser mayor que Hasta.
+          </p>
+        )}
+
         {errorMsg && (
-          <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">
+          <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {errorMsg}
           </p>
         )}
@@ -375,74 +616,141 @@ export default function AdminAnalyticsPage() {
           <p className="text-slate-600">Cargando analytics…</p>
         ) : (
           <>
+            <section className="grid gap-3 lg:grid-cols-3">
+              <div className={`rounded-2xl border p-4 ${estadoOperacion.tone}`}>
+                <div className="text-xs font-semibold uppercase tracking-wide">
+                  Salud operativa
+                </div>
+                <div className="mt-2 text-xl font-bold">
+                  {estadoOperacion.label}
+                </div>
+                <p className="mt-2 text-sm leading-relaxed">
+                  {estadoOperacion.description}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Producto líder
+                </div>
+                <div className="mt-2 text-lg font-bold text-slate-900">
+                  {productoLider?.producto_nombre ?? 'Sin datos'}
+                </div>
+                <p className="mt-2 text-sm text-slate-600">
+                  {productoLider
+                    ? `${productoLider.unidades} unidades · ${formatCurrency(productoLider.ingresos)}`
+                    : 'Todavía no hay ventas suficientes en el rango.'}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Hora pico
+                </div>
+                <div className="mt-2 text-lg font-bold text-slate-900">
+                  {horaPico ? formatHourBucket(horaPico.hora) : 'Sin datos'}
+                </div>
+                <p className="mt-2 text-sm text-slate-600">
+                  {horaPico
+                    ? `${horaPico.pedidos} pedidos en la franja más cargada`
+                    : 'No hay suficiente actividad para detectar una franja pico.'}
+                </p>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold text-slate-900">
+                    Lectura ejecutiva del período
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    Resumen rápido para decidir qué mirar primero.
+                  </p>
+                </div>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+                  {desde} → {hasta}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {insights.map((insight) => (
+                  <div
+                    key={insight}
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed text-slate-700"
+                  >
+                    {insight}
+                  </div>
+                ))}
+              </div>
+            </section>
+
             <section className="grid gap-3 md:grid-cols-4">
-              <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Pedidos totales</div>
                 <div className="text-xl font-bold">{kpiPedidosTotal}</div>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Pedidos cerrados</div>
                 <div className="text-xl font-bold">{kpiPedidosCerrados}</div>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Pedidos cancelados</div>
                 <div className="text-xl font-bold">{kpiPedidosCancelados}</div>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Ingresos (cerrados)</div>
                 <div className="text-xl font-bold">
-                  ${Number(kpiIngresos ?? 0).toFixed(0)}
+                  {formatCurrency(kpiIngresos)}
                 </div>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-xl p-3 md:col-span-2">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 md:col-span-2">
                 <div className="text-xs text-slate-500">
                   Ticket promedio (cerrados)
                 </div>
                 <div className="text-xl font-bold">
-                  {kpiTicketProm == null ? '—' : `$${kpiTicketProm.toFixed(0)}`}
+                  {kpiTicketProm == null ? '—' : formatCurrency(kpiTicketProm)}
                 </div>
-                <div className="text-[11px] text-slate-500 mt-1">
+                <div className="mt-1 text-[11px] text-slate-500">
                   Calculado como ingresos / cantidad de pedidos cerrados
                 </div>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-xl p-3 md:col-span-2">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 md:col-span-2">
                 <div className="text-xs text-slate-500">% cancelación</div>
                 <div className="text-xl font-bold">
-                  {kpiPedidosTotal === 0
+                  {porcentajeCancelacion == null
                     ? '—'
-                    : `${Math.round(
-                        (kpiPedidosCancelados / kpiPedidosTotal) * 100
-                      )}%`}
+                    : `${porcentajeCancelacion}%`}
                 </div>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">
                   Prom. mozo confirma (min)
                 </div>
                 <div className="text-xl font-bold">{promMozo ?? '—'}</div>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">
                   Prom. espera cocina (min)
                 </div>
                 <div className="text-xl font-bold">{promCola ?? '—'}</div>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">
                   Prom. preparación (min)
                 </div>
                 <div className="text-xl font-bold">{promPrep ?? '—'}</div>
               </div>
 
-              <div className="bg-white border border-slate-200 rounded-xl p-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">
                   Prom. total hasta listo (min)
                 </div>
@@ -450,10 +758,11 @@ export default function AdminAnalyticsPage() {
               </div>
             </section>
 
-            <section className="bg-white border border-slate-200 rounded-xl p-4">
-              <h2 className="font-semibold text-slate-900 mb-2">
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <h2 className="mb-2 font-semibold text-slate-900">
                 Pedidos por hora
               </h2>
+
               {pedidosHora.length === 0 ? (
                 <p className="text-sm text-slate-600">Sin datos en el rango.</p>
               ) : (
@@ -466,12 +775,12 @@ export default function AdminAnalyticsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {pedidosHora.map((r) => (
-                        <tr key={r.hora} className="border-t">
+                      {pedidosHora.map((row) => (
+                        <tr key={row.hora} className="border-t">
                           <td className="py-2 pr-4">
-                            {new Date(r.hora).toLocaleString()}
+                            {formatDateTime(row.hora)}
                           </td>
-                          <td className="py-2 font-semibold">{r.pedidos}</td>
+                          <td className="py-2 font-semibold">{row.pedidos}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -480,8 +789,8 @@ export default function AdminAnalyticsPage() {
               )}
             </section>
 
-            <section className="bg-white border border-slate-200 rounded-xl p-4">
-              <h2 className="font-semibold text-slate-900 mb-2">
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <h2 className="mb-2 font-semibold text-slate-900">
                 Ranking de productos más vendidos en el período seleccionado
               </h2>
 
@@ -498,16 +807,16 @@ export default function AdminAnalyticsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {topProductos.map((r) => (
-                        <tr key={r.producto_id} className="border-t">
+                      {topProductos.map((row) => (
+                        <tr key={row.producto_id} className="border-t">
                           <td className="py-2 pr-4 font-medium">
-                            {r.producto_nombre}
+                            {row.producto_nombre}
                           </td>
                           <td className="py-2 pr-4 font-semibold">
-                            {r.unidades}
+                            {row.unidades}
                           </td>
                           <td className="py-2 font-semibold">
-                            ${Number(r.ingresos ?? 0).toFixed(0)}
+                            {formatCurrency(row.ingresos)}
                           </td>
                         </tr>
                       ))}
@@ -517,16 +826,29 @@ export default function AdminAnalyticsPage() {
               )}
             </section>
 
-            <section className="bg-white border border-slate-200 rounded-xl p-4">
-              <h2 className="font-semibold text-slate-900 mb-2">
-                Pedidos lentos (outliers ≥ 30 min)
-              </h2>
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h2 className="font-semibold text-slate-900">
+                    Pedidos lentos (outliers ≥ 30 min)
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    Casos a revisar para detectar cuellos de botella.
+                  </p>
+                </div>
+
+                <div className="text-sm text-slate-500">
+                  {outliers.length} caso{outliers.length === 1 ? '' : 's'} detectado
+                  {outliers.length === 1 ? '' : 's'}
+                </div>
+              </div>
+
               {outliers.length === 0 ? (
-                <p className="text-sm text-slate-600">
+                <p className="mt-3 text-sm text-slate-600">
                   No hay outliers en el rango.
                 </p>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="mt-3 overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="text-left text-slate-500">
@@ -538,24 +860,24 @@ export default function AdminAnalyticsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {outliers.map((t) => (
-                        <tr key={t.pedido_id} className="border-t">
+                      {outliers.map((row) => (
+                        <tr key={row.pedido_id} className="border-t">
                           <td className="py-2 pr-4 font-semibold">
-                            #{t.pedido_id}
+                            #{row.pedido_id}
                           </td>
-                          <td className="py-2 pr-4">{t.mesa_id}</td>
+                          <td className="py-2 pr-4">{row.mesa_id}</td>
                           <td className="py-2 pr-4">
-                            {new Date(t.creado_en).toLocaleString()}
+                            {formatDateTime(row.creado_en)}
                           </td>
                           <td className="py-2 pr-4 font-bold">
-                            {t.min_total_hasta_listo}
+                            {row.min_total_hasta_listo}
                           </td>
                           <td className="py-2">
-                            {(t.min_mozo_confirma ?? '—') +
+                            {(row.min_mozo_confirma ?? '—') +
                               ' / ' +
-                              (t.min_espera_cocina ?? '—') +
+                              (row.min_espera_cocina ?? '—') +
                               ' / ' +
-                              (t.min_preparacion ?? '—')}
+                              (row.min_preparacion ?? '—')}
                           </td>
                         </tr>
                       ))}
