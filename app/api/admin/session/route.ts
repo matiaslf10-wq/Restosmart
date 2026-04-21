@@ -7,6 +7,7 @@ import {
 } from '@/lib/adminAccess';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
+  canAccessAnalytics,
   formatBusinessModeLabel,
   getFeaturesForContext,
   normalizeBusinessMode,
@@ -275,8 +276,9 @@ export async function GET(request: NextRequest) {
 
   const publicOrdering = getPublicOrderingMeta(businessMode);
   const features = getFeaturesForContext(access.plan, businessMode);
-  const capabilities = {
+    const capabilities = {
     ...access.capabilities,
+    analytics: canAccessAnalytics(access.plan),
     waiter_mode:
       businessMode === 'restaurant' && !!access.capabilities?.waiter_mode,
   };

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
 import {
   canAccessAnalytics,
   formatPlanLabel,
@@ -148,7 +147,7 @@ export default function AdminAnalyticsPage() {
   const isoHasta = useMemo(() => toIsoEndOfDayAR(hasta), [hasta]);
   const rangoInvalido = useMemo(() => desde > hasta, [desde, hasta]);
 
-  const cargar = async () => {
+    const cargar = async () => {
     if (rangoInvalido) {
       setErrorMsg(
         'El rango es inválido: la fecha Desde no puede ser mayor que Hasta.'
@@ -161,106 +160,45 @@ export default function AdminAnalyticsPage() {
     setErrorMsg(null);
 
     try {
-      const { data: pedidosRango, error: errPedidosRango } = await supabase
-        .from('pedidos')
-        .select(
-          `
-          id,
-          estado,
-          creado_en,
-          items_pedido (
-            cantidad,
-            producto:productos ( precio )
-          )
-        `
-        )
-        .gte('creado_en', isoDesde)
-        .lte('creado_en', isoHasta);
-
-      if (errPedidosRango) throw errPedidosRango;
-
-      const lista = (pedidosRango ?? []) as unknown as PedidoAnalyticsRow[];
-
-      const total = lista.length;
-
-      const cerrados = lista.filter((pedido) =>
-        CLOSED_STATUSES.has(String(pedido.estado ?? '').toLowerCase())
-      ).length;
-
-      const cancelados = lista.filter((pedido) =>
-        CANCELLED_STATUSES.has(String(pedido.estado ?? '').toLowerCase())
-      ).length;
-
-      const ingresos = lista
-  .filter((pedido) =>
-    CLOSED_STATUSES.has(String(pedido.estado ?? '').toLowerCase())
-  )
-  .reduce((accPedido: number, pedido) => {
-    const items: unknown[] = Array.isArray(pedido.items_pedido)
-      ? pedido.items_pedido
-      : [];
-
-    const subtotalPedido: number = items.reduce(
-      (accItem: number, item: unknown) => {
-        const cantidad = getItemCantidad(item);
-        const precio = getProductoPrecio(item);
-        return accItem + cantidad * precio;
-      },
-      0
-    );
-
-    return accPedido + subtotalPedido;
-  }, 0);
-
-      setKpiPedidosTotal(total);
-      setKpiPedidosCerrados(cerrados);
-      setKpiPedidosCancelados(cancelados);
-      setKpiIngresos(ingresos);
-      setKpiTicketProm(cerrados > 0 ? safeRound(ingresos / cerrados) : null);
-
-      const r1 = await supabase
-        .from('vw_pedidos_por_hora')
-        .select('*')
-        .gte('hora', isoDesde)
-        .lte('hora', isoHasta)
-        .order('hora', { ascending: true });
-
-      if (r1.error) throw r1.error;
-      setPedidosHora((r1.data ?? []) as RowPedidosHora[]);
-
-      const r2 = await supabase.rpc('fn_top_productos_rango', {
-        p_desde: isoDesde,
-        p_hasta: isoHasta,
-        p_limit: 15,
+      const params = new URLSearchParams({
+        desde,
+        hasta,
       });
 
-      if (r2.error) throw r2.error;
-      setTopProductos((r2.data ?? []) as RowTopProductos[]);
+      const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
 
-      const r3 = await supabase
-        .from('vw_tiempos_pedido')
-        .select(
-          `
-          pedido_id,
-          mesa_id,
-          creado_en,
-          estado_actual,
-          min_mozo_confirma,
-          min_espera_cocina,
-          min_preparacion,
-          min_total_hasta_listo
-        `
-        )
-        .gte('creado_en', isoDesde)
-        .lte('creado_en', isoHasta)
-        .order('creado_en', { ascending: false });
+      const payload = await res.json().catch(() => null);
 
-      if (r3.error) throw r3.error;
-      setTiempos((r3.data ?? []) as RowTiemposPedido[]);
+      if (!res.ok) {
+        throw new Error(payload?.error ?? 'Error cargando analytics');
+      }
+
+      const data = payload?.data;
+
+      setPedidosHora((data?.pedidosHora ?? []) as RowPedidosHora[]);
+      setTopProductos((data?.topProductos ?? []) as RowTopProductos[]);
+      setTiempos((data?.tiempos ?? []) as RowTiemposPedido[]);
+
+      setKpiPedidosTotal(Number(data?.kpis?.pedidosTotal ?? 0));
+      setKpiPedidosCerrados(Number(data?.kpis?.pedidosCerrados ?? 0));
+      setKpiPedidosCancelados(Number(data?.kpis?.pedidosCancelados ?? 0));
+      setKpiIngresos(Number(data?.kpis?.ingresos ?? 0));
+
+      const ticket =
+        data?.kpis?.ticketPromedio == null
+          ? null
+          : Number(data.kpis.ticketPromedio);
+
+      setKpiTicketProm(ticket);
     } catch (err: unknown) {
       const message =
         err && typeof err === 'object' && 'message' in err
-          ? String((err as { message?: string }).message ?? 'Error cargando analytics')
+          ? String(
+              (err as { message?: string }).message ?? 'Error cargando analytics'
+            )
           : 'Error cargando analytics';
 
       console.error(err);
