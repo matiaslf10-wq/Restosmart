@@ -503,6 +503,55 @@ export default function AdminAnalyticsPage() {
     return topProductos.length > 0 ? topProductos[0] : null;
   }, [topProductos]);
 
+    const canalLider = useMemo(() => {
+    if (canales.length === 0) return null;
+
+    return [...canales].sort((a, b) => {
+      if (b.ingresos !== a.ingresos) return b.ingresos - a.ingresos;
+      return b.cantidad - a.cantidad;
+    })[0];
+  }, [canales]);
+
+  const alertaPrincipal = useMemo(() => {
+    if (kpiPedidosTotal === 0) {
+      return {
+        titulo: 'Sin datos suficientes',
+        detalle: 'Todavía no hay actividad suficiente en el rango para detectar una alerta principal.',
+        tone: 'border-slate-200 bg-slate-50 text-slate-700',
+      };
+    }
+
+    if ((porcentajeCancelacion ?? 0) >= 12) {
+      return {
+        titulo: 'Cancelación alta',
+        detalle: `La cancelación está en ${porcentajeCancelacion}%. Conviene revisar causas de pérdida y tiempos de respuesta.`,
+        tone: 'border-rose-200 bg-rose-50 text-rose-700',
+      };
+    }
+
+    if ((promTotal ?? 0) >= 25) {
+      return {
+        titulo: 'Demora operativa alta',
+        detalle: `El tiempo promedio total hasta listo es ${promTotal} min. Hay señales de cuello de botella.`,
+        tone: 'border-rose-200 bg-rose-50 text-rose-700',
+      };
+    }
+
+    if ((promTotal ?? 0) >= 18) {
+      return {
+        titulo: 'Demora moderada',
+        detalle: `El tiempo promedio total está en ${promTotal} min. Hay margen para mejorar rotación y fluidez.`,
+        tone: 'border-amber-200 bg-amber-50 text-amber-700',
+      };
+    }
+
+    return {
+      titulo: 'Operación estable',
+      detalle: 'No aparecen alertas fuertes en el período. La operación muestra señales saludables.',
+      tone: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    };
+  }, [kpiPedidosTotal, porcentajeCancelacion, promTotal]);
+
   const outliers = useMemo(() => {
     return tiempos
       .filter((t) => (t.min_total_hasta_listo ?? 0) >= 30)
@@ -799,16 +848,21 @@ export default function AdminAnalyticsPage() {
           <p className="text-slate-600">Cargando analytics…</p>
         ) : (
           <>
-            <section className="grid gap-3 lg:grid-cols-3">
-              <div className={`rounded-2xl border p-4 ${estadoOperacion.tone}`}>
-                <div className="text-xs font-semibold uppercase tracking-wide">
-                  Salud operativa
+
+            <section className="grid gap-3 xl:grid-cols-4">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Canal líder
                 </div>
-                <div className="mt-2 text-xl font-bold">
-                  {estadoOperacion.label}
+
+                <div className="mt-2 text-lg font-bold text-slate-900">
+                  {canalLider ? formatCanalLabel(canalLider.canal) : 'Sin datos'}
                 </div>
-                <p className="mt-2 text-sm leading-relaxed">
-                  {estadoOperacion.description}
+
+                <p className="mt-2 text-sm text-slate-600">
+                  {canalLider
+                    ? `${formatCurrency(canalLider.ingresos)} · ${canalLider.cantidad} pedidos`
+                    : 'Todavía no hay datos para comparar canales.'}
                 </p>
               </div>
 
@@ -816,9 +870,11 @@ export default function AdminAnalyticsPage() {
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Producto líder
                 </div>
+
                 <div className="mt-2 text-lg font-bold text-slate-900">
                   {productoLider?.producto_nombre ?? 'Sin datos'}
                 </div>
+
                 <p className="mt-2 text-sm text-slate-600">
                   {productoLider
                     ? `${productoLider.unidades} unidades · ${formatCurrency(productoLider.ingresos)}`
@@ -830,15 +886,54 @@ export default function AdminAnalyticsPage() {
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Hora pico
                 </div>
+
                 <div className="mt-2 text-lg font-bold text-slate-900">
                   {horaPico ? formatHourBucket(horaPico.hora) : 'Sin datos'}
                 </div>
+
                 <p className="mt-2 text-sm text-slate-600">
                   {horaPico
                     ? `${horaPico.pedidos} pedidos en la franja más cargada`
                     : 'No hay suficiente actividad para detectar una franja pico.'}
                 </p>
               </div>
+
+              <div className={`rounded-2xl border p-4 ${alertaPrincipal.tone}`}>
+                <div className="text-xs font-semibold uppercase tracking-wide">
+                  Alerta principal
+                </div>
+
+                <div className="mt-2 text-lg font-bold">
+                  {alertaPrincipal.titulo}
+                </div>
+
+                <p className="mt-2 text-sm leading-relaxed">
+                  {alertaPrincipal.detalle}
+                </p>
+              </div>
+            </section>
+
+                        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Salud operativa
+                  </div>
+                  <div className="mt-2 text-2xl font-bold text-slate-900">
+                    {estadoOperacion.label}
+                  </div>
+                </div>
+
+                <span
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${estadoOperacion.tone}`}
+                >
+                  Estado del período
+                </span>
+              </div>
+
+              <p className="mt-3 text-sm leading-relaxed text-slate-600">
+                {estadoOperacion.description}
+              </p>
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-4">
