@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   canAccessAnalytics,
@@ -37,6 +37,15 @@ type ComparativaState = {
   kpis: RangeKpis;
   canales: RowCanal[];
 } | null;
+
+type ExecutiveSignalRow = {
+  id: string;
+  indicador: string;
+  valorActual: string;
+  variacion: string;
+  estado: 'positivo' | 'alerta' | 'estable' | 'neutral';
+  lectura: string;
+};
 
 type RowTiemposPedido = {
   pedido_id: number;
@@ -214,6 +223,22 @@ function formatShortDeltaLabel(
 
   const sign = delta > 0 ? '+' : '';
   return `${prefix}: ${sign}${delta}%`;
+}
+
+function getExecutiveSignalClasses(
+  estado: ExecutiveSignalRow['estado']
+) {
+  switch (estado) {
+    case 'positivo':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    case 'alerta':
+      return 'border-rose-200 bg-rose-50 text-rose-700';
+    case 'estable':
+      return 'border-amber-200 bg-amber-50 text-amber-700';
+    case 'neutral':
+    default:
+      return 'border-slate-200 bg-slate-50 text-slate-700';
+  }
 }
 
 export default function AdminAnalyticsPage() {
@@ -531,19 +556,28 @@ export default function AdminAnalyticsPage() {
     );
   }, [comparativa]);
 
-  function getCanalComparativo(canalCode: RowCanal['canal']) {
-    return comparativaCanalesMap.get(canalCode) ?? null;
-  }
+    const getCanalComparativo = useCallback(
+    (canalCode: RowCanal['canal']) => {
+      return comparativaCanalesMap.get(canalCode) ?? null;
+    },
+    [comparativaCanalesMap]
+  );
 
-  function getCanalDeltaPedidos(canal: RowCanal) {
-    const previo = getCanalComparativo(canal.canal);
-    return getDeltaPct(canal.cantidad, previo?.cantidad);
-  }
+  const getCanalDeltaPedidos = useCallback(
+    (canal: RowCanal) => {
+      const previo = getCanalComparativo(canal.canal);
+      return getDeltaPct(canal.cantidad, previo?.cantidad);
+    },
+    [getCanalComparativo]
+  );
 
-  function getCanalDeltaIngresos(canal: RowCanal) {
-    const previo = getCanalComparativo(canal.canal);
-    return getDeltaPct(canal.ingresos, previo?.ingresos);
-  }
+  const getCanalDeltaIngresos = useCallback(
+    (canal: RowCanal) => {
+      const previo = getCanalComparativo(canal.canal);
+      return getDeltaPct(canal.ingresos, previo?.ingresos);
+    },
+    [getCanalComparativo]
+  );
 
   const alertaPrincipal = useMemo(() => {
     if (kpiPedidosTotal === 0) {
@@ -740,6 +774,183 @@ export default function AdminAnalyticsPage() {
     deltaPedidosTotal,
     deltaTicketProm,
     deltaCancelacion,
+  ]);
+
+    const senalesEjecutivas = useMemo<ExecutiveSignalRow[]>(() => {
+    const rows: ExecutiveSignalRow[] = [];
+
+    rows.push({
+      id: 'ingresos',
+      indicador: 'Ingresos',
+      valorActual: formatCurrency(kpiIngresos),
+      variacion: formatDelta(deltaIngresos),
+      estado:
+        deltaIngresos == null
+          ? 'neutral'
+          : deltaIngresos > 0
+            ? 'positivo'
+            : deltaIngresos < 0
+              ? 'alerta'
+              : 'neutral',
+      lectura:
+        deltaIngresos == null
+          ? 'Todavía no hay base comparable suficiente.'
+          : deltaIngresos > 0
+            ? 'El negocio facturó más que en el período anterior.'
+            : deltaIngresos < 0
+              ? 'La facturación cayó y conviene revisar demanda y ticket.'
+              : 'La facturación se mantuvo estable.',
+    });
+
+    rows.push({
+      id: 'pedidos',
+      indicador: 'Volumen de pedidos',
+      valorActual: String(kpiPedidosTotal),
+      variacion: formatDelta(deltaPedidosTotal),
+      estado:
+        deltaPedidosTotal == null
+          ? 'neutral'
+          : deltaPedidosTotal > 0
+            ? 'positivo'
+            : deltaPedidosTotal < 0
+              ? 'alerta'
+              : 'neutral',
+      lectura:
+        deltaPedidosTotal == null
+          ? 'Todavía no hay base comparable suficiente.'
+          : deltaPedidosTotal > 0
+            ? 'Entraron más pedidos que en el período anterior.'
+            : deltaPedidosTotal < 0
+              ? 'Entraron menos pedidos; conviene mirar demanda y conversión.'
+              : 'El volumen de pedidos se mantuvo estable.',
+    });
+
+    rows.push({
+      id: 'ticket',
+      indicador: 'Ticket promedio',
+      valorActual:
+        kpiTicketProm == null ? '—' : formatCurrency(kpiTicketProm),
+      variacion: formatDelta(deltaTicketProm),
+      estado:
+        deltaTicketProm == null
+          ? 'neutral'
+          : deltaTicketProm > 0
+            ? 'positivo'
+            : deltaTicketProm < 0
+              ? 'estable'
+              : 'neutral',
+      lectura:
+        deltaTicketProm == null
+          ? 'Todavía no hay base comparable suficiente.'
+          : deltaTicketProm > 0
+            ? 'Cada pedido está dejando más valor que antes.'
+            : deltaTicketProm < 0
+              ? 'El valor por pedido bajó; conviene revisar mezcla y upselling.'
+              : 'El ticket promedio se mantuvo estable.',
+    });
+
+    rows.push({
+      id: 'cancelacion',
+      indicador: 'Cancelación',
+      valorActual:
+        porcentajeCancelacion == null ? '—' : `${porcentajeCancelacion}%`,
+      variacion: formatDelta(deltaCancelacion),
+      estado:
+        deltaCancelacion == null
+          ? 'neutral'
+          : deltaCancelacion < 0
+            ? 'positivo'
+            : deltaCancelacion > 0
+              ? 'alerta'
+              : 'neutral',
+      lectura:
+        deltaCancelacion == null
+          ? 'Todavía no hay base comparable suficiente.'
+          : deltaCancelacion < 0
+            ? 'La cancelación bajó, una mejora clara de la operación.'
+            : deltaCancelacion > 0
+              ? 'La cancelación subió; conviene revisar demoras y causas de pérdida.'
+              : 'La cancelación se mantuvo estable.',
+    });
+
+    rows.push({
+      id: 'tiempo-total',
+      indicador: 'Tiempo total hasta listo',
+      valorActual: promTotal == null ? '—' : `${promTotal} min`,
+      variacion: 'Semáforo operativo',
+      estado:
+        promTotal == null
+          ? 'neutral'
+          : promTotal >= 25
+            ? 'alerta'
+            : promTotal >= 18
+              ? 'estable'
+              : 'positivo',
+      lectura:
+        promTotal == null
+          ? 'No hay datos suficientes para evaluar tiempos.'
+          : promTotal >= 25
+            ? 'La operación muestra una demora alta.'
+            : promTotal >= 18
+              ? 'La operación está aceptable, pero con margen de mejora.'
+              : 'La operación está fluyendo bien.',
+    });
+
+    const canalMasDinamico = [...canales]
+      .map((canal) => ({
+        canal,
+        deltaIngresos: getCanalDeltaIngresos(canal),
+      }))
+      .filter((item) => item.deltaIngresos != null)
+      .sort(
+        (a, b) =>
+          Number(b.deltaIngresos ?? Number.NEGATIVE_INFINITY) -
+          Number(a.deltaIngresos ?? Number.NEGATIVE_INFINITY)
+      )[0];
+
+    rows.push({
+      id: 'canal-dinamico',
+      indicador: 'Canal más dinámico',
+      valorActual: canalMasDinamico
+        ? formatCanalLabel(canalMasDinamico.canal.canal)
+        : 'Sin datos',
+      variacion: canalMasDinamico
+        ? formatShortDeltaLabel(
+            'Ingresos',
+            canalMasDinamico.deltaIngresos
+          )
+        : 'Sin base comparable',
+      estado:
+        canalMasDinamico?.deltaIngresos == null
+          ? 'neutral'
+          : canalMasDinamico.deltaIngresos > 0
+            ? 'positivo'
+            : canalMasDinamico.deltaIngresos < 0
+              ? 'alerta'
+              : 'neutral',
+      lectura:
+        canalMasDinamico?.deltaIngresos == null
+          ? 'Todavía no hay base comparable suficiente por canal.'
+          : canalMasDinamico.deltaIngresos > 0
+            ? `El canal ${formatCanalLabel(canalMasDinamico.canal.canal)} es el que más está empujando el crecimiento.`
+            : canalMasDinamico.deltaIngresos < 0
+              ? `El canal ${formatCanalLabel(canalMasDinamico.canal.canal)} está perdiendo tracción.`
+              : 'No hay un canal con cambio relevante en el período.',
+    });
+
+    return rows;
+  }, [
+    kpiIngresos,
+    deltaIngresos,
+    kpiPedidosTotal,
+    deltaPedidosTotal,
+    kpiTicketProm,
+    deltaTicketProm,
+    porcentajeCancelacion,
+    deltaCancelacion,
+    promTotal,
+    canales,
+    getCanalDeltaIngresos,
   ]);
 
   if (checkingAccess) {
@@ -1020,6 +1231,68 @@ export default function AdminAnalyticsPage() {
                 ))}
               </div>
             </section>
+
+                        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="mb-3">
+                <h2 className="font-semibold text-slate-900">
+                  Qué sube / qué baja
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Lectura ejecutiva automática de los indicadores más relevantes.
+                </p>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="py-2 pr-4">Indicador</th>
+                      <th className="py-2 pr-4">Valor actual</th>
+                      <th className="py-2 pr-4">Variación</th>
+                      <th className="py-2 pr-4">Semáforo</th>
+                      <th className="py-2">Lectura</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {senalesEjecutivas.map((row) => (
+                      <tr key={row.id} className="border-t align-top">
+                        <td className="py-3 pr-4 font-semibold text-slate-900">
+                          {row.indicador}
+                        </td>
+
+                        <td className="py-3 pr-4 text-slate-700">
+                          {row.valorActual}
+                        </td>
+
+                        <td className="py-3 pr-4 text-slate-700">
+                          {row.variacion}
+                        </td>
+
+                        <td className="py-3 pr-4">
+                          <span
+                            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getExecutiveSignalClasses(row.estado)}`}
+                          >
+                            {row.estado === 'positivo'
+                              ? 'Positivo'
+                              : row.estado === 'alerta'
+                                ? 'Alerta'
+                                : row.estado === 'estable'
+                                  ? 'A seguir'
+                                  : 'Neutral'}
+                          </span>
+                        </td>
+
+                        <td className="py-3 text-slate-700">
+                          {row.lectura}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="grid gap-3 md:grid-cols-4"></section>
 
             <section className="grid gap-3 md:grid-cols-4">
               <div className="rounded-xl border border-slate-200 bg-white p-3">
