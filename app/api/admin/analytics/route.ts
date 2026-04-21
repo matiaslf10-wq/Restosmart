@@ -31,6 +31,14 @@ type RowCanal = {
   ingresos: number;
 };
 
+type RowSerieDiaria = {
+  fecha: string;
+  pedidos: number;
+  cerrados: number;
+  cancelados: number;
+  ingresos: number;
+};
+
 type RowTiemposPedido = {
   pedido_id: number;
   mesa_id: number;
@@ -280,6 +288,36 @@ function getHourBucketIso(value: string) {
   return new Date(`${year}-${month}-${day}T${hour}:00:00-03:00`).toISOString();
 }
 
+function getDayBucket(value: string) {
+  const date = new Date(value);
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
+  const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+  const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+
+  return `${year}-${month}-${day}`;
+}
+
+function buildDateRangeList(desde: string, hasta: string) {
+  const result: string[] = [];
+  const current = new Date(`${desde}T00:00:00-03:00`);
+  const end = new Date(`${hasta}T00:00:00-03:00`);
+
+  while (current.getTime() <= end.getTime()) {
+    result.push(formatArDate(current));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return result;
+}
+
 export async function GET(request: NextRequest) {
   const auth = requireAdminAuth(request);
 
@@ -486,6 +524,49 @@ export async function GET(request: NextRequest) {
       canalesBase.delivery,
     ];
 
+        const serieDiariaBase = new Map<string, RowSerieDiaria>();
+
+    for (const fecha of buildDateRangeList(desde, hasta)) {
+      serieDiariaBase.set(fecha, {
+        fecha,
+        pedidos: 0,
+        cerrados: 0,
+        cancelados: 0,
+        ingresos: 0,
+      });
+    }
+
+    for (const pedido of lista) {
+      const fecha = getDayBucket(pedido.creado_en);
+      const row = serieDiariaBase.get(fecha);
+
+      if (!row) continue;
+
+      row.pedidos += 1;
+
+      if (isClosedStatus(pedido.estado)) {
+        row.cerrados += 1;
+
+        const items: unknown[] = Array.isArray(pedido.items_pedido)
+          ? pedido.items_pedido
+          : [];
+
+        const subtotalPedido = items.reduce((accItem: number, item: unknown) => {
+          return accItem + getItemCantidad(item) * getProductoPrecio(item);
+        }, 0);
+
+        row.ingresos = safeRound(row.ingresos + subtotalPedido);
+      }
+
+      if (isCancelledStatus(pedido.estado)) {
+        row.cancelados += 1;
+      }
+    }
+
+    const serieDiaria: RowSerieDiaria[] = Array.from(serieDiariaBase.values()).sort(
+      (a, b) => a.fecha.localeCompare(b.fecha)
+    );
+
     let tiempos: RowTiemposPedido[] = [];
 
     try {
@@ -544,9 +625,10 @@ export async function GET(request: NextRequest) {
             ingresos,
             ticketPromedio,
           },
-          pedidosHora,
+        pedidosHora,
           topProductos,
           canales,
+          serieDiaria,
           tiempos,
         },
       },

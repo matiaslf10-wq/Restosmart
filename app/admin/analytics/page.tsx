@@ -23,6 +23,14 @@ type RowCanal = {
   ingresos: number;
 };
 
+type RowSerieDiaria = {
+  fecha: string;
+  pedidos: number;
+  cerrados: number;
+  cancelados: number;
+  ingresos: number;
+};
+
 type RangeKpis = {
   pedidosTotal: number;
   pedidosCerrados: number;
@@ -117,6 +125,20 @@ function formatCanalLabel(canal: RowCanal['canal']) {
     default:
       return 'Salón';
   }
+}
+
+function escapeCsvCell(value: unknown) {
+  const text = String(value ?? '');
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function buildCsvLine(values: unknown[]) {
+  return values.map(escapeCsvCell).join(';');
+}
+
+function getTrendBarWidth(value: number, max: number) {
+  if (max <= 0) return '0%';
+  return `${Math.max((value / max) * 100, 6)}%`;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -266,9 +288,10 @@ export default function AdminAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [pedidosHora, setPedidosHora] = useState<RowPedidosHora[]>([]);
+    const [pedidosHora, setPedidosHora] = useState<RowPedidosHora[]>([]);
   const [topProductos, setTopProductos] = useState<RowTopProductos[]>([]);
   const [canales, setCanales] = useState<RowCanal[]>([]);
+  const [serieDiaria, setSerieDiaria] = useState<RowSerieDiaria[]>([]);
   const [tiempos, setTiempos] = useState<RowTiemposPedido[]>([]);
   const [kpiPedidosTotal, setKpiPedidosTotal] = useState(0);
   const [kpiPedidosCerrados, setKpiPedidosCerrados] = useState(0);
@@ -276,6 +299,7 @@ export default function AdminAnalyticsPage() {
   const [kpiIngresos, setKpiIngresos] = useState(0);
   const [kpiTicketProm, setKpiTicketProm] = useState<number | null>(null);
   const [comparativa, setComparativa] = useState<ComparativaState>(null);
+  
 
   const rangoInvalido = useMemo(() => desde > hasta, [desde, hasta]);
 
@@ -321,9 +345,10 @@ export default function AdminAnalyticsPage() {
             : Number(data.kpis.ticketPromedio),
       };
 
-      setPedidosHora((data?.pedidosHora ?? []) as RowPedidosHora[]);
+            setPedidosHora((data?.pedidosHora ?? []) as RowPedidosHora[]);
       setTopProductos((data?.topProductos ?? []) as RowTopProductos[]);
       setCanales((data?.canales ?? []) as RowCanal[]);
+      setSerieDiaria((data?.serieDiaria ?? []) as RowSerieDiaria[]);
       setTiempos((data?.tiempos ?? []) as RowTiemposPedido[]);
 
       setKpiPedidosTotal(currentKpis.pedidosTotal);
@@ -628,6 +653,145 @@ export default function AdminAnalyticsPage() {
       )
       .slice(0, 10);
   }, [tiempos]);
+
+    const maxPedidosSerie = useMemo(() => {
+    return serieDiaria.reduce((max, row) => Math.max(max, row.pedidos), 0);
+  }, [serieDiaria]);
+
+  const maxIngresosSerie = useMemo(() => {
+    return serieDiaria.reduce((max, row) => Math.max(max, row.ingresos), 0);
+  }, [serieDiaria]);
+
+  const exportarCsv = useCallback(() => {
+  const lines: string[] = [];
+
+  lines.push(buildCsvLine(['RestoSmart Analytics']));
+  lines.push(buildCsvLine(['Rango actual', `${desde} → ${hasta}`]));
+  lines.push(
+    buildCsvLine([
+      'Rango comparado',
+      comparativa ? `${comparativa.desde} → ${comparativa.hasta}` : 'Sin base comparable',
+    ])
+  );
+  lines.push(buildCsvLine(['Exportado en', new Date().toLocaleString('es-AR')]));
+  lines.push('');
+
+  lines.push(buildCsvLine(['KPIs']));
+  lines.push(buildCsvLine(['Indicador', 'Valor actual', 'Comparación']));
+  lines.push(buildCsvLine(['Pedidos totales', kpiPedidosTotal, formatDelta(deltaPedidosTotal)]));
+  lines.push(buildCsvLine(['Pedidos cerrados', kpiPedidosCerrados, formatDelta(deltaPedidosCerrados)]));
+  lines.push(buildCsvLine(['Ingresos', formatCurrency(kpiIngresos), formatDelta(deltaIngresos)]));
+  lines.push(
+    buildCsvLine([
+      'Ticket promedio',
+      kpiTicketProm == null ? '—' : formatCurrency(kpiTicketProm),
+      formatDelta(deltaTicketProm),
+    ])
+  );
+  lines.push(
+    buildCsvLine([
+      '% cancelación',
+      porcentajeCancelacion == null ? '—' : `${porcentajeCancelacion}%`,
+      formatDelta(deltaCancelacion),
+    ])
+  );
+  lines.push('');
+
+  lines.push(buildCsvLine(['Ventas por canal']));
+  lines.push(buildCsvLine(['Canal', 'Pedidos', 'Var. pedidos', 'Ingresos', 'Var. ingresos']));
+  for (const canal of canales) {
+    lines.push(
+      buildCsvLine([
+        formatCanalLabel(canal.canal),
+        canal.cantidad,
+        formatShortDeltaLabel('Pedidos', getCanalDeltaPedidos(canal)),
+        formatCurrency(canal.ingresos),
+        formatShortDeltaLabel('Ingresos', getCanalDeltaIngresos(canal)),
+      ])
+    );
+  }
+  lines.push('');
+
+  lines.push(buildCsvLine(['Pedidos por hora']));
+  lines.push(buildCsvLine(['Hora', 'Pedidos']));
+  for (const row of pedidosHora) {
+    lines.push(buildCsvLine([formatDateTime(row.hora), row.pedidos]));
+  }
+  lines.push('');
+
+  lines.push(buildCsvLine(['Top productos']));
+  lines.push(buildCsvLine(['Producto', 'Unidades', 'Ingresos']));
+  for (const row of topProductos) {
+    lines.push(
+      buildCsvLine([
+        row.producto_nombre,
+        row.unidades,
+        formatCurrency(row.ingresos),
+      ])
+    );
+  }
+  lines.push('');
+
+  lines.push(buildCsvLine(['Outliers']));
+  lines.push(
+    buildCsvLine([
+      'Pedido',
+      'Mesa',
+      'Creado',
+      'Total min',
+      'Mozo',
+      'Cola',
+      'Preparación',
+    ])
+  );
+  for (const row of outliers) {
+    lines.push(
+      buildCsvLine([
+        `#${row.pedido_id}`,
+        row.mesa_id,
+        formatDateTime(row.creado_en),
+        row.min_total_hasta_listo ?? '—',
+        row.min_mozo_confirma ?? '—',
+        row.min_espera_cocina ?? '—',
+        row.min_preparacion ?? '—',
+      ])
+    );
+  }
+
+  const csvContent = `\ufeff${lines.join('\n')}`;
+  const blob = new Blob([csvContent], {
+    type: 'text/csv;charset=utf-8;',
+  });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `analytics-${desde}-a-${hasta}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}, [
+  desde,
+  hasta,
+  comparativa,
+  kpiPedidosTotal,
+  kpiPedidosCerrados,
+  kpiIngresos,
+  kpiTicketProm,
+  porcentajeCancelacion,
+  deltaPedidosTotal,
+  deltaPedidosCerrados,
+  deltaIngresos,
+  deltaTicketProm,
+  deltaCancelacion,
+  canales,
+  pedidosHora,
+  topProductos,
+  outliers,
+  getCanalDeltaPedidos,
+  getCanalDeltaIngresos,
+  ]);
 
   const estadoOperacion = useMemo(() => {
     if (kpiPedidosTotal === 0) {
@@ -1073,6 +1237,13 @@ export default function AdminAnalyticsPage() {
             >
               {loading ? 'Actualizando…' : 'Actualizar'}
             </button>
+                        <button
+              onClick={exportarCsv}
+              disabled={loading}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Exportar CSV
+            </button>
           </div>
         </header>
 
@@ -1471,6 +1642,71 @@ export default function AdminAnalyticsPage() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </section>
+
+                        <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="mb-3">
+                <h2 className="font-semibold text-slate-900">Tendencia diaria</h2>
+                <p className="text-sm text-slate-500">
+                  Evolución día por día de pedidos e ingresos dentro del rango.
+                </p>
+              </div>
+
+              {serieDiaria.length === 0 ? (
+                <p className="text-sm text-slate-600">Sin datos.</p>
+              ) : (
+                <div className="space-y-3">
+                  {serieDiaria.map((row) => (
+                    <div
+                      key={row.fecha}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                    >
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div className="text-sm font-semibold text-slate-900">
+                          {row.fecha}
+                        </div>
+
+                        <div className="text-xs text-slate-500">
+                          {row.pedidos} pedidos · {row.cerrados} cerrados ·{' '}
+                          {row.cancelados} cancelados · {formatCurrency(row.ingresos)}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 space-y-2">
+                        <div>
+                          <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+                            <span>Pedidos</span>
+                            <span>{row.pedidos}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-slate-200">
+                            <div
+                              className="h-2 rounded-full bg-slate-900"
+                              style={{
+                                width: getTrendBarWidth(row.pedidos, maxPedidosSerie),
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+                            <span>Ingresos</span>
+                            <span>{formatCurrency(row.ingresos)}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-slate-200">
+                            <div
+                              className="h-2 rounded-full bg-emerald-500"
+                              style={{
+                                width: getTrendBarWidth(row.ingresos, maxIngresosSerie),
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </section>
