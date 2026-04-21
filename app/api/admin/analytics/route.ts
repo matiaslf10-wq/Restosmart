@@ -11,12 +11,23 @@ import { canAccessAnalytics } from '@/lib/plans';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type RowPedidosHora = { hora: string; pedidos: number };
+type CanalCode = 'salon' | 'takeaway' | 'delivery';
+
+type RowPedidosHora = {
+  hora: string;
+  pedidos: number;
+};
 
 type RowTopProductos = {
   producto_id: number;
   producto_nombre: string;
   unidades: number;
+  ingresos: number;
+};
+
+type RowCanal = {
+  canal: CanalCode;
+  cantidad: number;
   ingresos: number;
 };
 
@@ -35,6 +46,9 @@ type PedidoAnalyticsRow = {
   id: number;
   estado: string | null;
   creado_en: string;
+  mesa_id: number | null;
+  tipo_servicio: string | null;
+  origen: string | null;
   items_pedido: unknown[] | null;
 };
 
@@ -141,15 +155,30 @@ function safeRound(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function normalizeText(value: unknown) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function isClosedStatus(value: unknown) {
+  return CLOSED_STATUSES.has(normalizeText(value));
+}
+
+function isCancelledStatus(value: unknown) {
+  return CANCELLED_STATUSES.has(normalizeText(value));
+}
+
 function getItemCantidad(item: unknown): number {
   if (!item || typeof item !== 'object') return 0;
   return Number((item as { cantidad?: unknown }).cantidad ?? 0);
 }
 
-function getProductoPrecio(item: unknown): number {
-  if (!item || typeof item !== 'object') return 0;
+function getProductoRaw(item: unknown): unknown {
+  if (!item || typeof item !== 'object') return null;
+  return (item as { producto?: unknown }).producto ?? null;
+}
 
-  const producto = (item as { producto?: unknown }).producto;
+function getProductoPrecio(item: unknown): number {
+  const producto = getProductoRaw(item);
 
   if (Array.isArray(producto)) {
     return Number(
@@ -162,6 +191,93 @@ function getProductoPrecio(item: unknown): number {
   }
 
   return 0;
+}
+
+function getProductoNombre(item: unknown): string {
+  const producto = getProductoRaw(item);
+
+  if (Array.isArray(producto)) {
+    return String(
+      (producto[0] as { nombre?: string | null } | undefined)?.nombre ??
+        'Producto'
+    );
+  }
+
+  if (producto && typeof producto === 'object') {
+    return String((producto as { nombre?: string | null }).nombre ?? 'Producto');
+  }
+
+  return 'Producto';
+}
+
+function getProductoId(item: unknown): number {
+  const producto = getProductoRaw(item);
+
+  if (Array.isArray(producto)) {
+    return Number(
+      (producto[0] as { id?: number | null } | undefined)?.id ?? 0
+    );
+  }
+
+  if (producto && typeof producto === 'object') {
+    return Number((producto as { id?: number | null }).id ?? 0);
+  }
+
+  return 0;
+}
+
+function getPedidoCanal(pedido: Pick<PedidoAnalyticsRow, 'mesa_id' | 'tipo_servicio' | 'origen'>): CanalCode {
+  const tipoServicio = normalizeText(pedido.tipo_servicio);
+  const origen = normalizeText(pedido.origen);
+
+  const isDelivery =
+    pedido.mesa_id === 0 ||
+    tipoServicio === 'delivery' ||
+    tipoServicio === 'envio' ||
+    origen.includes('delivery') ||
+    origen.includes('envio');
+
+  if (isDelivery) {
+    return 'delivery';
+  }
+
+  const isTakeaway =
+    tipoServicio === 'takeaway' ||
+    tipoServicio === 'take_away' ||
+    tipoServicio === 'pickup' ||
+    tipoServicio === 'pick_up' ||
+    tipoServicio === 'retiro' ||
+    origen.includes('takeaway') ||
+    origen.includes('take_away') ||
+    origen.includes('pickup') ||
+    origen.includes('pick_up') ||
+    origen.includes('retiro');
+
+  if (isTakeaway) {
+    return 'takeaway';
+  }
+
+  return 'salon';
+}
+
+function getHourBucketIso(value: string) {
+  const date = new Date(value);
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
+  const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+  const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+  const hour = parts.find((part) => part.type === 'hour')?.value ?? '00';
+
+  return new Date(`${year}-${month}-${day}T${hour}:00:00-03:00`).toISOString();
 }
 
 export async function GET(request: NextRequest) {
@@ -190,6 +306,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const restaurantId = access.restaurant?.id ?? requestedContext.restaurantId ?? null;
+  const tenantId = access.tenantId ?? requestedContext.tenantSlug ?? null;
+
+  if (!restaurantId && !tenantId) {
+    return NextResponse.json(
+      {
+        error:
+          'No se pudo resolver el contexto del restaurante para cargar analytics.',
+      },
+      { status: 400 }
+    );
+  }
+
   const defaults = getDefaultDateRange();
   const desdeParam = request.nextUrl.searchParams.get('desde');
   const hastaParam = request.nextUrl.searchParams.get('hasta');
@@ -210,21 +339,32 @@ export async function GET(request: NextRequest) {
   const isoHasta = toIsoEndOfDayAR(hasta);
 
   try {
-    const { data: pedidosRango, error: errPedidosRango } = await supabaseAdmin
+    let pedidosQuery = supabaseAdmin
       .from('pedidos')
       .select(
         `
         id,
         estado,
         creado_en,
+        mesa_id,
+        tipo_servicio,
+        origen,
         items_pedido (
           cantidad,
-          producto:productos ( precio )
+          producto:productos ( id, nombre, precio )
         )
       `
       )
       .gte('creado_en', isoDesde)
       .lte('creado_en', isoHasta);
+
+    if (restaurantId) {
+      pedidosQuery = pedidosQuery.eq('restaurant_id', restaurantId);
+    } else if (tenantId) {
+      pedidosQuery = pedidosQuery.eq('tenant_id', tenantId);
+    }
+
+    const { data: pedidosRango, error: errPedidosRango } = await pedidosQuery;
 
     if (errPedidosRango) throw errPedidosRango;
 
@@ -233,17 +373,15 @@ export async function GET(request: NextRequest) {
     const pedidosTotal = lista.length;
 
     const pedidosCerrados = lista.filter((pedido) =>
-      CLOSED_STATUSES.has(String(pedido.estado ?? '').toLowerCase())
+      isClosedStatus(pedido.estado)
     ).length;
 
     const pedidosCancelados = lista.filter((pedido) =>
-      CANCELLED_STATUSES.has(String(pedido.estado ?? '').toLowerCase())
+      isCancelledStatus(pedido.estado)
     ).length;
 
     const ingresos = lista
-      .filter((pedido) =>
-        CLOSED_STATUSES.has(String(pedido.estado ?? '').toLowerCase())
-      )
+      .filter((pedido) => isClosedStatus(pedido.estado))
       .reduce((accPedido: number, pedido) => {
         const items: unknown[] = Array.isArray(pedido.items_pedido)
           ? pedido.items_pedido
@@ -264,43 +402,130 @@ export async function GET(request: NextRequest) {
     const ticketPromedio =
       pedidosCerrados > 0 ? safeRound(ingresos / pedidosCerrados) : null;
 
-    const { data: pedidosHora, error: errPedidosHora } = await supabaseAdmin
-      .from('vw_pedidos_por_hora')
-      .select('*')
-      .gte('hora', isoDesde)
-      .lte('hora', isoHasta)
-      .order('hora', { ascending: true });
+    const pedidosHoraMap = new Map<string, number>();
 
-    if (errPedidosHora) throw errPedidosHora;
+    for (const pedido of lista) {
+      const bucket = getHourBucketIso(pedido.creado_en);
+      pedidosHoraMap.set(bucket, (pedidosHoraMap.get(bucket) ?? 0) + 1);
+    }
 
-    const { data: topProductos, error: errTopProductos } =
-      await supabaseAdmin.rpc('fn_top_productos_rango', {
-        p_desde: isoDesde,
-        p_hasta: isoHasta,
-        p_limit: 15,
-      });
+    const pedidosHora: RowPedidosHora[] = Array.from(pedidosHoraMap.entries())
+      .map(([hora, pedidos]) => ({ hora, pedidos }))
+      .sort((a, b) => a.hora.localeCompare(b.hora));
 
-    if (errTopProductos) throw errTopProductos;
+    const topProductosMap = new Map<
+      string,
+      {
+        producto_id: number;
+        producto_nombre: string;
+        unidades: number;
+        ingresos: number;
+      }
+    >();
 
-    const { data: tiempos, error: errTiempos } = await supabaseAdmin
-      .from('vw_tiempos_pedido')
-      .select(
+    for (const pedido of lista) {
+      if (!isClosedStatus(pedido.estado)) continue;
+
+      const items: unknown[] = Array.isArray(pedido.items_pedido)
+        ? pedido.items_pedido
+        : [];
+
+      for (const item of items) {
+        const productoId = getProductoId(item);
+        const productoNombre = getProductoNombre(item);
+        const cantidad = getItemCantidad(item);
+        const precio = getProductoPrecio(item);
+
+        const key = `${productoId || 0}:${productoNombre}`;
+        const prev = topProductosMap.get(key);
+
+        topProductosMap.set(key, {
+          producto_id: productoId,
+          producto_nombre: productoNombre,
+          unidades: (prev?.unidades ?? 0) + cantidad,
+          ingresos: safeRound((prev?.ingresos ?? 0) + cantidad * precio),
+        });
+      }
+    }
+
+    const topProductos: RowTopProductos[] = Array.from(topProductosMap.values())
+      .sort((a, b) => {
+        if (b.unidades !== a.unidades) return b.unidades - a.unidades;
+        return b.ingresos - a.ingresos;
+      })
+      .slice(0, 15);
+
+    const canalesBase: Record<CanalCode, RowCanal> = {
+      salon: { canal: 'salon', cantidad: 0, ingresos: 0 },
+      takeaway: { canal: 'takeaway', cantidad: 0, ingresos: 0 },
+      delivery: { canal: 'delivery', cantidad: 0, ingresos: 0 },
+    };
+
+    for (const pedido of lista) {
+      const canal = getPedidoCanal(pedido);
+      canalesBase[canal].cantidad += 1;
+
+      if (isClosedStatus(pedido.estado)) {
+        const items: unknown[] = Array.isArray(pedido.items_pedido)
+          ? pedido.items_pedido
+          : [];
+
+        const subtotalPedido = items.reduce((accItem: number, item: unknown) => {
+          return accItem + getItemCantidad(item) * getProductoPrecio(item);
+        }, 0);
+
+        canalesBase[canal].ingresos = safeRound(
+          canalesBase[canal].ingresos + subtotalPedido
+        );
+      }
+    }
+
+    const canales: RowCanal[] = [
+      canalesBase.salon,
+      canalesBase.takeaway,
+      canalesBase.delivery,
+    ];
+
+    let tiempos: RowTiemposPedido[] = [];
+
+    try {
+      let tiemposQuery = supabaseAdmin
+        .from('vw_tiempos_pedido')
+        .select(
+          `
+          pedido_id,
+          mesa_id,
+          creado_en,
+          estado_actual,
+          min_mozo_confirma,
+          min_espera_cocina,
+          min_preparacion,
+          min_total_hasta_listo
         `
-        pedido_id,
-        mesa_id,
-        creado_en,
-        estado_actual,
-        min_mozo_confirma,
-        min_espera_cocina,
-        min_preparacion,
-        min_total_hasta_listo
-      `
-      )
-      .gte('creado_en', isoDesde)
-      .lte('creado_en', isoHasta)
-      .order('creado_en', { ascending: false });
+        )
+        .gte('creado_en', isoDesde)
+        .lte('creado_en', isoHasta)
+        .order('creado_en', { ascending: false });
 
-    if (errTiempos) throw errTiempos;
+      if (restaurantId) {
+        tiemposQuery = tiemposQuery.eq('restaurant_id', restaurantId);
+      } else if (tenantId) {
+        tiemposQuery = tiemposQuery.eq('tenant_id', tenantId);
+      }
+
+      const { data: tiemposData, error: errTiempos } = await tiemposQuery;
+
+      if (errTiempos) {
+        console.error(
+          'GET /api/admin/analytics tiempos scope warning:',
+          errTiempos
+        );
+      } else {
+        tiempos = (tiemposData ?? []) as RowTiemposPedido[];
+      }
+    } catch (error) {
+      console.error('GET /api/admin/analytics tiempos unexpected warning:', error);
+    }
 
     return NextResponse.json(
       {
@@ -319,9 +544,10 @@ export async function GET(request: NextRequest) {
             ingresos,
             ticketPromedio,
           },
-          pedidosHora: (pedidosHora ?? []) as RowPedidosHora[],
-          topProductos: (topProductos ?? []) as RowTopProductos[],
-          tiempos: (tiempos ?? []) as RowTiemposPedido[],
+          pedidosHora,
+          topProductos,
+          canales,
+          tiempos,
         },
       },
       { status: 200 }

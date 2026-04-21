@@ -17,6 +17,12 @@ type RowTopProductos = {
   ingresos: number;
 };
 
+type RowCanal = {
+  canal: 'salon' | 'takeaway' | 'delivery';
+  cantidad: number;
+  ingresos: number;
+};
+
 type RowTiemposPedido = {
   pedido_id: number;
   mesa_id: number;
@@ -28,15 +34,6 @@ type RowTiemposPedido = {
   min_total_hasta_listo: number | null;
 };
 
-type PedidoAnalyticsRow = {
-  id: number;
-  estado: string | null;
-  creado_en: string;
-  items_pedido?: unknown[] | null;
-};
-
-const CLOSED_STATUSES = new Set(['cerrado', 'entregado', 'finalizado']);
-const CANCELLED_STATUSES = new Set(['cancelado', 'cancelada']);
 
 function toIsoStartOfDayAR(localDate: string) {
   return new Date(`${localDate}T00:00:00-03:00`).toISOString();
@@ -86,27 +83,16 @@ function safeRound(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function getItemCantidad(item: unknown): number {
-  if (!item || typeof item !== 'object') return 0;
-  return Number((item as { cantidad?: unknown }).cantidad ?? 0);
-}
-
-function getProductoPrecio(item: unknown): number {
-  if (!item || typeof item !== 'object') return 0;
-
-  const producto = (item as { producto?: unknown }).producto;
-
-  if (Array.isArray(producto)) {
-    return Number(
-      (producto[0] as { precio?: number | null } | undefined)?.precio ?? 0
-    );
+function formatCanalLabel(canal: RowCanal['canal']) {
+  switch (canal) {
+    case 'delivery':
+      return 'Delivery';
+    case 'takeaway':
+      return 'Take Away';
+    case 'salon':
+    default:
+      return 'Salón';
   }
-
-  if (producto && typeof producto === 'object') {
-    return Number((producto as { precio?: number | null }).precio ?? 0);
-  }
-
-  return 0;
 }
 
 export default function AdminAnalyticsPage() {
@@ -136,6 +122,7 @@ export default function AdminAnalyticsPage() {
 
   const [pedidosHora, setPedidosHora] = useState<RowPedidosHora[]>([]);
   const [topProductos, setTopProductos] = useState<RowTopProductos[]>([]);
+  const [canales, setCanales] = useState<RowCanal[]>([]);
   const [tiempos, setTiempos] = useState<RowTiemposPedido[]>([]);
   const [kpiPedidosTotal, setKpiPedidosTotal] = useState(0);
   const [kpiPedidosCerrados, setKpiPedidosCerrados] = useState(0);
@@ -180,6 +167,7 @@ export default function AdminAnalyticsPage() {
 
       setPedidosHora((data?.pedidosHora ?? []) as RowPedidosHora[]);
       setTopProductos((data?.topProductos ?? []) as RowTopProductos[]);
+      setCanales((data?.canales ?? []) as RowCanal[]);
       setTiempos((data?.tiempos ?? []) as RowTiemposPedido[]);
 
       setKpiPedidosTotal(Number(data?.kpis?.pedidosTotal ?? 0));
@@ -694,6 +682,44 @@ export default function AdminAnalyticsPage() {
                 </div>
                 <div className="text-xl font-bold">{promTotal ?? '—'}</div>
               </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="mb-3">
+                <h2 className="font-semibold text-slate-900">Ventas por canal</h2>
+                <p className="text-sm text-slate-500">
+                  Cantidad de pedidos e ingresos por salón, take away y delivery.
+                </p>
+              </div>
+
+              {canales.length === 0 ? (
+                <p className="text-sm text-slate-600">Sin datos.</p>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-3">
+                  {canales.map((canal) => (
+                    <div
+                      key={canal.canal}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                    >
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        {formatCanalLabel(canal.canal)}
+                      </div>
+
+                      <div className="mt-3 text-2xl font-bold text-slate-900">
+                        {canal.cantidad}
+                      </div>
+
+                      <div className="mt-1 text-sm text-slate-600">pedidos</div>
+
+                      <div className="mt-4 text-lg font-semibold text-slate-900">
+                        {formatCurrency(canal.ingresos)}
+                      </div>
+
+                      <div className="text-sm text-slate-500">ingresos cerrados</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-4">
