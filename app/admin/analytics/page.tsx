@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { utils, writeFileXLSX } from 'xlsx';
 import { useRouter } from 'next/navigation';
 import {
   canAccessAnalytics,
@@ -1117,6 +1118,129 @@ export default function AdminAnalyticsPage() {
     getCanalDeltaIngresos,
   ]);
 
+  const exportarXlsx = useCallback(() => {
+  const wb = utils.book_new();
+
+  const resumenRows = [
+    {
+      indicador: 'Rango actual',
+      valor: `${desde} → ${hasta}`,
+      comparacion: '',
+    },
+    {
+      indicador: 'Rango comparado',
+      valor: comparativa
+        ? `${comparativa.desde} → ${comparativa.hasta}`
+        : 'Sin base comparable',
+      comparacion: '',
+    },
+    {
+      indicador: 'Pedidos totales',
+      valor: kpiPedidosTotal,
+      comparacion: formatDelta(deltaPedidosTotal),
+    },
+    {
+      indicador: 'Pedidos cerrados',
+      valor: kpiPedidosCerrados,
+      comparacion: formatDelta(deltaPedidosCerrados),
+    },
+    {
+      indicador: 'Ingresos',
+      valor: kpiIngresos,
+      comparacion: formatDelta(deltaIngresos),
+    },
+    {
+      indicador: 'Ticket promedio',
+      valor: kpiTicketProm ?? '',
+      comparacion: formatDelta(deltaTicketProm),
+    },
+    {
+      indicador: '% cancelación',
+      valor: porcentajeCancelacion ?? '',
+      comparacion: formatDelta(deltaCancelacion),
+    },
+    {
+      indicador: 'Exportado en',
+      valor: new Date().toLocaleString('es-AR'),
+      comparacion: '',
+    },
+  ];
+
+  const canalesRows = canales.map((canal) => ({
+    canal: formatCanalLabel(canal.canal),
+    pedidos: canal.cantidad,
+    var_pedidos: getCanalDeltaPedidos(canal),
+    ingresos: canal.ingresos,
+    var_ingresos: getCanalDeltaIngresos(canal),
+  }));
+
+  const pedidosHoraRows = pedidosHora.map((row) => ({
+    hora: formatDateTime(row.hora),
+    pedidos: row.pedidos,
+  }));
+
+  const productosRows = topProductos.map((row) => ({
+    producto: row.producto_nombre,
+    unidades: row.unidades,
+    ingresos: row.ingresos,
+  }));
+
+  const outliersRows = outliers.map((row) => ({
+    pedido: row.pedido_id,
+    mesa: row.mesa_id,
+    creado: formatDateTime(row.creado_en),
+    total_min: row.min_total_hasta_listo ?? '',
+    mozo: row.min_mozo_confirma ?? '',
+    cola: row.min_espera_cocina ?? '',
+    preparacion: row.min_preparacion ?? '',
+  }));
+
+  const serieDiariaRows = serieDiaria.map((row) => ({
+    fecha: row.fecha,
+    pedidos: row.pedidos,
+    cerrados: row.cerrados,
+    cancelados: row.cancelados,
+    ingresos: row.ingresos,
+  }));
+
+  const wsResumen = utils.json_to_sheet(resumenRows);
+  const wsCanales = utils.json_to_sheet(canalesRows);
+  const wsPedidosHora = utils.json_to_sheet(pedidosHoraRows);
+  const wsProductos = utils.json_to_sheet(productosRows);
+  const wsOutliers = utils.json_to_sheet(outliersRows);
+  const wsSerieDiaria = utils.json_to_sheet(serieDiariaRows);
+
+  utils.book_append_sheet(wb, wsResumen, 'Resumen');
+  utils.book_append_sheet(wb, wsCanales, 'Canales');
+  utils.book_append_sheet(wb, wsSerieDiaria, 'Tendencia');
+  utils.book_append_sheet(wb, wsPedidosHora, 'Pedidos por hora');
+  utils.book_append_sheet(wb, wsProductos, 'Top productos');
+  utils.book_append_sheet(wb, wsOutliers, 'Outliers');
+
+  writeFileXLSX(wb, `analytics-${desde}-a-${hasta}.xlsx`);
+}, [
+  desde,
+  hasta,
+  comparativa,
+  kpiPedidosTotal,
+  kpiPedidosCerrados,
+  kpiIngresos,
+  kpiTicketProm,
+  porcentajeCancelacion,
+  deltaPedidosTotal,
+  deltaPedidosCerrados,
+  deltaIngresos,
+  deltaTicketProm,
+  deltaCancelacion,
+  canales,
+  pedidosHora,
+  topProductos,
+  outliers,
+  serieDiaria,
+  getCanalDeltaPedidos,
+  getCanalDeltaIngresos,
+]);
+
   if (checkingAccess) {
     return (
       <main className="min-h-screen bg-slate-50 px-4 py-6">
@@ -1244,6 +1368,13 @@ export default function AdminAnalyticsPage() {
             >
               Exportar CSV
             </button>
+            <button
+  onClick={exportarXlsx}
+  disabled={loading}
+  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+>
+  Exportar Excel
+</button>
           </div>
         </header>
 
