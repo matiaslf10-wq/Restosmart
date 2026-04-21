@@ -23,6 +23,20 @@ type RowCanal = {
   ingresos: number;
 };
 
+type RangeKpis = {
+  pedidosTotal: number;
+  pedidosCerrados: number;
+  pedidosCancelados: number;
+  ingresos: number;
+  ticketPromedio: number | null;
+};
+
+type ComparativaState = {
+  desde: string;
+  hasta: string;
+  kpis: RangeKpis;
+} | null;
+
 type RowTiemposPedido = {
   pedido_id: number;
   mesa_id: number;
@@ -95,6 +109,71 @@ function formatCanalLabel(canal: RowCanal['canal']) {
   }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function formatInputDateAR(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
+  const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+  const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+
+  return `${year}-${month}-${day}`;
+}
+
+function getPreviousComparableRange(desde: string, hasta: string) {
+  const start = new Date(`${desde}T00:00:00-03:00`);
+  const end = new Date(`${hasta}T00:00:00-03:00`);
+
+  const days =
+    Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
+
+  const prevEnd = new Date(start.getTime() - DAY_MS);
+  const prevStart = new Date(start.getTime() - days * DAY_MS);
+
+  return {
+    desde: formatInputDateAR(prevStart),
+    hasta: formatInputDateAR(prevEnd),
+  };
+}
+
+function getDeltaPct(
+  current: number | null | undefined,
+  previous: number | null | undefined
+) {
+  const currentValue = Number(current ?? 0);
+
+  if (previous == null) return null;
+
+  const previousValue = Number(previous);
+
+  if (previousValue === 0) {
+    return currentValue === 0 ? 0 : null;
+  }
+
+  return safeRound(((currentValue - previousValue) / previousValue) * 100);
+}
+
+function formatDelta(delta: number | null) {
+  if (delta == null) return 'Sin base comparable';
+
+  const sign = delta > 0 ? '+' : '';
+  return `${sign}${delta}% vs período anterior`;
+}
+
+function getDeltaTone(delta: number | null, invert = false) {
+  if (delta == null || delta === 0) return 'text-slate-500';
+
+  const favorable = invert ? delta < 0 : delta > 0;
+
+  return favorable ? 'text-emerald-600' : 'text-rose-600';
+}
+
 export default function AdminAnalyticsPage() {
   const router = useRouter();
 
@@ -129,12 +208,11 @@ export default function AdminAnalyticsPage() {
   const [kpiPedidosCancelados, setKpiPedidosCancelados] = useState(0);
   const [kpiIngresos, setKpiIngresos] = useState(0);
   const [kpiTicketProm, setKpiTicketProm] = useState<number | null>(null);
+  const [comparativa, setComparativa] = useState<ComparativaState>(null);
 
-  const isoDesde = useMemo(() => toIsoStartOfDayAR(desde), [desde]);
-  const isoHasta = useMemo(() => toIsoEndOfDayAR(hasta), [hasta]);
   const rangoInvalido = useMemo(() => desde > hasta, [desde, hasta]);
 
-    const cargar = async () => {
+      const cargar = async () => {
     if (rangoInvalido) {
       setErrorMsg(
         'El rango es inválido: la fecha Desde no puede ser mayor que Hasta.'
@@ -165,22 +243,67 @@ export default function AdminAnalyticsPage() {
 
       const data = payload?.data;
 
+      const currentKpis: RangeKpis = {
+        pedidosTotal: Number(data?.kpis?.pedidosTotal ?? 0),
+        pedidosCerrados: Number(data?.kpis?.pedidosCerrados ?? 0),
+        pedidosCancelados: Number(data?.kpis?.pedidosCancelados ?? 0),
+        ingresos: Number(data?.kpis?.ingresos ?? 0),
+        ticketPromedio:
+          data?.kpis?.ticketPromedio == null
+            ? null
+            : Number(data.kpis.ticketPromedio),
+      };
+
       setPedidosHora((data?.pedidosHora ?? []) as RowPedidosHora[]);
       setTopProductos((data?.topProductos ?? []) as RowTopProductos[]);
       setCanales((data?.canales ?? []) as RowCanal[]);
       setTiempos((data?.tiempos ?? []) as RowTiemposPedido[]);
 
-      setKpiPedidosTotal(Number(data?.kpis?.pedidosTotal ?? 0));
-      setKpiPedidosCerrados(Number(data?.kpis?.pedidosCerrados ?? 0));
-      setKpiPedidosCancelados(Number(data?.kpis?.pedidosCancelados ?? 0));
-      setKpiIngresos(Number(data?.kpis?.ingresos ?? 0));
+      setKpiPedidosTotal(currentKpis.pedidosTotal);
+      setKpiPedidosCerrados(currentKpis.pedidosCerrados);
+      setKpiPedidosCancelados(currentKpis.pedidosCancelados);
+      setKpiIngresos(currentKpis.ingresos);
+      setKpiTicketProm(currentKpis.ticketPromedio);
 
-      const ticket =
-        data?.kpis?.ticketPromedio == null
-          ? null
-          : Number(data.kpis.ticketPromedio);
+      const previousRange = getPreviousComparableRange(desde, hasta);
 
-      setKpiTicketProm(ticket);
+      const previousParams = new URLSearchParams({
+        desde: previousRange.desde,
+        hasta: previousRange.hasta,
+      });
+
+      const previousRes = await fetch(
+        `/api/admin/analytics?${previousParams.toString()}`,
+        {
+          method: 'GET',
+          cache: 'no-store',
+        }
+      );
+
+      const previousPayload = await previousRes.json().catch(() => null);
+
+      if (previousRes.ok) {
+        const previousData = previousPayload?.data;
+
+        const previousKpis: RangeKpis = {
+          pedidosTotal: Number(previousData?.kpis?.pedidosTotal ?? 0),
+          pedidosCerrados: Number(previousData?.kpis?.pedidosCerrados ?? 0),
+          pedidosCancelados: Number(previousData?.kpis?.pedidosCancelados ?? 0),
+          ingresos: Number(previousData?.kpis?.ingresos ?? 0),
+          ticketPromedio:
+            previousData?.kpis?.ticketPromedio == null
+              ? null
+              : Number(previousData.kpis.ticketPromedio),
+        };
+
+        setComparativa({
+          desde: previousRange.desde,
+          hasta: previousRange.hasta,
+          kpis: previousKpis,
+        });
+      } else {
+        setComparativa(null);
+      }
     } catch (err: unknown) {
       const message =
         err && typeof err === 'object' && 'message' in err
@@ -191,6 +314,7 @@ export default function AdminAnalyticsPage() {
 
       console.error(err);
       setErrorMsg(message);
+      setComparativa(null);
     } finally {
       setLoading(false);
     }
@@ -283,6 +407,22 @@ export default function AdminAnalyticsPage() {
     if (kpiPedidosTotal === 0) return null;
     return safeRound((kpiPedidosCancelados / kpiPedidosTotal) * 100);
   }, [kpiPedidosCancelados, kpiPedidosTotal]);
+
+    const deltaPedidosTotal = useMemo(() => {
+    return getDeltaPct(kpiPedidosTotal, comparativa?.kpis.pedidosTotal);
+  }, [kpiPedidosTotal, comparativa]);
+
+  const deltaPedidosCerrados = useMemo(() => {
+    return getDeltaPct(kpiPedidosCerrados, comparativa?.kpis.pedidosCerrados);
+  }, [kpiPedidosCerrados, comparativa]);
+
+  const deltaIngresos = useMemo(() => {
+    return getDeltaPct(kpiIngresos, comparativa?.kpis.ingresos);
+  }, [kpiIngresos, comparativa]);
+
+  const deltaTicketProm = useMemo(() => {
+    return getDeltaPct(kpiTicketProm, comparativa?.kpis.ticketPromedio);
+  }, [kpiTicketProm, comparativa]);
 
   const horaPico = useMemo(() => {
     if (pedidosHora.length === 0) return null;
@@ -594,9 +734,17 @@ export default function AdminAnalyticsPage() {
                     Resumen rápido para decidir qué mirar primero.
                   </p>
                 </div>
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
-                  {desde} → {hasta}
-                </span>
+                <div className="flex flex-col items-end gap-1">
+  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+    {desde} → {hasta}
+  </span>
+
+  {comparativa && (
+    <span className="text-xs text-slate-500">
+      comparado con {comparativa.desde} → {comparativa.hasta}
+    </span>
+  )}
+</div>
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -615,11 +763,19 @@ export default function AdminAnalyticsPage() {
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Pedidos totales</div>
                 <div className="text-xl font-bold">{kpiPedidosTotal}</div>
+                <div className={`mt-1 text-xs font-medium ${getDeltaTone(deltaPedidosTotal)}`}>
+  {formatDelta(deltaPedidosTotal)}
+</div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Pedidos cerrados</div>
                 <div className="text-xl font-bold">{kpiPedidosCerrados}</div>
+                <div
+  className={`mt-1 text-xs font-medium ${getDeltaTone(deltaPedidosCerrados)}`}
+>
+  {formatDelta(deltaPedidosCerrados)}
+</div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -632,6 +788,9 @@ export default function AdminAnalyticsPage() {
                 <div className="text-xl font-bold">
                   {formatCurrency(kpiIngresos)}
                 </div>
+                <div className={`mt-1 text-xs font-medium ${getDeltaTone(deltaIngresos)}`}>
+  {formatDelta(deltaIngresos)}
+</div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3 md:col-span-2">
@@ -641,6 +800,9 @@ export default function AdminAnalyticsPage() {
                 <div className="text-xl font-bold">
                   {kpiTicketProm == null ? '—' : formatCurrency(kpiTicketProm)}
                 </div>
+                <div className={`mt-1 text-xs font-medium ${getDeltaTone(deltaTicketProm)}`}>
+  {formatDelta(deltaTicketProm)}
+</div>
                 <div className="mt-1 text-[11px] text-slate-500">
                   Calculado como ingresos / cantidad de pedidos cerrados
                 </div>
