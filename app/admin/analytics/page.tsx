@@ -35,6 +35,7 @@ type ComparativaState = {
   desde: string;
   hasta: string;
   kpis: RangeKpis;
+  canales: RowCanal[];
 } | null;
 
 type RowTiemposPedido = {
@@ -204,6 +205,17 @@ function getDeltaMeta(delta: number | null, invert = false) {
   };
 }
 
+function formatShortDeltaLabel(
+  prefix: string,
+  delta: number | null
+) {
+  if (delta == null) return `${prefix}: sin base`;
+  if (delta === 0) return `${prefix}: 0%`;
+
+  const sign = delta > 0 ? '+' : '';
+  return `${prefix}: ${sign}${delta}%`;
+}
+
 export default function AdminAnalyticsPage() {
   const router = useRouter();
 
@@ -326,10 +338,11 @@ export default function AdminAnalyticsPage() {
               : Number(previousData.kpis.ticketPromedio),
         };
 
-        setComparativa({
+                setComparativa({
           desde: previousRange.desde,
           hasta: previousRange.hasta,
           kpis: previousKpis,
+          canales: (previousData?.canales ?? []) as RowCanal[],
         });
       } else {
         setComparativa(null);
@@ -511,6 +524,26 @@ export default function AdminAnalyticsPage() {
       return b.cantidad - a.cantidad;
     })[0];
   }, [canales]);
+
+    const comparativaCanalesMap = useMemo(() => {
+    return new Map(
+      (comparativa?.canales ?? []).map((canal) => [canal.canal, canal])
+    );
+  }, [comparativa]);
+
+  function getCanalComparativo(canalCode: RowCanal['canal']) {
+    return comparativaCanalesMap.get(canalCode) ?? null;
+  }
+
+  function getCanalDeltaPedidos(canal: RowCanal) {
+    const previo = getCanalComparativo(canal.canal);
+    return getDeltaPct(canal.cantidad, previo?.cantidad);
+  }
+
+  function getCanalDeltaIngresos(canal: RowCanal) {
+    const previo = getCanalComparativo(canal.canal);
+    return getDeltaPct(canal.ingresos, previo?.ingresos);
+  }
 
   const alertaPrincipal = useMemo(() => {
     if (kpiPedidosTotal === 0) {
@@ -1105,7 +1138,7 @@ export default function AdminAnalyticsPage() {
               </div>
             </section>
 
-            <section className="rounded-xl border border-slate-200 bg-white p-4">
+                        <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="mb-3">
                 <h2 className="font-semibold text-slate-900">Ventas por canal</h2>
                 <p className="text-sm text-slate-500">
@@ -1117,28 +1150,54 @@ export default function AdminAnalyticsPage() {
                 <p className="text-sm text-slate-600">Sin datos.</p>
               ) : (
                 <div className="grid gap-3 md:grid-cols-3">
-                  {canales.map((canal) => (
-                    <div
-                      key={canal.canal}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                    >
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        {formatCanalLabel(canal.canal)}
+                  {canales.map((canal) => {
+                    const deltaPedidos = getCanalDeltaPedidos(canal);
+                    const deltaIngresos = getCanalDeltaIngresos(canal);
+
+                    const metaPedidos = getDeltaMeta(deltaPedidos);
+                    const metaIngresos = getDeltaMeta(deltaIngresos);
+
+                    return (
+                      <div
+                        key={canal.canal}
+                        className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {formatCanalLabel(canal.canal)}
+                        </div>
+
+                        <div className="mt-3 text-2xl font-bold text-slate-900">
+                          {canal.cantidad}
+                        </div>
+
+                        <div className="mt-1 text-sm text-slate-600">pedidos</div>
+
+                        <div className="mt-2">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${metaPedidos.className}`}
+                          >
+                            <span>{metaPedidos.icon}</span>
+                            <span>{formatShortDeltaLabel('Pedidos', deltaPedidos)}</span>
+                          </span>
+                        </div>
+
+                        <div className="mt-4 text-lg font-semibold text-slate-900">
+                          {formatCurrency(canal.ingresos)}
+                        </div>
+
+                        <div className="text-sm text-slate-500">ingresos cerrados</div>
+
+                        <div className="mt-2">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${metaIngresos.className}`}
+                          >
+                            <span>{metaIngresos.icon}</span>
+                            <span>{formatShortDeltaLabel('Ingresos', deltaIngresos)}</span>
+                          </span>
+                        </div>
                       </div>
-
-                      <div className="mt-3 text-2xl font-bold text-slate-900">
-                        {canal.cantidad}
-                      </div>
-
-                      <div className="mt-1 text-sm text-slate-600">pedidos</div>
-
-                      <div className="mt-4 text-lg font-semibold text-slate-900">
-                        {formatCurrency(canal.ingresos)}
-                      </div>
-
-                      <div className="text-sm text-slate-500">ingresos cerrados</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>
