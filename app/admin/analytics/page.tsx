@@ -174,6 +174,36 @@ function getDeltaTone(delta: number | null, invert = false) {
   return favorable ? 'text-emerald-600' : 'text-rose-600';
 }
 
+function getDeltaMeta(delta: number | null, invert = false) {
+  if (delta == null) {
+    return {
+      icon: '•',
+      label: 'Sin base comparable',
+      className: 'bg-slate-100 text-slate-500',
+    };
+  }
+
+  if (delta === 0) {
+    return {
+      icon: '→',
+      label: '0% vs período anterior',
+      className: 'bg-slate-100 text-slate-600',
+    };
+  }
+
+  const favorable = invert ? delta < 0 : delta > 0;
+  const icon = delta > 0 ? '↑' : '↓';
+  const sign = delta > 0 ? '+' : '';
+
+  return {
+    icon,
+    label: `${sign}${delta}% vs período anterior`,
+    className: favorable
+      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+      : 'bg-rose-50 text-rose-700 border border-rose-200',
+  };
+}
+
 export default function AdminAnalyticsPage() {
   const router = useRouter();
 
@@ -423,6 +453,42 @@ export default function AdminAnalyticsPage() {
   const deltaTicketProm = useMemo(() => {
     return getDeltaPct(kpiTicketProm, comparativa?.kpis.ticketPromedio);
   }, [kpiTicketProm, comparativa]);
+    const comparativaCancelacion = useMemo(() => {
+    if (!comparativa || comparativa.kpis.pedidosTotal === 0) return null;
+
+    return safeRound(
+      (comparativa.kpis.pedidosCancelados / comparativa.kpis.pedidosTotal) * 100
+    );
+  }, [comparativa]);
+
+  const deltaCancelacion = useMemo(() => {
+    return getDeltaPct(porcentajeCancelacion, comparativaCancelacion);
+  }, [porcentajeCancelacion, comparativaCancelacion]);
+
+    const deltaMetaPedidosTotal = useMemo(
+    () => getDeltaMeta(deltaPedidosTotal),
+    [deltaPedidosTotal]
+  );
+
+  const deltaMetaPedidosCerrados = useMemo(
+    () => getDeltaMeta(deltaPedidosCerrados),
+    [deltaPedidosCerrados]
+  );
+
+  const deltaMetaIngresos = useMemo(
+    () => getDeltaMeta(deltaIngresos),
+    [deltaIngresos]
+  );
+
+  const deltaMetaTicketProm = useMemo(
+    () => getDeltaMeta(deltaTicketProm),
+    [deltaTicketProm]
+  );
+
+  const deltaMetaCancelacion = useMemo(
+    () => getDeltaMeta(deltaCancelacion, true),
+    [deltaCancelacion]
+  );
 
   const horaPico = useMemo(() => {
     if (pedidosHora.length === 0) return null;
@@ -542,6 +608,57 @@ export default function AdminAnalyticsPage() {
 
     return items.slice(0, 4);
   }, [horaPico, porcentajeCancelacion, productoLider, promTotal]);
+
+    const resumenComparativo = useMemo(() => {
+    const items: string[] = [];
+
+    if (deltaIngresos != null) {
+      if (deltaIngresos > 0) {
+        items.push(`Los ingresos crecieron ${deltaIngresos}% frente al período anterior.`);
+      } else if (deltaIngresos < 0) {
+        items.push(`Los ingresos cayeron ${Math.abs(deltaIngresos)}% frente al período anterior.`);
+      } else {
+        items.push('Los ingresos se mantuvieron estables frente al período anterior.');
+      }
+    }
+
+    if (deltaPedidosTotal != null) {
+      if (deltaPedidosTotal > 0) {
+        items.push(`El volumen de pedidos subió ${deltaPedidosTotal}%, señal de mayor demanda.`);
+      } else if (deltaPedidosTotal < 0) {
+        items.push(`El volumen de pedidos bajó ${Math.abs(deltaPedidosTotal)}%, conviene revisar la demanda del período.`);
+      }
+    }
+
+    if (deltaTicketProm != null) {
+      if (deltaTicketProm > 0) {
+        items.push(`El ticket promedio mejoró ${deltaTicketProm}%, una señal positiva de valor por pedido.`);
+      } else if (deltaTicketProm < 0) {
+        items.push(`El ticket promedio cayó ${Math.abs(deltaTicketProm)}%, conviene revisar mezcla de productos y upselling.`);
+      }
+    }
+
+    if (deltaCancelacion != null) {
+      if (deltaCancelacion < 0) {
+        items.push(`La cancelación bajó ${Math.abs(deltaCancelacion)}%, una mejora operativa importante.`);
+      } else if (deltaCancelacion > 0) {
+        items.push(`La cancelación subió ${deltaCancelacion}%, conviene revisar tiempos y causas de pérdida.`);
+      }
+    }
+
+    if (items.length === 0) {
+      items.push(
+        'Todavía no hay suficiente base comparable para construir un resumen ejecutivo del período.'
+      );
+    }
+
+    return items.slice(0, 4);
+  }, [
+    deltaIngresos,
+    deltaPedidosTotal,
+    deltaTicketProm,
+    deltaCancelacion,
+  ]);
 
   if (checkingAccess) {
     return (
@@ -747,6 +864,23 @@ export default function AdminAnalyticsPage() {
 </div>
               </div>
 
+                            <div className="mt-4 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+                  Resumen ejecutivo comparativo
+                </div>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {resumenComparativo.map((item) => (
+                    <div
+                      key={item}
+                      className="rounded-xl border border-violet-200 bg-white p-3 text-sm leading-relaxed text-slate-700"
+                    >
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 {insights.map((insight) => (
                   <div
@@ -763,6 +897,12 @@ export default function AdminAnalyticsPage() {
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Pedidos totales</div>
                 <div className="text-xl font-bold">{kpiPedidosTotal}</div>
+<div
+  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaPedidosTotal.className}`}
+>
+  <span>{deltaMetaPedidosTotal.icon}</span>
+  <span>{deltaMetaPedidosTotal.label}</span>
+</div>
                 <div className={`mt-1 text-xs font-medium ${getDeltaTone(deltaPedidosTotal)}`}>
   {formatDelta(deltaPedidosTotal)}
 </div>
@@ -771,6 +911,12 @@ export default function AdminAnalyticsPage() {
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Pedidos cerrados</div>
                 <div className="text-xl font-bold">{kpiPedidosCerrados}</div>
+<div
+  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaPedidosCerrados.className}`}
+>
+  <span>{deltaMetaPedidosCerrados.icon}</span>
+  <span>{deltaMetaPedidosCerrados.label}</span>
+</div>
                 <div
   className={`mt-1 text-xs font-medium ${getDeltaTone(deltaPedidosCerrados)}`}
 >
@@ -786,8 +932,14 @@ export default function AdminAnalyticsPage() {
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Ingresos (cerrados)</div>
                 <div className="text-xl font-bold">
-                  {formatCurrency(kpiIngresos)}
-                </div>
+  {formatCurrency(kpiIngresos)}
+</div>
+<div
+  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaIngresos.className}`}
+>
+  <span>{deltaMetaIngresos.icon}</span>
+  <span>{deltaMetaIngresos.label}</span>
+</div>
                 <div className={`mt-1 text-xs font-medium ${getDeltaTone(deltaIngresos)}`}>
   {formatDelta(deltaIngresos)}
 </div>
@@ -798,8 +950,14 @@ export default function AdminAnalyticsPage() {
                   Ticket promedio (cerrados)
                 </div>
                 <div className="text-xl font-bold">
-                  {kpiTicketProm == null ? '—' : formatCurrency(kpiTicketProm)}
-                </div>
+  {kpiTicketProm == null ? '—' : formatCurrency(kpiTicketProm)}
+</div>
+<div
+  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaTicketProm.className}`}
+>
+  <span>{deltaMetaTicketProm.icon}</span>
+  <span>{deltaMetaTicketProm.label}</span>
+</div>
                 <div className={`mt-1 text-xs font-medium ${getDeltaTone(deltaTicketProm)}`}>
   {formatDelta(deltaTicketProm)}
 </div>
@@ -811,10 +969,16 @@ export default function AdminAnalyticsPage() {
               <div className="rounded-xl border border-slate-200 bg-white p-3 md:col-span-2">
                 <div className="text-xs text-slate-500">% cancelación</div>
                 <div className="text-xl font-bold">
-                  {porcentajeCancelacion == null
-                    ? '—'
-                    : `${porcentajeCancelacion}%`}
-                </div>
+  {porcentajeCancelacion == null
+    ? '—'
+    : `${porcentajeCancelacion}%`}
+</div>
+<div
+  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaCancelacion.className}`}
+>
+  <span>{deltaMetaCancelacion.icon}</span>
+  <span>{deltaMetaCancelacion.label}</span>
+</div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3">
