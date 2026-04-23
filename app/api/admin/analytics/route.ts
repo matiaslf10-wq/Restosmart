@@ -342,8 +342,7 @@ function buildPedidosQuery(isoDesde: string, isoHasta: string) {
 async function loadPedidosRango(
   isoDesde: string,
   isoHasta: string,
-  restaurantId: string | null,
-  tenantId: string | null
+  restaurantId: string | null
 ) {
   if (restaurantId) {
     const byRestaurant = await buildPedidosQuery(isoDesde, isoHasta).eq(
@@ -363,24 +362,6 @@ async function loadPedidosRango(
         'analytics pedidos by restaurant_id error:',
         byRestaurant.error
       );
-    }
-  }
-
-  if (tenantId) {
-    const byTenant = await buildPedidosQuery(isoDesde, isoHasta).eq(
-      'tenant_id',
-      tenantId
-    );
-
-    if (!byTenant.error && (byTenant.data?.length ?? 0) > 0) {
-      return {
-        data: byTenant.data ?? [],
-        scopeUsed: 'tenant_id',
-      };
-    }
-
-    if (byTenant.error) {
-      console.error('analytics pedidos by tenant_id error:', byTenant.error);
     }
   }
 
@@ -514,8 +495,7 @@ export async function GET(request: NextRequest) {
     const pedidosResult = await loadPedidosRango(
   isoDesde,
   isoHasta,
-  restaurantId,
-  tenantId
+  restaurantId
 );
 
 const pedidosRango = pedidosResult.data;

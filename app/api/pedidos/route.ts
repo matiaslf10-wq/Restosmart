@@ -569,8 +569,6 @@ let pedidosQuery = supabaseAdmin
 
 if (ctx?.id != null) {
   pedidosQuery = pedidosQuery.eq('restaurant_id', ctx.id);
-} else if (ctx?.slug) {
-  pedidosQuery = pedidosQuery.eq('tenant_id', ctx.slug);
 }
 
 const { data, error } = await pedidosQuery;
@@ -751,7 +749,6 @@ const businessMode = await resolveBusinessMode(restaurant);
 
     const payloadPedido = {
   restaurant_id: restaurant?.id ?? null,
-  tenant_id: restaurant?.slug ?? null,
   mesa_id: mesaIdResolved,
   estado: estadoInicial,
   total,
