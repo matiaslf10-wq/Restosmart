@@ -318,6 +318,132 @@ function buildDateRangeList(desde: string, hasta: string) {
   return result;
 }
 
+function buildPedidosQuery(isoDesde: string, isoHasta: string) {
+  return supabaseAdmin
+    .from('pedidos')
+    .select(
+      `
+      id,
+      estado,
+      creado_en,
+      mesa_id,
+      tipo_servicio,
+      origen,
+      items_pedido (
+        cantidad,
+        producto:productos ( id, nombre, precio )
+      )
+    `
+    )
+    .gte('creado_en', isoDesde)
+    .lte('creado_en', isoHasta);
+}
+
+async function loadPedidosRango(
+  isoDesde: string,
+  isoHasta: string,
+  restaurantId: string | null,
+  tenantId: string | null
+) {
+  if (restaurantId) {
+    const byRestaurant = await buildPedidosQuery(isoDesde, isoHasta).eq(
+      'restaurant_id',
+      restaurantId
+    );
+
+    if (!byRestaurant.error) {
+      return {
+        data: byRestaurant.data ?? [],
+        scopeUsed: 'restaurant_id',
+      };
+    }
+
+    console.error('analytics pedidos by restaurant_id error:', byRestaurant.error);
+  }
+
+  if (tenantId) {
+    const byTenant = await buildPedidosQuery(isoDesde, isoHasta).eq(
+      'tenant_id',
+      tenantId
+    );
+
+    if (!byTenant.error) {
+      return {
+        data: byTenant.data ?? [],
+        scopeUsed: 'tenant_id',
+      };
+    }
+
+    console.error('analytics pedidos by tenant_id error:', byTenant.error);
+  }
+
+  const unscoped = await buildPedidosQuery(isoDesde, isoHasta);
+
+  if (unscoped.error) {
+    throw unscoped.error;
+  }
+
+  return {
+    data: unscoped.data ?? [],
+    scopeUsed: 'unscoped',
+  };
+}
+
+function buildTiemposQuery(isoDesde: string, isoHasta: string) {
+  return supabaseAdmin
+    .from('vw_tiempos_pedido')
+    .select(
+      `
+      pedido_id,
+      mesa_id,
+      creado_en,
+      estado_actual,
+      min_mozo_confirma,
+      min_espera_cocina,
+      min_preparacion,
+      min_total_hasta_listo
+    `
+    )
+    .gte('creado_en', isoDesde)
+    .lte('creado_en', isoHasta)
+    .order('creado_en', { ascending: false });
+}
+
+async function loadTiemposRango(
+  isoDesde: string,
+  isoHasta: string,
+  restaurantId: string | null,
+  tenantId: string | null
+) {
+  if (restaurantId) {
+    const byRestaurant = await buildTiemposQuery(isoDesde, isoHasta).eq(
+      'restaurant_id',
+      restaurantId
+    );
+
+    if (!byRestaurant.error) {
+      return byRestaurant.data ?? [];
+    }
+
+    console.error('analytics tiempos by restaurant_id error:', byRestaurant.error);
+  }
+
+  if (tenantId) {
+    const byTenant = await buildTiemposQuery(isoDesde, isoHasta).eq(
+      'tenant_id',
+      tenantId
+    );
+
+    if (!byTenant.error) {
+      return byTenant.data ?? [];
+    }
+
+    console.error('analytics tiempos by tenant_id error:', byTenant.error);
+  }
+
+  return [];
+}
+
 export async function GET(request: NextRequest) {
   const auth = requireAdminAuth(request);
 
@@ -377,53 +503,24 @@ export async function GET(request: NextRequest) {
   const isoHasta = toIsoEndOfDayAR(hasta);
 
   try {
-    let pedidosQuery = supabaseAdmin
-      .from('pedidos')
-      .select(
-        `
-        id,
-        estado,
-        creado_en,
-        mesa_id,
-        tipo_servicio,
-        origen,
-        items_pedido (
-          cantidad,
-          producto:productos ( id, nombre, precio )
-        )
-      `
-      )
-      .gte('creado_en', isoDesde)
-      .lte('creado_en', isoHasta);
+    const pedidosResult = await loadPedidosRango(
+  isoDesde,
+  isoHasta,
+  restaurantId,
+  tenantId
+);
 
-    if (restaurantId && tenantId) {
-  pedidosQuery = pedidosQuery.or(
-    `restaurant_id.eq.${restaurantId},tenant_id.eq.${tenantId}`
-  );
-} else if (restaurantId) {
-  pedidosQuery = pedidosQuery.eq('restaurant_id', restaurantId);
-} else if (tenantId) {
-  pedidosQuery = pedidosQuery.eq('tenant_id', tenantId);
-}
+const pedidosRango = pedidosResult.data;
 
-    const { data: pedidosRango, error: errPedidosRango } = await pedidosQuery;
-
-    const { count: pedidosTotalesEnRango } = await supabaseAdmin
-  .from('pedidos')
-  .select('*', { count: 'exact', head: true })
-  .gte('creado_en', isoDesde)
-  .lte('creado_en', isoHasta);
-
-console.log('ANALYTICS DEBUG', {
+console.log('ANALYTICS DEBUG PEDIDOS', {
   restaurantId,
   tenantId,
   desde,
   hasta,
-  pedidosScopeados: pedidosRango?.length ?? 0,
-  pedidosTotalesEnRango: pedidosTotalesEnRango ?? 0,
+  scopeUsed: pedidosResult.scopeUsed,
+  pedidosCount: pedidosRango.length,
+  firstPedido: pedidosRango[0] ?? null,
 });
-
-    if (errPedidosRango) throw errPedidosRango;
 
     const lista = (pedidosRango ?? []) as unknown as PedidoAnalyticsRow[];
 
@@ -588,48 +685,18 @@ console.log('ANALYTICS DEBUG', {
 
     let tiempos: RowTiemposPedido[] = [];
 
-    try {
-      let tiemposQuery = supabaseAdmin
-        .from('vw_tiempos_pedido')
-        .select(
-          `
-          pedido_id,
-          mesa_id,
-          creado_en,
-          estado_actual,
-          min_mozo_confirma,
-          min_espera_cocina,
-          min_preparacion,
-          min_total_hasta_listo
-        `
-        )
-        .gte('creado_en', isoDesde)
-        .lte('creado_en', isoHasta)
-        .order('creado_en', { ascending: false });
-
-      if (restaurantId && tenantId) {
-  tiemposQuery = tiemposQuery.or(
-    `restaurant_id.eq.${restaurantId},tenant_id.eq.${tenantId}`
+try {
+  const tiemposData = await loadTiemposRango(
+    isoDesde,
+    isoHasta,
+    restaurantId,
+    tenantId
   );
-} else if (restaurantId) {
-  tiemposQuery = tiemposQuery.eq('restaurant_id', restaurantId);
-} else if (tenantId) {
-  tiemposQuery = tiemposQuery.eq('tenant_id', tenantId);
+
+  tiempos = tiemposData as RowTiemposPedido[];
+} catch (error) {
+  console.error('GET /api/admin/analytics tiempos unexpected warning:', error);
 }
-
-      const { data: tiemposData, error: errTiempos } = await tiemposQuery;
-
-      if (errTiempos) {
-        console.error(
-          'GET /api/admin/analytics tiempos scope warning:',
-          errTiempos
-        );
-      } else {
-        tiempos = (tiemposData ?? []) as RowTiemposPedido[];
-      }
-    } catch (error) {
-      console.error('GET /api/admin/analytics tiempos unexpected warning:', error);
-    }
 
     return NextResponse.json(
       {
