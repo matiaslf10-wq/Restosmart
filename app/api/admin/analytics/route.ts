@@ -708,13 +708,7 @@ try {
     return NextResponse.json(
   {
     ok: true,
-    debug: {
-      restaurantId,
-      tenantId,
-      scopeUsed: pedidosResult.scopeUsed,
-      pedidosCount: pedidosRango.length,
-      firstPedido: pedidosRango[0] ?? null,
-    },
+    
     data: {
           range: {
             desde,
