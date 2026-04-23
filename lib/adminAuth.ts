@@ -186,9 +186,17 @@ export function getAdminSessionFromRequest(request: NextRequest) {
 }
 
 export function requireAdminAuth(request: NextRequest) {
-  const session = getAdminSessionFromRequest(request);
+  const token = request.cookies.get(ADMIN_COOKIE_NAME)?.value;
+  const session = verifyAdminSessionToken(token);
 
   if (!session) {
+    console.log('ADMIN AUTH DEBUG', {
+      hasAdminCookie: !!token,
+      cookieNames: request.cookies.getAll().map((c) => c.name),
+      tokenPreview: token ? `${token.slice(0, 24)}...` : null,
+      secretPresent: !!(process.env.ADMIN_SESSION_SECRET || '').trim(),
+    });
+
     return {
       ok: false as const,
       response: NextResponse.json(

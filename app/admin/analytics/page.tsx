@@ -318,14 +318,15 @@ export default function AdminAnalyticsPage() {
 
     try {
       const params = new URLSearchParams({
-        desde,
-        hasta,
-      });
+  desde,
+  hasta,
+});
 
-      const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
-        method: 'GET',
-        cache: 'no-store',
-      });
+const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
+  method: 'GET',
+  cache: 'no-store',
+  credentials: 'include',
+});
 
       const payload = await res.json().catch(() => null);
 
@@ -366,12 +367,13 @@ export default function AdminAnalyticsPage() {
       });
 
       const previousRes = await fetch(
-        `/api/admin/analytics?${previousParams.toString()}`,
-        {
-          method: 'GET',
-          cache: 'no-store',
-        }
-      );
+  `/api/admin/analytics?${previousParams.toString()}`,
+  {
+    method: 'GET',
+    cache: 'no-store',
+    credentials: 'include',
+  }
+);
 
       const previousPayload = await previousRes.json().catch(() => null);
 
@@ -415,55 +417,56 @@ export default function AdminAnalyticsPage() {
   };
 
   useEffect(() => {
-    let active = true;
+  let active = true;
 
-    async function bootstrap() {
-      try {
-        const res = await fetch('/api/admin/session', {
-          method: 'GET',
-          cache: 'no-store',
-        });
+  async function bootstrap() {
+    try {
+      const res = await fetch('/api/admin/session', {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'include',
+      });
 
-        if (!res.ok) {
-          router.replace('/admin/login');
-          return;
-        }
+      if (!res.ok) {
+        router.replace('/admin/login');
+        return;
+      }
 
-        const data = await res.json().catch(() => null);
-        const session = data?.session;
+      const data = await res.json().catch(() => null);
+      const session = data?.session;
 
-        if (!active) return;
+      if (!active) return;
 
-        const plan = (session?.plan ?? 'esencial') as PlanCode;
-        const enabled =
-          typeof session?.capabilities?.analytics === 'boolean'
-            ? session.capabilities.analytics
-            : canAccessAnalytics(plan);
+      const plan = (session?.plan ?? 'esencial') as PlanCode;
+      const enabled =
+        typeof session?.capabilities?.analytics === 'boolean'
+          ? session.capabilities.analytics
+          : canAccessAnalytics(plan);
 
-        setCurrentPlan(plan);
-        setCanViewAnalytics(enabled);
+      setCurrentPlan(plan);
+      setCanViewAnalytics(enabled);
 
-        if (enabled) {
-          await cargar();
-        }
-      } catch (error) {
-        console.error('No se pudo verificar acceso a analytics', error);
-        if (!active) return;
-        setCanViewAnalytics(false);
-      } finally {
-        if (active) {
-          setCheckingAccess(false);
-        }
+      if (enabled) {
+        await cargar();
+      }
+    } catch (error) {
+      console.error('No se pudo verificar acceso a analytics', error);
+      if (!active) return;
+      setCanViewAnalytics(false);
+    } finally {
+      if (active) {
+        setCheckingAccess(false);
       }
     }
+  }
 
-    bootstrap();
+  bootstrap();
 
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
+  return () => {
+    active = false;
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [router]);
 
   const promedio = (values: (number | null)[]) => {
     const xs = values.filter(
