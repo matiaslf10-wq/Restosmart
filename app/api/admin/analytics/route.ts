@@ -351,14 +351,19 @@ async function loadPedidosRango(
       restaurantId
     );
 
-    if (!byRestaurant.error) {
+    if (!byRestaurant.error && (byRestaurant.data?.length ?? 0) > 0) {
       return {
         data: byRestaurant.data ?? [],
         scopeUsed: 'restaurant_id',
       };
     }
 
-    console.error('analytics pedidos by restaurant_id error:', byRestaurant.error);
+    if (byRestaurant.error) {
+      console.error(
+        'analytics pedidos by restaurant_id error:',
+        byRestaurant.error
+      );
+    }
   }
 
   if (tenantId) {
@@ -367,14 +372,16 @@ async function loadPedidosRango(
       tenantId
     );
 
-    if (!byTenant.error) {
+    if (!byTenant.error && (byTenant.data?.length ?? 0) > 0) {
       return {
         data: byTenant.data ?? [],
         scopeUsed: 'tenant_id',
       };
     }
 
-    console.error('analytics pedidos by tenant_id error:', byTenant.error);
+    if (byTenant.error) {
+      console.error('analytics pedidos by tenant_id error:', byTenant.error);
+    }
   }
 
   const unscoped = await buildPedidosQuery(isoDesde, isoHasta);
