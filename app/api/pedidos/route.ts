@@ -414,13 +414,18 @@ async function resolveRestaurantContext() {
   return null;
 }
 
-async function resolveBusinessMode() {
-  const result = await supabaseAdmin
+async function resolveBusinessMode(restaurant: RestaurantContext | null) {
+  let query = supabaseAdmin
     .from('configuracion_local')
-    .select('business_mode')
-    .order('id', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .select('business_mode');
+
+  if (restaurant?.id != null) {
+    query = query.eq('restaurant_id', restaurant.id);
+  } else if (restaurant?.slug) {
+    query = query.eq('tenant_id', restaurant.slug);
+  }
+
+  const result = await query.order('id', { ascending: true }).limit(1).maybeSingle();
 
   if (result.error) {
     console.error(
@@ -554,13 +559,21 @@ function extractTakeawayDataFromItems(items: PedidoItemInput[]) {
 export async function GET() {
   try {
     const ctx = await resolveRestaurantContext();
-    const businessMode = await resolveBusinessMode();
+const businessMode = await resolveBusinessMode(ctx);
 
-    const { data, error } = await supabaseAdmin
-      .from('pedidos')
-      .select('*')
-      .order('creado_en', { ascending: false })
-      .limit(50);
+let pedidosQuery = supabaseAdmin
+  .from('pedidos')
+  .select('*')
+  .order('creado_en', { ascending: false })
+  .limit(50);
+
+if (ctx?.id != null) {
+  pedidosQuery = pedidosQuery.eq('restaurant_id', ctx.id);
+} else if (ctx?.slug) {
+  pedidosQuery = pedidosQuery.eq('tenant_id', ctx.slug);
+}
+
+const { data, error } = await pedidosQuery;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -595,8 +608,8 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as Partial<CreatePedidoBody>;
 
     const restaurant = await resolveRestaurantContext();
-    const plan = normalizePlan(restaurant?.plan);
-    const businessMode = await resolveBusinessMode();
+const plan = normalizePlan(restaurant?.plan);
+const businessMode = await resolveBusinessMode(restaurant);
     const stockControlEnabled = planHasStockControl(plan);
 
     const rawMesaId = Number(body?.mesa_id);
@@ -737,28 +750,30 @@ export async function POST(request: NextRequest) {
     const estadoInicial = hasKitchenItems ? 'en_preparacion' : estadoBase;
 
     const payloadPedido = {
-      mesa_id: mesaIdResolved,
-      estado: estadoInicial,
-      total,
-      paga_efectivo:
-        typeof body?.paga_efectivo === 'boolean'
-          ? body.paga_efectivo
-          : formaPago === 'efectivo',
-      forma_pago: formaPago,
-      origen,
-      tipo_servicio: tipoServicio,
-      medio_pago: String(body?.medio_pago ?? '').trim() || formaPago,
-      estado_pago:
-        String(body?.estado_pago ?? '').trim() ||
-        (formaPago === 'efectivo' ? 'aprobado' : 'pendiente'),
-      efectivo_aprobado:
-        typeof body?.efectivo_aprobado === 'boolean'
-          ? body.efectivo_aprobado
-          : formaPago === 'efectivo',
-      cliente_nombre: clienteNombre,
-      cliente_telefono: clienteTelefono,
-      direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
-    };
+  restaurant_id: restaurant?.id ?? null,
+  tenant_id: restaurant?.slug ?? null,
+  mesa_id: mesaIdResolved,
+  estado: estadoInicial,
+  total,
+  paga_efectivo:
+    typeof body?.paga_efectivo === 'boolean'
+      ? body.paga_efectivo
+      : formaPago === 'efectivo',
+  forma_pago: formaPago,
+  origen,
+  tipo_servicio: tipoServicio,
+  medio_pago: String(body?.medio_pago ?? '').trim() || formaPago,
+  estado_pago:
+    String(body?.estado_pago ?? '').trim() ||
+    (formaPago === 'efectivo' ? 'aprobado' : 'pendiente'),
+  efectivo_aprobado:
+    typeof body?.efectivo_aprobado === 'boolean'
+      ? body.efectivo_aprobado
+      : formaPago === 'efectivo',
+  cliente_nombre: clienteNombre,
+  cliente_telefono: clienteTelefono,
+  direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
+};
 
     const { data: pedido, error: pedidoError } = await supabaseAdmin
       .from('pedidos')
