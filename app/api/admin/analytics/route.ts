@@ -396,13 +396,32 @@ export async function GET(request: NextRequest) {
       .gte('creado_en', isoDesde)
       .lte('creado_en', isoHasta);
 
-    if (restaurantId) {
-      pedidosQuery = pedidosQuery.eq('restaurant_id', restaurantId);
-    } else if (tenantId) {
-      pedidosQuery = pedidosQuery.eq('tenant_id', tenantId);
-    }
+    if (restaurantId && tenantId) {
+  pedidosQuery = pedidosQuery.or(
+    `restaurant_id.eq.${restaurantId},tenant_id.eq.${tenantId}`
+  );
+} else if (restaurantId) {
+  pedidosQuery = pedidosQuery.eq('restaurant_id', restaurantId);
+} else if (tenantId) {
+  pedidosQuery = pedidosQuery.eq('tenant_id', tenantId);
+}
 
     const { data: pedidosRango, error: errPedidosRango } = await pedidosQuery;
+
+    const { count: pedidosTotalesEnRango } = await supabaseAdmin
+  .from('pedidos')
+  .select('*', { count: 'exact', head: true })
+  .gte('creado_en', isoDesde)
+  .lte('creado_en', isoHasta);
+
+console.log('ANALYTICS DEBUG', {
+  restaurantId,
+  tenantId,
+  desde,
+  hasta,
+  pedidosScopeados: pedidosRango?.length ?? 0,
+  pedidosTotalesEnRango: pedidosTotalesEnRango ?? 0,
+});
 
     if (errPedidosRango) throw errPedidosRango;
 
@@ -588,11 +607,15 @@ export async function GET(request: NextRequest) {
         .lte('creado_en', isoHasta)
         .order('creado_en', { ascending: false });
 
-      if (restaurantId) {
-        tiemposQuery = tiemposQuery.eq('restaurant_id', restaurantId);
-      } else if (tenantId) {
-        tiemposQuery = tiemposQuery.eq('tenant_id', tenantId);
-      }
+      if (restaurantId && tenantId) {
+  tiemposQuery = tiemposQuery.or(
+    `restaurant_id.eq.${restaurantId},tenant_id.eq.${tenantId}`
+  );
+} else if (restaurantId) {
+  tiemposQuery = tiemposQuery.eq('restaurant_id', restaurantId);
+} else if (tenantId) {
+  tiemposQuery = tiemposQuery.eq('tenant_id', tenantId);
+}
 
       const { data: tiemposData, error: errTiempos } = await tiemposQuery;
 
