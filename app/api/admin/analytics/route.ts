@@ -412,36 +412,37 @@ function buildTiemposQuery(isoDesde: string, isoHasta: string) {
 async function loadTiemposRango(
   isoDesde: string,
   isoHasta: string,
-  restaurantId: string | null,
-  tenantId: string | null
+  pedidoIds: number[]
 ) {
-  if (restaurantId) {
-    const byRestaurant = await buildTiemposQuery(isoDesde, isoHasta).eq(
-      'restaurant_id',
-      restaurantId
-    );
-
-    if (!byRestaurant.error) {
-      return byRestaurant.data ?? [];
-    }
-
-    console.error('analytics tiempos by restaurant_id error:', byRestaurant.error);
+  if (pedidoIds.length === 0) {
+    return [];
   }
 
-  if (tenantId) {
-    const byTenant = await buildTiemposQuery(isoDesde, isoHasta).eq(
-      'tenant_id',
-      tenantId
-    );
+  const tiemposResult = await supabaseAdmin
+    .from('vw_tiempos_pedido')
+    .select(
+      `
+      pedido_id,
+      mesa_id,
+      creado_en,
+      estado_actual,
+      min_mozo_confirma,
+      min_espera_cocina,
+      min_preparacion,
+      min_total_hasta_listo
+    `
+    )
+    .gte('creado_en', isoDesde)
+    .lte('creado_en', isoHasta)
+    .in('pedido_id', pedidoIds)
+    .order('creado_en', { ascending: false });
 
-    if (!byTenant.error) {
-      return byTenant.data ?? [];
-    }
-
-    console.error('analytics tiempos by tenant_id error:', byTenant.error);
+  if (tiemposResult.error) {
+    console.error('analytics tiempos by pedido_id error:', tiemposResult.error);
+    return [];
   }
 
-  return [];
+  return tiemposResult.data ?? [];
 }
 
 export async function GET(request: NextRequest) {
@@ -687,11 +688,10 @@ console.log('ANALYTICS DEBUG PEDIDOS', {
 
 try {
   const tiemposData = await loadTiemposRango(
-    isoDesde,
-    isoHasta,
-    restaurantId,
-    tenantId
-  );
+  isoDesde,
+  isoHasta,
+  pedidosRango.map((pedido) => Number(pedido.id)).filter((id) => id > 0)
+);
 
   tiempos = tiemposData as RowTiemposPedido[];
 } catch (error) {
@@ -699,9 +699,16 @@ try {
 }
 
     return NextResponse.json(
-      {
-        ok: true,
-        data: {
+  {
+    ok: true,
+    debug: {
+      restaurantId,
+      tenantId,
+      scopeUsed: pedidosResult.scopeUsed,
+      pedidosCount: pedidosRango.length,
+      firstPedido: pedidosRango[0] ?? null,
+    },
+    data: {
           range: {
             desde,
             hasta,
