@@ -150,36 +150,6 @@ async function tryReadBusinessModeByRestaurantId(restaurantId: string | null) {
   }
 }
 
-async function tryReadBusinessModeByTenantId(tenantSlug: string | null) {
-  if (!tenantSlug) return null;
-
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('configuracion_local')
-      .select('business_mode')
-      .eq('tenant_id', tenantSlug)
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      console.error(
-        'GET /api/admin/session business_mode by tenant_id read error:',
-        error
-      );
-      return null;
-    }
-
-    return normalizeBusinessMode((data as BusinessModeRow | null)?.business_mode);
-  } catch (error) {
-    console.error(
-      'GET /api/admin/session business_mode by tenant_id unexpected error:',
-      error
-    );
-    return null;
-  }
-}
-
 async function tryReadBusinessModeBySlug(tenantSlug: string | null) {
   if (!tenantSlug) return null;
 
@@ -242,11 +212,6 @@ async function resolveBusinessModeContext(
   );
   if (byRestaurantId) return byRestaurantId;
 
-  const byTenantId = await tryReadBusinessModeByTenantId(
-    options.tenantSlug ?? null
-  );
-  if (byTenantId) return byTenantId;
-
   const bySlug = await tryReadBusinessModeBySlug(options.tenantSlug ?? null);
   if (bySlug) return bySlug;
 
@@ -275,16 +240,17 @@ export async function GET(request: NextRequest) {
     restaurantId: access.restaurant?.id ?? requestedContext.restaurantId ?? null,
   });
 
-  const publicOrdering = getPublicOrderingMeta(businessMode);
+    const publicOrdering = getPublicOrderingMeta(businessMode);
   const features = getFeaturesForContext(access.plan, businessMode);
-      const capabilities = {
-  ...access.capabilities,
-  analytics: canAccessAnalytics(access.plan),
-  delivery: hasAddon(access.addons, 'whatsapp_delivery'),
-  waiter_mode:
-    businessMode === 'restaurant' && !!access.capabilities?.waiter_mode,
-  multi_brand: hasAddon(access.addons, 'multi_brand'),
-};
+
+  const capabilities = {
+    ...access.capabilities,
+    analytics: canAccessAnalytics(access.plan),
+    delivery: hasAddon(access.addons, 'whatsapp_delivery'),
+    waiter_mode:
+      businessMode === 'restaurant' && !!access.capabilities?.waiter_mode,
+    multi_brand: hasAddon(access.addons, 'multi_brand'),
+  };
 
   return NextResponse.json(
     {

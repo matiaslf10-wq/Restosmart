@@ -28,6 +28,7 @@ type ItemPedido = {
     id?: number | null;
     nombre: string;
     precio?: number | null;
+    marca_id?: string | null;
   } | null;
 };
 
@@ -67,6 +68,17 @@ type Producto = {
   control_stock?: boolean | null;
   stock_actual?: number | null;
   permitir_sin_stock?: boolean | null;
+  marca_id?: string | null;
+};
+
+type Marca = {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  logo_url?: string | null;
+  color_hex?: string | null;
+  activa: boolean | null;
+  orden: number | null;
 };
 
 type ItemCarrito = {
@@ -86,6 +98,7 @@ type AdminSessionPayload = {
   business_mode?: BusinessMode;
   capabilities?: {
     waiter_mode?: boolean;
+    multi_brand?: boolean;
   };
   restaurant?: {
     business_mode?: BusinessMode;
@@ -476,11 +489,13 @@ function MostradorPageContent() {
   const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
   const [businessMode, setBusinessMode] = useState<BusinessMode>('restaurant');
   const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
+  const [canUseMultiBrand, setCanUseMultiBrand] = useState(false);
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [mesasMap, setMesasMap] = useState<Record<number, MesaRef>>({});
   const [mesasList, setMesasList] = useState<MesaRef[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [marcas, setMarcas] = useState<Marca[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string | null>(null);
 
