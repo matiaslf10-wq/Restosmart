@@ -50,8 +50,9 @@ function normalizeNonEmptyString(value: unknown): string | null {
 export function getFallbackAdminAccess(): AdminAccessSnapshot {
   const plan: PlanCode = 'esencial';
   const addons: Record<AddonKey, boolean> = {
-    whatsapp_delivery: false,
-  };
+  whatsapp_delivery: false,
+  multi_brand: false,
+};
 
   return {
     tenantId: DEFAULT_TENANT_ID,
@@ -168,8 +169,9 @@ export async function resolveAdminAccess(
   const connection = await getWhatsAppConnectionByTenantId(tenantId);
 
   const addons: Record<AddonKey, boolean> = {
-    whatsapp_delivery: !!connection?.add_on_enabled,
-  };
+  whatsapp_delivery: !!connection?.add_on_enabled,
+  multi_brand: false,
+};
 
   return {
     tenantId,
