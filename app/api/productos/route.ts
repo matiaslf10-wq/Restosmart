@@ -11,7 +11,8 @@ const PRODUCTO_SELECT = `
   imagen_url,
   control_stock,
   stock_actual,
-  permitir_sin_stock
+  permitir_sin_stock,
+  marca_id
 `;
 
 function normalizeBoolean(value: unknown, fallback = false) {
@@ -29,6 +30,29 @@ function normalizeBoolean(value: unknown, fallback = false) {
 function normalizeNumber(value: unknown, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
+}
+
+function normalizeNullableString(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
+async function getDefaultMarcaId() {
+  const { data, error } = await supabaseAdmin
+    .from('marcas')
+    .select('id')
+    .eq('activa', true)
+    .order('orden', { ascending: true })
+    .order('creado_en', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error leyendo marca principal:', error);
+    return null;
+  }
+
+  return typeof data?.id === 'string' ? data.id : null;
 }
 
 export async function GET() {
@@ -63,17 +87,21 @@ export async function POST(req: Request) {
       ? normalizeBoolean(body?.permitir_sin_stock, false)
       : true;
 
+      const marca_id =
+  normalizeNullableString(body?.marca_id) ?? (await getDefaultMarcaId());
+
     const payload = {
-      nombre: String(body?.nombre ?? '').trim(),
-      descripcion: body?.descripcion ? String(body.descripcion).trim() : null,
-      precio: normalizeNumber(body?.precio, 0),
-      categoria: body?.categoria ? String(body.categoria).trim() : null,
-      disponible: normalizeBoolean(body?.disponible, true),
-      imagen_url: body?.imagen_url ? String(body.imagen_url).trim() : null,
-      control_stock,
-      stock_actual,
-      permitir_sin_stock,
-    };
+  nombre: String(body?.nombre ?? '').trim(),
+  descripcion: body?.descripcion ? String(body.descripcion).trim() : null,
+  precio: normalizeNumber(body?.precio, 0),
+  categoria: body?.categoria ? String(body.categoria).trim() : null,
+  disponible: normalizeBoolean(body?.disponible, true),
+  imagen_url: body?.imagen_url ? String(body.imagen_url).trim() : null,
+  control_stock,
+  stock_actual,
+  permitir_sin_stock,
+  marca_id,
+};
 
     if (!payload.nombre) {
       return NextResponse.json(

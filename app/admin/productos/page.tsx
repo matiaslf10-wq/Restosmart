@@ -15,6 +15,16 @@ type Categoria = {
   orden: number | null;
 };
 
+type Marca = {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  logo_url?: string | null;
+  color_hex?: string | null;
+  activa: boolean | null;
+  orden: number | null;
+};
+
 type Producto = {
   id: number;
   nombre: string;
@@ -26,6 +36,7 @@ type Producto = {
   control_stock?: boolean | null;
   stock_actual?: number | null;
   permitir_sin_stock?: boolean | null;
+  marca_id?: string | null;
 };
 
 type ProductoImagen = {
@@ -50,6 +61,7 @@ type FormProducto = {
   descripcion: string;
   precio: string;
   categoria: string;
+  marca_id: string;
   disponible: boolean;
   control_stock: boolean;
   stock_actual: string;
@@ -60,6 +72,7 @@ type AdminSessionPayload = {
   plan?: PlanCode;
   capabilities?: {
     stock_control?: boolean;
+    multi_brand?: boolean;
   };
 };
 
@@ -138,6 +151,7 @@ const FALLBACK_CATEGORY_NAME = 'Otros';
 export default function AdminProductosPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [marcas, setMarcas] = useState<Marca[]>([]);
 
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -146,21 +160,24 @@ export default function AdminProductosPage() {
 
   const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
   const [stockControlEnabled, setStockControlEnabled] = useState(false);
+  const [multiBrandEnabled, setMultiBrandEnabled] = useState(false);
 
   const [filtroCategoria, setFiltroCategoria] = useState<string>('todas');
   const [busqueda, setBusqueda] = useState('');
+  const [filtroMarca, setFiltroMarca] = useState<string>('todas');
 
   const [form, setForm] = useState<FormProducto>({
-    id: null,
-    nombre: '',
-    descripcion: '',
-    precio: '',
-    categoria: '',
-    disponible: true,
-    control_stock: false,
-    stock_actual: '',
-    permitir_sin_stock: false,
-  });
+  id: null,
+  nombre: '',
+  descripcion: '',
+  precio: '',
+  categoria: '',
+  marca_id: '',
+  disponible: true,
+  control_stock: false,
+  stock_actual: '',
+  permitir_sin_stock: false,
+});
 
   const [modoEdicion, setModoEdicion] = useState(false);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
@@ -193,10 +210,12 @@ export default function AdminProductosPage() {
 
       setCurrentPlan(session?.plan ?? 'esencial');
       setStockControlEnabled(!!session?.capabilities?.stock_control);
+      setMultiBrandEnabled(!!session?.capabilities?.multi_brand);
     } catch (error) {
       console.error('Error cargando sesión admin:', error);
       setCurrentPlan('esencial');
       setStockControlEnabled(false);
+      setMultiBrandEnabled(false);
     }
   };
 
@@ -243,11 +262,44 @@ export default function AdminProductosPage() {
     }
   };
 
+  const cargarMarcas = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('marcas')
+      .select('id, nombre, descripcion, logo_url, color_hex, activa, orden')
+      .eq('activa', true)
+      .order('orden', { ascending: true })
+      .order('nombre', { ascending: true });
+
+    if (error) throw error;
+
+    const marcasData = (data as Marca[]) ?? [];
+    setMarcas(marcasData);
+
+    setForm((prev) => {
+      if (prev.marca_id) return prev;
+
+      return {
+        ...prev,
+        marca_id: marcasData[0]?.id ?? '',
+      };
+    });
+  } catch (error) {
+    console.error('Error cargando marcas:', error);
+    setMarcas([]);
+  }
+};
+
   useEffect(() => {
     const cargarTodo = async () => {
       setCargando(true);
       setMensaje(null);
-      await Promise.all([cargarSession(), cargarProductos(), cargarCategorias()]);
+      await Promise.all([
+  cargarSession(),
+  cargarProductos(),
+  cargarCategorias(),
+  cargarMarcas(),
+]);
       setCargando(false);
     };
 
@@ -279,16 +331,17 @@ export default function AdminProductosPage() {
 
   const resetForm = () => {
   setForm({
-    id: null,
-    nombre: '',
-    descripcion: '',
-    precio: '',
-    categoria: categorias[0]?.nombre ?? '',
-    disponible: true,
-    control_stock: false,
-    stock_actual: '',
-    permitir_sin_stock: false,
-  });
+  id: null,
+  nombre: '',
+  descripcion: '',
+  precio: '',
+  categoria: categorias[0]?.nombre ?? '',
+  marca_id: marcas[0]?.id ?? '',
+  disponible: true,
+  control_stock: false,
+  stock_actual: '',
+  permitir_sin_stock: false,
+});
   setModoEdicion(false);
   setProductoEditando(null);
   setImagenesExistentes([]);
@@ -323,19 +376,20 @@ export default function AdminProductosPage() {
   setModoEdicion(true);
   setProductoEditando(p);
   setForm({
-    id: p.id,
-    nombre: p.nombre,
-    descripcion: p.descripcion ?? '',
-    precio: String(p.precio),
-    categoria: p.categoria ?? categorias[0]?.nombre ?? '',
-    disponible: !!p.disponible,
-    control_stock: !!p.control_stock,
-    stock_actual:
-      p.stock_actual !== null && p.stock_actual !== undefined
-        ? String(p.stock_actual)
-        : '',
-    permitir_sin_stock: !!p.permitir_sin_stock,
-  });
+  id: p.id,
+  nombre: p.nombre,
+  descripcion: p.descripcion ?? '',
+  precio: String(p.precio),
+  categoria: p.categoria ?? categorias[0]?.nombre ?? '',
+  marca_id: p.marca_id ?? marcas[0]?.id ?? '',
+  disponible: !!p.disponible,
+  control_stock: !!p.control_stock,
+  stock_actual:
+    p.stock_actual !== null && p.stock_actual !== undefined
+      ? String(p.stock_actual)
+      : '',
+  permitir_sin_stock: !!p.permitir_sin_stock,
+});
   setImagenesPendientes([]);
   await cargarImagenesProducto(p.id);
 };
@@ -649,6 +703,7 @@ const payload = {
   descripcion: form.descripcion.trim() || null,
   precio: precioNumber,
   categoria: form.categoria || null,
+  marca_id: form.marca_id || marcas[0]?.id || null,
   disponible: form.disponible,
   imagen_url: productoEditando?.imagen_url ?? null,
   control_stock: form.control_stock,
@@ -814,18 +869,32 @@ const payload = {
   }
 };
 
+const marcasPorId = useMemo(() => {
+  return new Map(marcas.map((marca) => [marca.id, marca]));
+}, [marcas]);
+
+const getMarcaNombre = (producto: Producto) => {
+  if (!producto.marca_id) return null;
+  return marcasPorId.get(producto.marca_id)?.nombre ?? null;
+};
+
   const productosFiltrados = useMemo(() => {
-    return productos.filter((p) => {
-      const coincideCategoria =
-        filtroCategoria === 'todas' || (p.categoria ?? '') === filtroCategoria;
+  return productos.filter((p) => {
+    const coincideCategoria =
+      filtroCategoria === 'todas' || (p.categoria ?? '') === filtroCategoria;
 
-      const coincideBusqueda =
-        !busqueda.trim() ||
-        p.nombre.toLowerCase().includes(busqueda.toLowerCase());
+    const coincideMarca =
+      !multiBrandEnabled ||
+      filtroMarca === 'todas' ||
+      (p.marca_id ?? '') === filtroMarca;
 
-      return coincideCategoria && coincideBusqueda;
-    });
-  }, [productos, filtroCategoria, busqueda]);
+    const coincideBusqueda =
+      !busqueda.trim() ||
+      p.nombre.toLowerCase().includes(busqueda.toLowerCase());
+
+    return coincideCategoria && coincideMarca && coincideBusqueda;
+  });
+}, [productos, filtroCategoria, filtroMarca, busqueda, multiBrandEnabled]);
 
   return (
     <div className="space-y-6">
@@ -840,7 +909,12 @@ const payload = {
         <button
           onClick={async () => {
             setCargando(true);
-            await Promise.all([cargarSession(), cargarProductos(), cargarCategorias()]);
+            await Promise.all([
+  cargarSession(),
+  cargarProductos(),
+  cargarCategorias(),
+  cargarMarcas(),
+]);
             setCargando(false);
           }}
           className="px-3 py-1 rounded-lg text-sm bg-slate-800 text-white hover:bg-slate-700"
@@ -1026,6 +1100,26 @@ const payload = {
               ))}
             </select>
 
+            {multiBrandEnabled ? (
+  <>
+    <label className="block text-xs font-medium text-slate-700 mt-2">
+      Marca
+    </label>
+    <select
+      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+      value={form.marca_id}
+      onChange={(e) => onChangeForm('marca_id', e.target.value)}
+    >
+      <option value="">Seleccionar marca...</option>
+      {marcas.map((marca) => (
+        <option key={marca.id} value={marca.id}>
+          {marca.nombre}
+        </option>
+      ))}
+    </select>
+  </>
+) : null}
+
             <div className="mt-3 flex items-center gap-2">
               <input
                 id="disponible"
@@ -1203,44 +1297,73 @@ const payload = {
       </section>
 
       <section className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex flex-wrap gap-2 text-xs">
-            <button
-              onClick={() => setFiltroCategoria('todas')}
-              className={`px-3 py-1 rounded-full border ${
-                filtroCategoria === 'todas'
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white text-slate-700 border-slate-300'
-              }`}
-            >
-              Todas
-            </button>
+  <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-wrap gap-2 text-xs">
+      <button
+        onClick={() => setFiltroCategoria('todas')}
+        className={`px-3 py-1 rounded-full border ${
+          filtroCategoria === 'todas'
+            ? 'bg-slate-900 text-white border-slate-900'
+            : 'bg-white text-slate-700 border-slate-300'
+        }`}
+      >
+        Todas
+      </button>
 
-            {categorias.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setFiltroCategoria(c.nombre)}
-                className={`px-3 py-1 rounded-full border ${
-                  filtroCategoria === c.nombre
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-700 border-slate-300'
-                }`}
-              >
-                {c.nombre}
-              </button>
-            ))}
-          </div>
+      {categorias.map((c) => (
+        <button
+          key={c.id}
+          onClick={() => setFiltroCategoria(c.nombre)}
+          className={`px-3 py-1 rounded-full border ${
+            filtroCategoria === c.nombre
+              ? 'bg-slate-900 text-white border-slate-900'
+              : 'bg-white text-slate-700 border-slate-300'
+          }`}
+        >
+          {c.nombre}
+        </button>
+      ))}
+    </div>
 
-          <div className="flex-1 min-w-[180px]">
-            <input
-              type="text"
-              placeholder="Buscar por nombre..."
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-            />
-          </div>
-        </div>
+    {multiBrandEnabled && marcas.length > 0 ? (
+      <div className="flex flex-wrap gap-2 text-xs">
+        <button
+          onClick={() => setFiltroMarca('todas')}
+          className={`px-3 py-1 rounded-full border ${
+            filtroMarca === 'todas'
+              ? 'bg-emerald-700 text-white border-emerald-700'
+              : 'bg-white text-slate-700 border-slate-300'
+          }`}
+        >
+          Todas las marcas
+        </button>
+
+        {marcas.map((marca) => (
+          <button
+            key={marca.id}
+            onClick={() => setFiltroMarca(marca.id)}
+            className={`px-3 py-1 rounded-full border ${
+              filtroMarca === marca.id
+                ? 'bg-emerald-700 text-white border-emerald-700'
+                : 'bg-white text-slate-700 border-slate-300'
+            }`}
+          >
+            {marca.nombre}
+          </button>
+        ))}
+      </div>
+    ) : null}
+
+    <div className="flex-1 min-w-[180px]">
+      <input
+        type="text"
+        placeholder="Buscar por nombre..."
+        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+        value={busqueda}
+        onChange={(e) => setBusqueda(e.target.value)}
+      />
+    </div>
+  </div>
 
         {cargando && <p>Cargando productos...</p>}
 
@@ -1252,9 +1375,10 @@ const payload = {
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {productosFiltrados.map((p) => {
-            const stockBadge = getStockLabel(p);
+  const stockBadge = getStockLabel(p);
+  const marcaNombre = getMarcaNombre(p);
 
-            return (
+  return (
               <article
                 key={p.id}
                 className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex flex-col gap-2"
@@ -1281,6 +1405,12 @@ const payload = {
                     <p className="text-xs text-slate-500">
                       {p.categoria ?? FALLBACK_CATEGORY_NAME}
                     </p>
+
+                    {multiBrandEnabled && marcaNombre ? (
+  <p className="mt-1 text-[11px] font-medium text-emerald-700">
+    Marca: {marcaNombre}
+  </p>
+) : null}
 
                     {p.descripcion && (
                       <p className="mt-1 text-sm text-slate-700 line-clamp-2">
