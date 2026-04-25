@@ -20,13 +20,14 @@ export type FeatureKey =
   | 'analytics_advanced'
   | 'analytics_executive';
 
-export type AddonKey = 'whatsapp_delivery';
+export type AddonKey = 'whatsapp_delivery' | 'multi_brand';
 
 export type CapabilityMap = {
   analytics: boolean;
   delivery: boolean;
   waiter_mode: boolean;
   stock_control: boolean;
+  multi_brand: boolean;
 };
 
 export const PLAN_FEATURES: Record<PlanCode, FeatureKey[]> = {
@@ -171,5 +172,6 @@ export function getCapabilityMap(
     waiter_mode:
       businessMode === 'restaurant' && hasFeature(plan, 'waiter_mode'),
     stock_control: hasFeature(plan, 'stock_control'),
+    multi_brand: hasAddon(addons, 'multi_brand'),
   };
 }

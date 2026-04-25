@@ -10,6 +10,7 @@ import {
   canAccessAnalytics,
   formatBusinessModeLabel,
   getFeaturesForContext,
+  hasAddon,
   normalizeBusinessMode,
   type BusinessMode,
 } from '@/lib/plans';
@@ -276,12 +277,14 @@ export async function GET(request: NextRequest) {
 
   const publicOrdering = getPublicOrderingMeta(businessMode);
   const features = getFeaturesForContext(access.plan, businessMode);
-    const capabilities = {
-    ...access.capabilities,
-    analytics: canAccessAnalytics(access.plan),
-    waiter_mode:
-      businessMode === 'restaurant' && !!access.capabilities?.waiter_mode,
-  };
+      const capabilities = {
+  ...access.capabilities,
+  analytics: canAccessAnalytics(access.plan),
+  delivery: hasAddon(access.addons, 'whatsapp_delivery'),
+  waiter_mode:
+    businessMode === 'restaurant' && !!access.capabilities?.waiter_mode,
+  multi_brand: hasAddon(access.addons, 'multi_brand'),
+};
 
   return NextResponse.json(
     {
