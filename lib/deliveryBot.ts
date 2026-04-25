@@ -16,6 +16,7 @@ type DeliveryCartItem = {
 type DeliveryConversation = {
   id: number;
   telefono: string;
+  restaurant_id?: string | number | null;
   estado: string;
   carrito: DeliveryCartItem[] | null;
   nombre_cliente?: string | null;
@@ -48,6 +49,103 @@ type HandleIncomingWhatsAppMessageParams = {
   incomingText: string;
   connection?: WhatsAppConnection | null;
 };
+
+type RestaurantContext = {
+  id: string | number;
+  slug: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function normalizeOptionalText(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
+function pickFirstString(...values: unknown[]) {
+  for (const value of values) {
+    const normalized = normalizeOptionalText(value);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
+async function resolveDeliveryRestaurantContext(
+  connection?: WhatsAppConnection | null
+): Promise<RestaurantContext | null> {
+  const connectionRecord = asRecord(connection);
+
+  const restaurantId = pickFirstString(
+    connectionRecord?.restaurant_id,
+    connectionRecord?.restaurantId
+  );
+
+  if (restaurantId) {
+    const byId = await supabaseAdmin
+      .from('restaurants')
+      .select('id, slug')
+      .eq('id', restaurantId)
+      .maybeSingle();
+
+    if (!byId.error && byId.data?.id) {
+      return byId.data as RestaurantContext;
+    }
+  }
+
+  const restaurantSlug = pickFirstString(
+    connectionRecord?.restaurant_slug,
+    connectionRecord?.restaurantSlug,
+    connectionRecord?.tenant_id,
+    connectionRecord?.tenantId,
+    connectionRecord?.slug
+  );
+
+  if (restaurantSlug) {
+    const bySlug = await supabaseAdmin
+      .from('restaurants')
+      .select('id, slug')
+      .eq('slug', restaurantSlug)
+      .maybeSingle();
+
+    if (!bySlug.error && bySlug.data?.id) {
+      return bySlug.data as RestaurantContext;
+    }
+  }
+
+  const defaultTenantId = process.env.DEFAULT_TENANT_ID?.trim();
+
+  if (defaultTenantId) {
+    const fallbackBySlug = await supabaseAdmin
+      .from('restaurants')
+      .select('id, slug')
+      .eq('slug', defaultTenantId)
+      .maybeSingle();
+
+    if (!fallbackBySlug.error && fallbackBySlug.data?.id) {
+      return fallbackBySlug.data as RestaurantContext;
+    }
+  }
+
+  const fallback = await supabaseAdmin
+    .from('restaurants')
+    .select('id, slug')
+    .order('id', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!fallback.error && fallback.data?.id) {
+    return fallback.data as RestaurantContext;
+  }
+
+  return null;
+}
 
 const DEFAULT_DELIVERY_CONFIG: DeliveryConfig = {
   activo: false,
@@ -155,10 +253,16 @@ function buildPaymentOptionsMessage(config: DeliveryConfig) {
   return `¿Cómo querés pagar?\n${lines.join('\n')}`;
 }
 
-async function getDeliveryConfig() {
-  const { data, error } = await supabaseAdmin
+async function getDeliveryConfig(restaurantId: string | number | null) {
+  let query = supabaseAdmin
     .from('configuracion_delivery')
-    .select('*')
+    .select('*');
+
+  if (restaurantId != null) {
+    query = query.eq('restaurant_id', restaurantId);
+  }
+
+  const { data, error } = await query
     .order('id', { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -171,12 +275,20 @@ async function getDeliveryConfig() {
   return normalizeDeliveryConfig((data as Record<string, unknown> | null) ?? null);
 }
 
-async function getConversation(telefono: string) {
-  const existing = await supabaseAdmin
+async function getConversation(
+  telefono: string,
+  restaurantId: string | number | null
+) {
+  let existingQuery = supabaseAdmin
     .from('delivery_conversaciones')
     .select('*')
-    .eq('telefono', telefono)
-    .maybeSingle();
+    .eq('telefono', telefono);
+
+  if (restaurantId != null) {
+    existingQuery = existingQuery.eq('restaurant_id', restaurantId);
+  }
+
+  const existing = await existingQuery.maybeSingle();
 
   if (existing.error) {
     throw new Error(
@@ -192,6 +304,7 @@ async function getConversation(telefono: string) {
     .from('delivery_conversaciones')
     .insert({
       telefono,
+      restaurant_id: restaurantId,
       estado: 'inicio',
       carrito: [],
     })
@@ -256,14 +369,23 @@ async function listAvailableProducts() {
   return result.data ?? [];
 }
 
-async function getLatestPendingMercadoPagoOrderByPhone(telefono: string) {
-  const result = await supabaseAdmin
+async function getLatestPendingMercadoPagoOrderByPhone(
+  telefono: string,
+  restaurantId: string | number | null
+) {
+  let query = supabaseAdmin
     .from('pedidos')
     .select('id, mesa_id, estado, estado_pago, codigo_publico')
     .eq('cliente_telefono', telefono)
     .eq('medio_pago', 'mercadopago')
     .eq('origen', 'delivery_whatsapp')
-    .eq('estado_pago', 'pendiente')
+    .eq('estado_pago', 'pendiente');
+
+  if (restaurantId != null) {
+    query = query.eq('restaurant_id', restaurantId);
+  }
+
+  const result = await query
     .order('creado_en', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -282,8 +404,9 @@ async function crearPedidoDeliveryDesdeConversacion(params: {
   conv: DeliveryConversation;
   medioPago: 'efectivo' | 'mercadopago';
   deliveryConfig: DeliveryConfig;
+  restaurantId: string | number | null;
 }): Promise<PedidoDeliveryCreado> {
-  const { telefono, conv, medioPago, deliveryConfig } = params;
+  const { telefono, conv, medioPago, deliveryConfig, restaurantId } = params;
 
   const carrito = Array.isArray(conv.carrito) ? conv.carrito : [];
   if (carrito.length === 0) {
@@ -298,25 +421,26 @@ async function crearPedidoDeliveryDesdeConversacion(params: {
     esEfectivo && !!deliveryConfig.efectivo_requiere_aprobacion;
 
   const payload = {
-    mesa_id: DELIVERY_MESA_ID,
-    estado: requiereAprobacionEfectivo ? 'solicitado' : 'pendiente',
-    total,
-    paga_efectivo: esEfectivo,
-    forma_pago: esEfectivo ? 'efectivo' : 'virtual',
-    origen: 'delivery_whatsapp',
-    tipo_servicio: 'delivery',
-    cliente_nombre: conv.nombre_cliente?.trim() || null,
-    cliente_telefono: telefono,
-    direccion_entrega: conv.direccion?.trim() || null,
-    medio_pago: esEfectivo ? 'efectivo' : 'mercadopago',
-    estado_pago: esEfectivo
-      ? requiereAprobacionEfectivo
-        ? 'esperando_aprobacion'
-        : 'aprobado'
-      : 'pendiente',
-    efectivo_aprobado: esEfectivo ? !requiereAprobacionEfectivo : false,
-    codigo_publico: null,
-  };
+  restaurant_id: restaurantId,
+  mesa_id: DELIVERY_MESA_ID,
+  estado: requiereAprobacionEfectivo ? 'solicitado' : 'pendiente',
+  total,
+  paga_efectivo: esEfectivo,
+  forma_pago: esEfectivo ? 'efectivo' : 'virtual',
+  origen: 'delivery_whatsapp',
+  tipo_servicio: 'delivery',
+  cliente_nombre: conv.nombre_cliente?.trim() || null,
+  cliente_telefono: telefono,
+  direccion_entrega: conv.direccion?.trim() || null,
+  medio_pago: esEfectivo ? 'efectivo' : 'mercadopago',
+  estado_pago: esEfectivo
+    ? requiereAprobacionEfectivo
+      ? 'esperando_aprobacion'
+      : 'aprobado'
+    : 'pendiente',
+  efectivo_aprobado: esEfectivo ? !requiereAprobacionEfectivo : false,
+  codigo_publico: null,
+};
 
   const { data: pedido, error: errorPedido } = await supabaseAdmin
     .from('pedidos')
@@ -442,7 +566,9 @@ export async function handleIncomingWhatsAppMessage({
   connection = null,
 }: HandleIncomingWhatsAppMessageParams) {
   const text = normalizeText(incomingText);
-  const deliveryConfig = await getDeliveryConfig();
+  const restaurant = await resolveDeliveryRestaurantContext(connection);
+  const restaurantId = restaurant?.id ?? null;
+  const deliveryConfig = await getDeliveryConfig(restaurantId);
 
   if (!deliveryConfig.activo) {
     await reply(
@@ -453,7 +579,7 @@ export async function handleIncomingWhatsAppMessage({
     return;
   }
 
-  const conv = await getConversation(telefono);
+  const conv = await getConversation(telefono, restaurantId);
 
   if (text === 'hola' || text === 'menu' || conv.estado === 'inicio') {
     const products = await listAvailableProducts();
@@ -607,11 +733,12 @@ export async function handleIncomingWhatsAppMessage({
 
       try {
         const pedido = await crearPedidoDeliveryDesdeConversacion({
-          telefono,
-          conv,
-          medioPago: 'mercadopago',
-          deliveryConfig,
-        });
+  telefono,
+  conv,
+  medioPago: 'mercadopago',
+  deliveryConfig,
+  restaurantId,
+});
 
         const preferencia = await crearPreferenciaMercadoPago({
           pedido,
@@ -657,11 +784,12 @@ export async function handleIncomingWhatsAppMessage({
 
       try {
         const pedido = await crearPedidoDeliveryDesdeConversacion({
-          telefono,
-          conv,
-          medioPago: 'efectivo',
-          deliveryConfig,
-        });
+  telefono,
+  conv,
+  medioPago: 'efectivo',
+  deliveryConfig,
+  restaurantId,
+});
 
         await updateConversation(conv.id, {
           estado: deliveryConfig.efectivo_requiere_aprobacion
