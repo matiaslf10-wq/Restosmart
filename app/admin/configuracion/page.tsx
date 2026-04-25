@@ -34,13 +34,15 @@ type AdminSessionPayload = {
   business_mode?: BusinessMode;
   public_ordering?: PublicOrderingMeta;
   addons?: {
-    whatsapp_delivery?: boolean;
-  };
-  capabilities?: {
-    analytics?: boolean;
-    delivery?: boolean;
-    waiter_mode?: boolean;
-  };
+  whatsapp_delivery?: boolean;
+  multi_brand?: boolean;
+};
+capabilities?: {
+  analytics?: boolean;
+  delivery?: boolean;
+  waiter_mode?: boolean;
+  multi_brand?: boolean;
+};
   restaurant?: {
     id: string;
     slug: string;
@@ -84,6 +86,18 @@ type DeliveryConfig = {
   mensaje_bienvenida: string;
   tiempo_estimado_min: number;
   costo_envio: number;
+};
+
+type AddonKey = 'whatsapp_delivery' | 'multi_brand' | 'billing';
+
+type AddonItem = {
+  key: AddonKey;
+  label: string;
+  description: string;
+  enabled: boolean;
+  configurable: boolean;
+  available: boolean;
+  status: string;
 };
 
 const DEFAULT_LOCAL: LocalConfig = {
@@ -210,6 +224,10 @@ export default function AdminConfiguracionPage() {
   const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
   const [localForm, setLocalForm] = useState<LocalConfig>(DEFAULT_LOCAL);
   const [deliveryForm, setDeliveryForm] = useState<DeliveryConfig>(DEFAULT_DELIVERY);
+  const [addonItems, setAddonItems] = useState<AddonItem[]>([]);
+const [cargandoAddons, setCargandoAddons] = useState(false);
+const [actualizandoAddonKey, setActualizandoAddonKey] =
+  useState<AddonKey | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<PlanCode>('esencial');
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -222,6 +240,7 @@ export default function AdminConfiguracionPage() {
   const addons = sessionData?.addons ?? {};
   const capabilities = sessionData?.capabilities ?? {};
   const deliveryAddonEnabled = !!addons.whatsapp_delivery;
+  const multiBrandAddonEnabled = !!addons.multi_brand;
   const analyticsEnabled = !!capabilities.analytics;
   const tenantLabel =
     sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
@@ -275,6 +294,34 @@ export default function AdminConfiguracionPage() {
     return 'Intelligence incluye todo Pro y suma analytics avanzados para lectura ejecutiva del negocio.';
   }, [localForm.business_mode, selectedPlan]);
 
+async function cargarAddons() {
+  setCargandoAddons(true);
+
+  try {
+    const res = await fetch('/api/admin/addons', {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    const raw = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(
+        getApiErrorMessage(raw, 'No se pudieron cargar los add-ons.')
+      );
+    }
+
+    setAddonItems((raw?.items as AddonItem[]) ?? []);
+  } catch (err) {
+    console.error(err);
+    setError(
+      err instanceof Error ? err.message : 'No se pudieron cargar los add-ons.'
+    );
+  } finally {
+    setCargandoAddons(false);
+  }
+}
+
   async function reloadSession() {
     const sessionRes = await fetch(
       `/api/admin/session?tenant=${encodeURIComponent(tenantLabel)}`,
@@ -296,6 +343,49 @@ export default function AdminConfiguracionPage() {
     setSessionData(session);
     setSelectedPlan((session?.plan ?? 'esencial') as PlanCode);
   }
+
+  async function toggleAddon(item: AddonItem) {
+  if (!item.available || !item.configurable) return;
+
+  try {
+    setActualizandoAddonKey(item.key);
+    setMensaje('');
+    setError('');
+
+    const res = await fetch('/api/admin/addons', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        addon_key: item.key,
+        enabled: !item.enabled,
+      }),
+    });
+
+    const raw = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(
+        getApiErrorMessage(raw, 'No se pudo actualizar el add-on.')
+      );
+    }
+
+    await reloadSession();
+    await cargarAddons();
+
+    setMensaje(
+      !item.enabled
+        ? `${item.label} activado correctamente.`
+        : `${item.label} desactivado correctamente.`
+    );
+  } catch (err) {
+    console.error(err);
+    setError(
+      err instanceof Error ? err.message : 'No se pudo actualizar el add-on.'
+    );
+  } finally {
+    setActualizandoAddonKey(null);
+  }
+}
 
   useEffect(() => {
     let activo = true;
@@ -372,6 +462,8 @@ export default function AdminConfiguracionPage() {
             localData?.google_analytics_property_id ?? '',
           business_mode: resolvedBusinessMode,
         });
+
+        await cargarAddons();
 
         if (session?.addons?.whatsapp_delivery) {
           const deliveryRes = await fetch('/api/admin/delivery-config', {
@@ -637,7 +729,7 @@ export default function AdminConfiguracionPage() {
         </p>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-5">
+      <section className="grid gap-4 md:grid-cols-6">
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <p className="text-xs uppercase tracking-wide text-neutral-500">Plan</p>
           <p className="mt-1 text-xl font-bold">{planLabel}</p>
@@ -666,6 +758,16 @@ export default function AdminConfiguracionPage() {
           <p className="text-xs uppercase tracking-wide text-neutral-500">
             WhatsApp Delivery
           </p>
+
+          <div className="rounded-2xl border bg-white p-4 shadow-sm">
+  <p className="text-xs uppercase tracking-wide text-neutral-500">
+    Multimarca
+  </p>
+  <p className="mt-1 text-xl font-bold">
+    {multiBrandAddonEnabled ? 'Activo' : 'No activo'}
+  </p>
+</div>
+
           <p className="mt-1 text-xl font-bold">
             {deliveryAddonEnabled ? 'Activo' : 'No activo'}
           </p>
@@ -743,9 +845,9 @@ export default function AdminConfiguracionPage() {
         </div>
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-          El add-on de WhatsApp Delivery sigue siendo independiente del plan y
-          se gestiona por separado por restaurante.
-        </div>
+  Los add-ons se gestionan debajo de los planes. No forman parte del plan base:
+  se activan por local según contratación o configuración interna.
+</div>
 
         <div className="mt-4 flex flex-wrap gap-3">
           <button
@@ -770,6 +872,130 @@ export default function AdminConfiguracionPage() {
           )}
         </div>
       </section>
+
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+  <div className="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h2 className="text-lg font-medium">Add-ons del local</h2>
+      <p className="mt-1 text-sm text-neutral-600">
+        Funcionalidades opcionales que se activan por tenant. Más adelante,
+        cada activación podrá abrir un flujo comercial con precio, condiciones,
+        aceptación y registro legal correspondiente.
+      </p>
+    </div>
+
+    <button
+      type="button"
+      onClick={() => {
+        void cargarAddons();
+      }}
+      className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+    >
+      Actualizar add-ons
+    </button>
+  </div>
+
+  {cargandoAddons ? (
+    <p className="mt-4 text-sm text-slate-600">Cargando add-ons...</p>
+  ) : null}
+
+  <div className="mt-4 grid gap-4 lg:grid-cols-3">
+    {addonItems.map((item) => {
+      const updating = actualizandoAddonKey === item.key;
+
+      return (
+        <article
+          key={item.key}
+          className={`rounded-2xl border p-4 ${
+            item.enabled
+              ? 'border-emerald-300 bg-emerald-50'
+              : item.available
+              ? 'border-slate-200 bg-white'
+              : 'border-amber-300 bg-amber-50'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-slate-900">{item.label}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                {item.description}
+              </p>
+            </div>
+
+            <span
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                item.enabled
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : item.available
+                  ? 'bg-slate-100 text-slate-700'
+                  : 'bg-amber-100 text-amber-800'
+              }`}
+            >
+              {item.status}
+            </span>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {item.available && item.configurable ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void toggleAddon(item);
+                }}
+                disabled={updating}
+                className={`w-full rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 ${
+                  item.enabled
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                {updating
+                  ? 'Actualizando...'
+                  : item.enabled
+                  ? 'Desactivar'
+                  : 'Activar'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="w-full rounded-xl bg-slate-300 px-4 py-2 text-sm font-semibold text-slate-600"
+              >
+                Próximamente
+              </button>
+            )}
+
+            {item.key === 'whatsapp_delivery' && item.enabled ? (
+              <Link
+                href="/admin/delivery"
+                className="block w-full rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-center text-sm font-semibold text-violet-800 hover:bg-violet-100"
+              >
+                Configurar delivery
+              </Link>
+            ) : null}
+
+            {item.key === 'multi_brand' && item.enabled ? (
+              <Link
+                href="/admin/marcas"
+                className="block w-full rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-center text-sm font-semibold text-fuchsia-800 hover:bg-fuchsia-100"
+              >
+                Administrar marcas
+              </Link>
+            ) : null}
+
+            {item.key === 'billing' ? (
+              <p className="text-xs leading-relaxed text-slate-500">
+                Módulo futuro para asistir la emisión y gestión de comprobantes
+                legales. La activación deberá incluir condiciones comerciales y
+                legales específicas.
+              </p>
+            ) : null}
+          </div>
+        </article>
+      );
+    })}
+  </div>
+</section>
 
       <form onSubmit={guardarTodo} className="grid gap-6">
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
