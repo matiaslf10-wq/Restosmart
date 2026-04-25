@@ -730,49 +730,48 @@ async function cargarAddons() {
       </div>
 
       <section className="grid gap-4 md:grid-cols-6">
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-neutral-500">Plan</p>
-          <p className="mt-1 text-xl font-bold">{planLabel}</p>
-        </div>
+  <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <p className="text-xs uppercase tracking-wide text-neutral-500">Plan</p>
+    <p className="mt-1 text-xl font-bold">{planLabel}</p>
+  </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-neutral-500">Tenant</p>
-          <p className="mt-1 text-xl font-bold">{tenantLabel}</p>
-        </div>
+  <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <p className="text-xs uppercase tracking-wide text-neutral-500">Tenant</p>
+    <p className="mt-1 text-xl font-bold">{tenantLabel}</p>
+  </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-neutral-500">
-            Modo de negocio
-          </p>
-          <p className="mt-1 text-xl font-bold">{businessModeLabel}</p>
-        </div>
+  <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <p className="text-xs uppercase tracking-wide text-neutral-500">
+      Modo de negocio
+    </p>
+    <p className="mt-1 text-xl font-bold">{businessModeLabel}</p>
+  </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-neutral-500">
-            Modo mozo
-          </p>
-          <p className="mt-1 text-xl font-bold">{waiterModeStatus}</p>
-        </div>
+  <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <p className="text-xs uppercase tracking-wide text-neutral-500">
+      Modo mozo
+    </p>
+    <p className="mt-1 text-xl font-bold">{waiterModeStatus}</p>
+  </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-neutral-500">
-            WhatsApp Delivery
-          </p>
+  <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <p className="text-xs uppercase tracking-wide text-neutral-500">
+      WhatsApp Delivery
+    </p>
+    <p className="mt-1 text-xl font-bold">
+      {deliveryAddonEnabled ? 'Activo' : 'No activo'}
+    </p>
+  </div>
 
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-  <p className="text-xs uppercase tracking-wide text-neutral-500">
-    Multimarca
-  </p>
-  <p className="mt-1 text-xl font-bold">
-    {multiBrandAddonEnabled ? 'Activo' : 'No activo'}
-  </p>
-</div>
-
-          <p className="mt-1 text-xl font-bold">
-            {deliveryAddonEnabled ? 'Activo' : 'No activo'}
-          </p>
-        </div>
-      </section>
+  <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <p className="text-xs uppercase tracking-wide text-neutral-500">
+      Multimarca
+    </p>
+    <p className="mt-1 text-xl font-bold">
+      {multiBrandAddonEnabled ? 'Activo' : 'No activo'}
+    </p>
+  </div>
+</section>
 
       {mensaje ? (
         <div className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
