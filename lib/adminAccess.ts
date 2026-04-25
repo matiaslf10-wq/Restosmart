@@ -24,6 +24,11 @@ type WhatsAppConnectionRow = {
   add_on_enabled: boolean | null;
 };
 
+type TenantAddonRow = {
+  addon_key: string | null;
+  enabled: boolean | null;
+};
+
 export type AdminAccessSnapshot = {
   tenantId: string;
   plan: PlanCode;
@@ -49,10 +54,7 @@ function normalizeNonEmptyString(value: unknown): string | null {
 
 export function getFallbackAdminAccess(): AdminAccessSnapshot {
   const plan: PlanCode = 'esencial';
-  const addons: Record<AddonKey, boolean> = {
-  whatsapp_delivery: false,
-  multi_brand: false,
-};
+  const addons = getDefaultAddons();
 
   return {
     tenantId: DEFAULT_TENANT_ID,
@@ -156,6 +158,41 @@ async function getWhatsAppConnectionByTenantId(tenantId: string) {
   return (result.data as WhatsAppConnectionRow | null) ?? null;
 }
 
+function getDefaultAddons(): Record<AddonKey, boolean> {
+  return {
+    whatsapp_delivery: false,
+    multi_brand: false,
+  };
+}
+
+async function getTenantAddonsByTenantId(tenantId: string) {
+  const addons = getDefaultAddons();
+
+  const result = await supabaseAdmin
+    .from('tenant_addons')
+    .select('addon_key, enabled')
+    .eq('tenant_id', tenantId);
+
+  if (result.error) {
+    console.error('No se pudieron leer los add-ons del tenant:', result.error);
+    return addons;
+  }
+
+  const rows = (result.data as TenantAddonRow[]) ?? [];
+
+  for (const row of rows) {
+    if (row.addon_key === 'multi_brand') {
+      addons.multi_brand = row.enabled === true;
+    }
+
+    if (row.addon_key === 'whatsapp_delivery') {
+      addons.whatsapp_delivery = row.enabled === true;
+    }
+  }
+
+  return addons;
+}
+
 export async function resolveAdminAccess(
   options: AdminAccessResolutionOptions = {}
 ): Promise<AdminAccessSnapshot> {
@@ -166,11 +203,15 @@ export async function resolveAdminAccess(
   const tenantId =
     restaurant?.slug?.trim() || requestedTenantSlug || DEFAULT_TENANT_ID;
 
-  const connection = await getWhatsAppConnectionByTenantId(tenantId);
+  const [connection, tenantAddons] = await Promise.all([
+  getWhatsAppConnectionByTenantId(tenantId),
+  getTenantAddonsByTenantId(tenantId),
+]);
 
-  const addons: Record<AddonKey, boolean> = {
-  whatsapp_delivery: !!connection?.add_on_enabled,
-  multi_brand: false,
+const addons: Record<AddonKey, boolean> = {
+  ...tenantAddons,
+  whatsapp_delivery:
+    tenantAddons.whatsapp_delivery || !!connection?.add_on_enabled,
 };
 
   return {

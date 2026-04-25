@@ -284,7 +284,7 @@ const [marcaSeleccionada, setMarcaSeleccionada] = useState<string>('todas');
   return new Map(marcas.map((marca) => [marca.id, marca]));
 }, [marcas]);
 
-const mostrarFiltroMarcas = marcas.length > 1;
+const mostrarFiltroMarcas = isTakeawayMode && marcas.length > 1;
 
 function getMarcaNombre(producto: Producto) {
   if (!producto.marca_id) return null;

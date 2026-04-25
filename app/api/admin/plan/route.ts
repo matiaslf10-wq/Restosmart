@@ -87,11 +87,13 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    ok: true,
-    tenantId: access.tenantId,
-    plan: access.plan,
-    restaurant: access.restaurant,
-  });
+  ok: true,
+  tenantId: access.tenantId,
+  plan: access.plan,
+  restaurant: access.restaurant,
+  addons: access.addons,
+  capabilities: access.capabilities,
+});
 }
 
 export async function PUT(request: NextRequest) {
