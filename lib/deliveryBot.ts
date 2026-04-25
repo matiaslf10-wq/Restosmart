@@ -844,7 +844,10 @@ export async function handleIncomingWhatsAppMessage({
   if (conv.estado === 'esperando_pago') {
     if (text.includes('link') || text.includes('pago')) {
       try {
-        const pedido = await getLatestPendingMercadoPagoOrderByPhone(telefono);
+        const pedido = await getLatestPendingMercadoPagoOrderByPhone(
+  telefono,
+  restaurantId
+);
 
         if (!pedido) {
           await reply(
