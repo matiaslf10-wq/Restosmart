@@ -11,7 +11,8 @@ const PRODUCTO_SELECT = `
   imagen_url,
   control_stock,
   stock_actual,
-  permitir_sin_stock
+  permitir_sin_stock,
+  marca_id
 `;
 
 type Params = {
@@ -35,6 +36,11 @@ function normalizeNumber(value: unknown, fallback = 0) {
   return Number.isFinite(num) ? num : fallback;
 }
 
+function normalizeNullableString(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
 export async function PUT(req: Request, { params }: Params) {
   try {
     const { id } = await params;
@@ -49,16 +55,17 @@ export async function PUT(req: Request, { params }: Params) {
       : true;
 
     const payload = {
-      nombre: String(body?.nombre ?? '').trim(),
-      descripcion: body?.descripcion ? String(body.descripcion).trim() : null,
-      precio: normalizeNumber(body?.precio, 0),
-      categoria: body?.categoria ? String(body.categoria).trim() : null,
-      disponible: normalizeBoolean(body?.disponible, true),
-      imagen_url: body?.imagen_url ? String(body.imagen_url).trim() : null,
-      control_stock,
-      stock_actual,
-      permitir_sin_stock,
-    };
+  nombre: String(body?.nombre ?? '').trim(),
+  descripcion: body?.descripcion ? String(body.descripcion).trim() : null,
+  precio: normalizeNumber(body?.precio, 0),
+  categoria: body?.categoria ? String(body.categoria).trim() : null,
+  marca_id: normalizeNullableString(body?.marca_id),
+  disponible: normalizeBoolean(body?.disponible, true),
+  imagen_url: body?.imagen_url ? String(body.imagen_url).trim() : null,
+  control_stock,
+  stock_actual,
+  permitir_sin_stock,
+};
 
     if (!payload.nombre) {
       return NextResponse.json(

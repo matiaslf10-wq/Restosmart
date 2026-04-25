@@ -16,6 +16,17 @@ type Producto = {
   control_stock?: boolean | null;
   stock_actual?: number | null;
   permitir_sin_stock?: boolean | null;
+  marca_id?: string | null;
+};
+
+type Marca = {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  logo_url?: string | null;
+  color_hex?: string | null;
+  activa: boolean | null;
+  orden: number | null;
 };
 
 type ItemCarrito = {
@@ -84,10 +95,12 @@ function getStockMessage(producto: Producto) {
 export default function PedirPage() {
   const [localConfig, setLocalConfig] = useState<LocalPublicConfig | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [categorias, setCategorias] = useState<string[]>([]);
-  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string | null>(
-    null
-  );
+const [marcas, setMarcas] = useState<Marca[]>([]);
+const [categorias, setCategorias] = useState<string[]>([]);
+const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string | null>(
+  null
+);
+const [marcaSeleccionada, setMarcaSeleccionada] = useState<string>('todas');
 
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [clienteNombre, setClienteNombre] = useState('');
@@ -121,8 +134,8 @@ export default function PedirPage() {
     const { data, error } = await supabase
       .from('productos')
       .select(
-        'id, nombre, descripcion, precio, categoria, imagen_url, disponible, control_stock, stock_actual, permitir_sin_stock'
-      )
+  'id, nombre, descripcion, precio, categoria, imagen_url, disponible, control_stock, stock_actual, permitir_sin_stock, marca_id'
+)
       .eq('disponible', true)
       .order('categoria', { ascending: true })
       .order('nombre', { ascending: true });
@@ -148,6 +161,30 @@ export default function PedirPage() {
     );
   }, []);
 
+  const cargarMarcas = useCallback(async () => {
+  const { data, error } = await supabase
+    .from('marcas')
+    .select('id, nombre, descripcion, logo_url, color_hex, activa, orden')
+    .eq('activa', true)
+    .order('orden', { ascending: true })
+    .order('nombre', { ascending: true });
+
+  if (error) {
+    console.warn('No se pudieron cargar marcas en /pedir:', error);
+    setMarcas([]);
+    setMarcaSeleccionada('todas');
+    return;
+  }
+
+  const listaMarcas = (data as Marca[]) ?? [];
+  setMarcas(listaMarcas);
+
+  setMarcaSeleccionada((prev) => {
+    if (prev === 'todas') return prev;
+    return listaMarcas.some((marca) => marca.id === prev) ? prev : 'todas';
+  });
+}, []);
+
   useEffect(() => {
   let activo = true;
 
@@ -157,18 +194,24 @@ export default function PedirPage() {
       setMensaje(null);
       setError(null);
 
-      const [configRes, productosRes] = await Promise.all([
-        supabase
-          .from('configuracion_local')
-          .select('nombre_local, direccion, horario_atencion, business_mode')
-          .order('id', { ascending: true })
-          .limit(1)
-          .maybeSingle(),
-        fetch('/api/productos?soloDisponibles=1', {
-          method: 'GET',
-          cache: 'no-store',
-        }),
-      ]);
+      const [configRes, productosRes, marcasRes] = await Promise.all([
+  supabase
+    .from('configuracion_local')
+    .select('nombre_local, direccion, horario_atencion, business_mode')
+    .order('id', { ascending: true })
+    .limit(1)
+    .maybeSingle(),
+  fetch('/api/productos?soloDisponibles=1', {
+    method: 'GET',
+    cache: 'no-store',
+  }),
+  supabase
+    .from('marcas')
+    .select('id, nombre, descripcion, logo_url, color_hex, activa, orden')
+    .eq('activa', true)
+    .order('orden', { ascending: true })
+    .order('nombre', { ascending: true }),
+]);
 
       if (!activo) return;
 
@@ -180,6 +223,19 @@ export default function PedirPage() {
       } else {
         setLocalConfig((configRes.data as LocalPublicConfig | null) ?? null);
       }
+
+      if (marcasRes.error) {
+  console.warn('No se pudieron cargar marcas en /pedir:', marcasRes.error);
+  setMarcas([]);
+  setMarcaSeleccionada('todas');
+} else {
+  const listaMarcas = (marcasRes.data as Marca[]) ?? [];
+  setMarcas(listaMarcas);
+  setMarcaSeleccionada((prev) => {
+    if (prev === 'todas') return prev;
+    return listaMarcas.some((marca) => marca.id === prev) ? prev : 'todas';
+  });
+}
 
       const productosBody = await productosRes.json().catch(() => null);
 
@@ -224,10 +280,36 @@ export default function PedirPage() {
   };
 }, []);
 
-  const productosFiltrados =
-    categoriaSeleccionada == null
-      ? []
-      : productos.filter((p) => p.categoria === categoriaSeleccionada);
+  const marcasPorId = useMemo(() => {
+  return new Map(marcas.map((marca) => [marca.id, marca]));
+}, [marcas]);
+
+const mostrarFiltroMarcas = marcas.length > 1;
+
+function getMarcaNombre(producto: Producto) {
+  if (!producto.marca_id) return null;
+  return marcasPorId.get(producto.marca_id)?.nombre ?? null;
+}
+
+const productosFiltrados = useMemo(() => {
+  if (categoriaSeleccionada == null) return [];
+
+  return productos.filter((p) => {
+    const coincideCategoria = p.categoria === categoriaSeleccionada;
+
+    const coincideMarca =
+      !mostrarFiltroMarcas ||
+      marcaSeleccionada === 'todas' ||
+      (p.marca_id ?? '') === marcaSeleccionada;
+
+    return coincideCategoria && coincideMarca;
+  });
+}, [
+  productos,
+  categoriaSeleccionada,
+  marcaSeleccionada,
+  mostrarFiltroMarcas,
+]);
 
   function agregarAlCarrito(producto: Producto) {
     setError(null);
@@ -555,6 +637,47 @@ export default function PedirPage() {
               )}
             </div>
 
+            {mostrarFiltroMarcas ? (
+  <div className="rounded-3xl border bg-white p-5 shadow-sm">
+    <h2 className="text-lg font-semibold text-slate-900">Marcas</h2>
+
+    <div className="mt-4 flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={() => setMarcaSeleccionada('todas')}
+        className={
+          'rounded-full border px-3 py-1 text-sm ' +
+          (marcaSeleccionada === 'todas'
+            ? 'border-emerald-700 bg-emerald-700 text-white'
+            : 'border-slate-300 bg-white text-slate-900')
+        }
+      >
+        Todas las marcas
+      </button>
+
+      {marcas.map((marca) => {
+        const activa = marcaSeleccionada === marca.id;
+
+        return (
+          <button
+            key={marca.id}
+            type="button"
+            onClick={() => setMarcaSeleccionada(marca.id)}
+            className={
+              'rounded-full border px-3 py-1 text-sm ' +
+              (activa
+                ? 'border-emerald-700 bg-emerald-700 text-white'
+                : 'border-slate-300 bg-white text-slate-900')
+            }
+          >
+            {marca.nombre}
+          </button>
+        );
+      })}
+    </div>
+  </div>
+) : null}
+
             <section className="space-y-3">
               <h2 className="text-lg font-semibold text-slate-900">
                 {menuTitle}
@@ -575,9 +698,9 @@ export default function PedirPage() {
               {categoriaSeleccionada != null && productosFiltrados.length > 0 && (
                 <div className="grid gap-4 md:grid-cols-2">
                   {productosFiltrados.map((p) => {
-                    const agotado = isProductoAgotado(p);
-                    const itemEnCarrito = carrito.find((item) => item.producto.id === p.id);
-                    const maxCantidad = getMaxCantidadCarrito(p);
+  const agotado = isProductoAgotado(p);
+  const marcaNombre = getMarcaNombre(p);
+  const itemEnCarrito = carrito.find((item) => item.producto.id === p.id);                    const maxCantidad = getMaxCantidadCarrito(p);
                     const llegoAlMaximo =
                       itemEnCarrito != null && itemEnCarrito.cantidad >= maxCantidad;
                     const stockMessage = getStockMessage(p);
@@ -607,6 +730,12 @@ export default function PedirPage() {
                               <h3 className="font-semibold text-slate-900">
                                 {p.nombre}
                               </h3>
+
+                              {mostrarFiltroMarcas && marcaNombre ? (
+  <p className="mt-1 text-xs font-semibold text-emerald-700">
+    {marcaNombre}
+  </p>
+) : null}
                               {p.descripcion ? (
                                 <p className="mt-1 text-sm text-slate-600">
                                   {p.descripcion}

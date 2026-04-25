@@ -55,13 +55,22 @@ async function getDefaultMarcaId() {
   return typeof data?.id === 'string' ? data.id : null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const { data, error } = await supabaseAdmin
+    const url = new URL(req.url);
+    const soloDisponibles = url.searchParams.get('soloDisponibles') === '1';
+
+    let query = supabaseAdmin
       .from('productos')
       .select(PRODUCTO_SELECT)
       .order('categoria', { ascending: true })
       .order('nombre', { ascending: true });
+
+    if (soloDisponibles) {
+      query = query.eq('disponible', true);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
 
