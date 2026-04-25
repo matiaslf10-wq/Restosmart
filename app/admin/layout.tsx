@@ -20,13 +20,15 @@ type AdminSessionPayload = {
   plan?: PlanCode;
   business_mode?: BusinessMode;
   addons?: {
-    whatsapp_delivery?: boolean;
-  };
-  capabilities?: {
-    analytics?: boolean;
-    delivery?: boolean;
-    waiter_mode?: boolean;
-  };
+  whatsapp_delivery?: boolean;
+  multi_brand?: boolean;
+};
+capabilities?: {
+  analytics?: boolean;
+  delivery?: boolean;
+  waiter_mode?: boolean;
+  multi_brand?: boolean;
+};
   restaurant?: {
     id: string;
     slug: string;
@@ -107,19 +109,23 @@ export default function AdminLayout({
           pathname.startsWith('/mozo/mesas') &&
           !(businessMode === 'restaurant' && !!capabilities.waiter_mode);
 
-        const mesasBlocked =
-          pathname.startsWith('/admin/mesas') && businessMode !== 'restaurant';
+          const mesasBlocked =
+  pathname.startsWith('/admin/mesas') && businessMode !== 'restaurant';
+
+const marcasBlocked =
+  pathname.startsWith('/admin/marcas') && !capabilities.multi_brand;
 
         if (
-          analyticsBlocked ||
-          deliveryBlocked ||
-          operationsBlocked ||
-          waiterBlocked ||
-          mesasBlocked
-        ) {
-          router.replace('/admin');
-          return;
-        }
+  analyticsBlocked ||
+  deliveryBlocked ||
+  operationsBlocked ||
+  waiterBlocked ||
+  mesasBlocked ||
+  marcasBlocked
+) {
+  router.replace('/admin');
+  return;
+}
 
         setSessionData(session);
         setReady(true);
@@ -172,7 +178,12 @@ export default function AdminLayout({
       { href: '/inicio', label: 'Inicio', visible: true },
       { href: '/admin', label: 'Dashboard', visible: true },
       { href: '/admin/productos', label: 'Menú / Productos', visible: true },
-      { href: '/cocina', label: 'Cocina', visible: true },
+{
+  href: '/admin/marcas',
+  label: 'Marcas',
+  visible: !!capabilities.multi_brand,
+},
+{ href: '/cocina', label: 'Cocina', visible: true },
       { href: '/mostrador', label: 'Mostrador / Caja', visible: true },
       {
         href: '/admin/operaciones',
@@ -282,6 +293,12 @@ export default function AdminLayout({
                   WhatsApp Delivery activo
                 </span>
               ) : null}
+
+              {sessionData?.addons?.multi_brand ? (
+  <span className="rounded-full bg-fuchsia-600/20 border border-fuchsia-400/30 px-2.5 py-1 text-xs text-fuchsia-100">
+    Multimarca activo
+  </span>
+) : null}
             </div>
 
             <nav className="flex items-center gap-2 text-sm flex-wrap">
