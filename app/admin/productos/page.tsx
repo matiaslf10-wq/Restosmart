@@ -240,40 +240,49 @@ export default function AdminProductosPage() {
   }
 };
 
-  const cargarCategorias = async () => {
-    try {
-      const res = await fetch('/api/categorias', { cache: 'no-store' });
-      if (!res.ok) throw new Error('No se pudieron cargar las categorías.');
-
-      const data = (await res.json()) as Categoria[];
-      setCategorias(data ?? []);
-
-      setForm((prev) => {
-        if (prev.categoria) return prev;
-        return {
-          ...prev,
-          categoria: data?.[0]?.nombre ?? '',
-        };
-      });
-    } catch (error) {
-      console.error('Error cargando categorías:', error);
-      setMensaje('No se pudieron cargar las categorías.');
-      setCategorias([]);
-    }
-  };
-
-  const cargarMarcas = async () => {
+const cargarCategorias = async () => {
   try {
-    const { data, error } = await supabase
-      .from('marcas')
-      .select('id, nombre, descripcion, logo_url, color_hex, activa, orden')
-      .eq('activa', true)
-      .order('orden', { ascending: true })
-      .order('nombre', { ascending: true });
+    const res = await fetch('/api/categorias', { cache: 'no-store' });
 
-    if (error) throw error;
+    if (!res.ok) {
+      throw new Error('No se pudieron cargar las categorías.');
+    }
 
-    const marcasData = (data as Marca[]) ?? [];
+    const data = (await res.json()) as Categoria[];
+    setCategorias(data ?? []);
+
+    setForm((prev) => {
+      if (prev.categoria) return prev;
+
+      return {
+        ...prev,
+        categoria: data?.[0]?.nombre ?? '',
+      };
+    });
+  } catch (error) {
+    console.error('Error cargando categorías:', error);
+    setMensaje('No se pudieron cargar las categorías.');
+    setCategorias([]);
+  }
+};
+
+const cargarMarcas = async () => {
+  try {
+    const res = await fetch('/api/admin/marcas', {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    const raw = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(raw?.error || 'No se pudieron cargar las marcas.');
+    }
+
+    const marcasData = ((raw?.marcas ?? []) as Marca[]).filter(
+      (marca) => marca.activa !== false
+    );
+
     setMarcas(marcasData);
 
     setForm((prev) => {
@@ -284,27 +293,30 @@ export default function AdminProductosPage() {
         marca_id: marcasData[0]?.id ?? '',
       };
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error cargando marcas:', error);
     setMarcas([]);
+    setMensaje(error?.message || 'No se pudieron cargar las marcas.');
   }
 };
 
-  useEffect(() => {
-    const cargarTodo = async () => {
-      setCargando(true);
-      setMensaje(null);
-      await Promise.all([
-  cargarSession(),
-  cargarProductos(),
-  cargarCategorias(),
-  cargarMarcas(),
-]);
-      setCargando(false);
-    };
+useEffect(() => {
+  const cargarTodo = async () => {
+    setCargando(true);
+    setMensaje(null);
 
-    void cargarTodo();
-  }, []);
+    await Promise.all([
+      cargarSession(),
+      cargarProductos(),
+      cargarCategorias(),
+      cargarMarcas(),
+    ]);
+
+    setCargando(false);
+  };
+
+  void cargarTodo();
+}, []);
 
   const cargarImagenesProducto = async (productoId: number) => {
     setCargandoImagenes(true);
@@ -703,7 +715,7 @@ const payload = {
   descripcion: form.descripcion.trim() || null,
   precio: precioNumber,
   categoria: form.categoria || null,
-  marca_id: form.marca_id || marcas[0]?.id || null,
+  marca_id: multiBrandEnabled ? form.marca_id || marcas[0]?.id || null : null,
   disponible: form.disponible,
   imagen_url: productoEditando?.imagen_url ?? null,
   control_stock: form.control_stock,
@@ -770,7 +782,7 @@ const payload = {
       const uploaded = await subirImagenes(productoId);
       await sincronizarPortada(productoId, existingNormalized, uploaded);
 
-      await Promise.all([cargarProductos(), cargarCategorias()]);
+      await Promise.all([cargarProductos(), cargarCategorias(), cargarMarcas()]);
 
       setMensaje(
         modoEdicion
@@ -1101,23 +1113,31 @@ const getMarcaNombre = (producto: Producto) => {
             </select>
 
             {multiBrandEnabled ? (
-  <>
-    <label className="block text-xs font-medium text-slate-700 mt-2">
+  <div className="mt-2 space-y-2">
+    <label className="block text-xs font-medium text-slate-700">
       Marca
     </label>
-    <select
-      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-      value={form.marca_id}
-      onChange={(e) => onChangeForm('marca_id', e.target.value)}
-    >
-      <option value="">Seleccionar marca...</option>
-      {marcas.map((marca) => (
-        <option key={marca.id} value={marca.id}>
-          {marca.nombre}
-        </option>
-      ))}
-    </select>
-  </>
+
+    {marcas.length > 0 ? (
+      <select
+        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+        value={form.marca_id}
+        onChange={(e) => onChangeForm('marca_id', e.target.value)}
+      >
+        <option value="">Seleccionar marca...</option>
+        {marcas.map((marca) => (
+          <option key={marca.id} value={marca.id}>
+            {marca.nombre}
+          </option>
+        ))}
+      </select>
+    ) : (
+      <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        No hay marcas activas cargadas. Andá a <strong>Admin &gt; Marcas</strong>{' '}
+        y creá o activá una marca.
+      </div>
+    )}
+  </div>
 ) : null}
 
             <div className="mt-3 flex items-center gap-2">
