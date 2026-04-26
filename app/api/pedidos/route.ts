@@ -61,6 +61,14 @@ type ProductoStockRow = {
   control_stock: boolean | null;
   stock_actual: number | null;
   permitir_sin_stock: boolean | null;
+  marca_id: string | null;
+};
+
+type MarcaPedidoMeta = {
+  id: string;
+  nombre: string;
+  color_hex: string | null;
+  logo_url: string | null;
 };
 
 type AggregatedProductRequest = {
@@ -234,7 +242,7 @@ async function loadProductsForStock(
   const { data, error } = await supabaseAdmin
     .from('productos')
     .select(
-      'id, nombre, disponible, control_stock, stock_actual, permitir_sin_stock'
+      'id, nombre, disponible, control_stock, stock_actual, permitir_sin_stock, marca_id'
     )
     .in('id', productoIds);
 
@@ -247,6 +255,39 @@ async function loadProductsForStock(
 
   for (const row of rows) {
     map.set(Number(row.id), row);
+  }
+
+  return map;
+}
+
+async function loadBrandMetaForProducts(
+  productsMap: Map<number, ProductoStockRow>
+): Promise<Map<string, MarcaPedidoMeta>> {
+  const marcaIds = Array.from(
+    new Set(
+      Array.from(productsMap.values())
+        .map((producto) => producto.marca_id)
+        .filter((id): id is string => !!id)
+    )
+  );
+
+  if (marcaIds.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('marcas')
+    .select('id, nombre, color_hex, logo_url')
+    .in('id', marcaIds);
+
+  if (error) {
+    throw error;
+  }
+
+  const map = new Map<string, MarcaPedidoMeta>();
+
+  for (const row of (data ?? []) as MarcaPedidoMeta[]) {
+    map.set(row.id, row);
   }
 
   return map;
@@ -694,41 +735,38 @@ const businessMode = await resolveBusinessMode(restaurant);
     const requestedProducts = aggregateRequestedProducts(items);
     const productoIds = requestedProducts.map((item) => item.producto_id);
 
-    let productsMap = new Map<number, ProductoStockRow>();
+    const productsMap = await loadProductsForStock(productoIds);
+const brandMetaMap = await loadBrandMetaForProducts(productsMap);
 
-    if (stockControlEnabled) {
-      productsMap = await loadProductsForStock(productoIds);
+const { missingProducts, insufficientProducts } = validateStockAvailability(
+  requestedProducts,
+  productsMap
+);
 
-      const { missingProducts, insufficientProducts } = validateStockAvailability(
-        requestedProducts,
-        productsMap
-      );
+if (missingProducts.length > 0) {
+  return NextResponse.json(
+    {
+      error: `No se encontraron algunos productos del pedido: ${missingProducts.join(', ')}.`,
+    },
+    { status: 400 }
+  );
+}
 
-      if (missingProducts.length > 0) {
-        return NextResponse.json(
-          {
-            error: `No se encontraron algunos productos del pedido: ${missingProducts.join(', ')}.`,
-          },
-          { status: 400 }
-        );
-      }
+if (stockControlEnabled && insufficientProducts.length > 0) {
+  const detail = insufficientProducts
+    .map(
+      (item) =>
+        `${item.nombre} (solicitado: ${item.solicitado}, disponible: ${item.disponible})`
+    )
+    .join('; ');
 
-      if (insufficientProducts.length > 0) {
-        const detail = insufficientProducts
-          .map(
-            (item) =>
-              `${item.nombre} (solicitado: ${item.solicitado}, disponible: ${item.disponible})`
-          )
-          .join('; ');
-
-        return NextResponse.json(
-          {
-            error: `Stock insuficiente para completar el pedido: ${detail}.`,
-          },
-          { status: 409 }
-        );
-      }
-    }
+  return NextResponse.json(
+    {
+      error: `Stock insuficiente para completar el pedido: ${detail}.`,
+    },
+    { status: 409 }
+  );
+}
 
     const mesaResolution = await resolveMesaIdForPedido(rawMesaId, tipoServicio);
 
@@ -789,15 +827,27 @@ const businessMode = await resolveBusinessMode(restaurant);
       );
     }
 
-    const payloadItems = items.map((item) => ({
-      pedido_id: pedido.id,
-      producto_id: Number(item.producto_id),
-      cantidad: Number(item.cantidad),
-      comentarios:
-        item.prep_target === 'cocina'
-          ? buildKitchenComment(item.comentarios, 'pendiente')
-          : normalizeOptionalText(item.comentarios),
-    }));
+    const payloadItems = items.map((item) => {
+  const productoId = Number(item.producto_id);
+  const productMeta = productsMap.get(productoId);
+  const brandMeta = productMeta?.marca_id
+    ? brandMetaMap.get(productMeta.marca_id) ?? null
+    : null;
+
+  return {
+    pedido_id: pedido.id,
+    producto_id: productoId,
+    cantidad: Number(item.cantidad),
+    comentarios:
+      item.prep_target === 'cocina'
+        ? buildKitchenComment(item.comentarios, 'pendiente')
+        : normalizeOptionalText(item.comentarios),
+    marca_id: productMeta?.marca_id ?? null,
+    marca_nombre_snapshot: brandMeta?.nombre ?? null,
+    marca_color_hex_snapshot: brandMeta?.color_hex ?? null,
+    marca_logo_url_snapshot: brandMeta?.logo_url ?? null,
+  };
+});
 
     const { error: itemsError } = await supabaseAdmin
       .from('items_pedido')

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { utils, writeFileXLSX } from 'xlsx';
 import { useRouter } from 'next/navigation';
 import {
@@ -21,6 +21,16 @@ type RowTopProductos = {
 type RowCanal = {
   canal: 'salon' | 'takeaway' | 'delivery';
   cantidad: number;
+  ingresos: number;
+};
+
+type RowMarca = {
+  marca_id: string | null;
+  marca_nombre: string;
+  color_hex: string | null;
+  logo_url: string | null;
+  pedidos: number;
+  unidades: number;
   ingresos: number;
 };
 
@@ -140,6 +150,39 @@ function buildCsvLine(values: unknown[]) {
 function getTrendBarWidth(value: number, max: number) {
   if (max <= 0) return '0%';
   return `${Math.max((value / max) * 100, 6)}%`;
+}
+
+function getSafeBrandColor(value: string | null | undefined) {
+  const color = String(value ?? '').trim();
+
+  if (/^#[0-9a-fA-F]{6}$/.test(color)) {
+    return color;
+  }
+
+  return null;
+}
+
+function getBrandCardStyle(colorHex: string | null | undefined): CSSProperties | undefined {
+  const color = getSafeBrandColor(colorHex);
+
+  if (!color) return undefined;
+
+  return {
+    borderColor: color,
+    boxShadow: `inset 5px 0 0 ${color}`,
+  };
+}
+
+function getBrandBadgeStyle(colorHex: string | null | undefined): CSSProperties | undefined {
+  const color = getSafeBrandColor(colorHex);
+
+  if (!color) return undefined;
+
+  return {
+    borderColor: color,
+    backgroundColor: `${color}1A`,
+    color,
+  };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -294,6 +337,7 @@ export default function AdminAnalyticsPage() {
   const [canales, setCanales] = useState<RowCanal[]>([]);
   const [serieDiaria, setSerieDiaria] = useState<RowSerieDiaria[]>([]);
   const [tiempos, setTiempos] = useState<RowTiemposPedido[]>([]);
+  const [ventasPorMarca, setVentasPorMarca] = useState<RowMarca[]>([]);
   const [kpiPedidosTotal, setKpiPedidosTotal] = useState(0);
   const [kpiPedidosCerrados, setKpiPedidosCerrados] = useState(0);
   const [kpiPedidosCancelados, setKpiPedidosCancelados] = useState(0);
@@ -352,6 +396,7 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
       setCanales((data?.canales ?? []) as RowCanal[]);
       setSerieDiaria((data?.serieDiaria ?? []) as RowSerieDiaria[]);
       setTiempos((data?.tiempos ?? []) as RowTiemposPedido[]);
+      setVentasPorMarca((data?.ventasPorMarca ?? []) as RowMarca[]);
 
       setKpiPedidosTotal(currentKpis.pedidosTotal);
       setKpiPedidosCerrados(currentKpis.pedidosCerrados);
@@ -579,6 +624,32 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
     })[0];
   }, [canales]);
 
+  const marcaLider = useMemo(() => {
+  if (ventasPorMarca.length === 0) return null;
+
+  return [...ventasPorMarca].sort((a, b) => {
+    if (Number(b.ingresos) !== Number(a.ingresos)) {
+      return Number(b.ingresos) - Number(a.ingresos);
+    }
+
+    return Number(b.unidades) - Number(a.unidades);
+  })[0];
+}, [ventasPorMarca]);
+
+const ingresosTotalesMarca = useMemo(() => {
+  return ventasPorMarca.reduce(
+    (acc, marca) => acc + Number(marca.ingresos ?? 0),
+    0
+  );
+}, [ventasPorMarca]);
+
+const maxIngresosMarca = useMemo(() => {
+  return ventasPorMarca.reduce(
+    (max, marca) => Math.max(max, Number(marca.ingresos ?? 0)),
+    0
+  );
+}, [ventasPorMarca]);
+
     const comparativaCanalesMap = useMemo(() => {
     return new Map(
       (comparativa?.canales ?? []).map((canal) => [canal.canal, canal])
@@ -723,6 +794,8 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
   }
   lines.push('');
 
+  
+
   lines.push(buildCsvLine(['Top productos']));
   lines.push(buildCsvLine(['Producto', 'Unidades', 'Ingresos']));
   for (const row of topProductos) {
@@ -735,6 +808,33 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
     );
   }
   lines.push('');
+
+  lines.push(buildCsvLine(['Ventas por marca']));
+lines.push(
+  buildCsvLine([
+    'Marca',
+    'Pedidos',
+    'Unidades vendidas',
+    'Ingresos',
+    'Color',
+    'Logo',
+  ])
+);
+
+for (const row of ventasPorMarca) {
+  lines.push(
+    buildCsvLine([
+      row.marca_nombre,
+      row.pedidos,
+      row.unidades,
+      formatCurrency(row.ingresos),
+      row.color_hex ?? '',
+      row.logo_url ?? '',
+    ])
+  );
+}
+
+lines.push('');
 
   lines.push(buildCsvLine(['Outliers']));
   lines.push(
@@ -790,12 +890,13 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
   deltaTicketProm,
   deltaCancelacion,
   canales,
+  ventasPorMarca,
   pedidosHora,
   topProductos,
   outliers,
   getCanalDeltaPedidos,
   getCanalDeltaIngresos,
-  ]);
+]);
 
   const estadoOperacion = useMemo(() => {
     if (kpiPedidosTotal === 0) {
@@ -1398,7 +1499,7 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
         ) : (
           <>
 
-            <section className="grid gap-3 xl:grid-cols-4">
+            <section className="grid gap-3 xl:grid-cols-5">
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Canal líder
@@ -1459,6 +1560,40 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
                 <p className="mt-2 text-sm leading-relaxed">
                   {alertaPrincipal.detalle}
                 </p>
+
+                <div
+  className="rounded-2xl border border-slate-200 bg-white p-4"
+  style={getBrandCardStyle(marcaLider?.color_hex)}
+>
+  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+    Marca líder
+  </div>
+
+  <div className="mt-2 flex items-center gap-2">
+    {marcaLider?.logo_url ? (
+      <img
+        src={marcaLider.logo_url}
+        alt={marcaLider.marca_nombre}
+        className="h-7 w-7 rounded-full border border-slate-200 object-cover"
+      />
+    ) : marcaLider?.color_hex ? (
+      <span
+        className="h-7 w-7 rounded-full border"
+        style={getBrandBadgeStyle(marcaLider.color_hex)}
+      />
+    ) : null}
+
+    <div className="text-lg font-bold text-slate-900">
+      {marcaLider?.marca_nombre ?? 'Sin datos'}
+    </div>
+  </div>
+
+  <p className="mt-2 text-sm text-slate-600">
+    {marcaLider
+      ? `${formatCurrency(marcaLider.ingresos)} · ${marcaLider.unidades} unidades`
+      : 'Todavía no hay datos para comparar marcas.'}
+  </p>
+</div>
               </div>
             </section>
 
@@ -1779,6 +1914,115 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
                 </div>
               )}
             </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+  <div className="mb-3">
+    <h2 className="font-semibold text-slate-900">Desempeño por marca</h2>
+    <p className="text-sm text-slate-500">
+      Ventas, unidades e ingresos agrupados por marca. Los colores corresponden a
+      la configuración elegida en Marcas.
+    </p>
+  </div>
+
+  {ventasPorMarca.length === 0 ? (
+    <p className="text-sm text-slate-600">
+      Sin datos por marca en el rango seleccionado.
+    </p>
+  ) : (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {ventasPorMarca.map((marca) => {
+        const ingresos = Number(marca.ingresos ?? 0);
+        const participacion =
+          ingresosTotalesMarca > 0
+            ? safeRound((ingresos / ingresosTotalesMarca) * 100)
+            : null;
+
+        return (
+          <article
+            key={marca.marca_id ?? marca.marca_nombre}
+            className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+            style={getBrandCardStyle(marca.color_hex)}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  {marca.logo_url ? (
+                    <img
+                      src={marca.logo_url}
+                      alt={marca.marca_nombre}
+                      className="h-9 w-9 rounded-full border border-slate-200 bg-white object-cover"
+                    />
+                  ) : (
+                    <span
+                      className="h-9 w-9 rounded-full border bg-white"
+                      style={getBrandBadgeStyle(marca.color_hex)}
+                    />
+                  )}
+
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold text-slate-900">
+                      {marca.marca_nombre}
+                    </h3>
+
+                    <span
+                      className="mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+                      style={getBrandBadgeStyle(marca.color_hex)}
+                    >
+                      {participacion == null
+                        ? 'Sin participación'
+                        : `${participacion}% del total`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-right">
+                <p className="text-xs text-slate-500">Ingresos</p>
+                <p className="font-bold text-slate-900">
+                  {formatCurrency(ingresos)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <p className="text-[11px] text-slate-500">Pedidos</p>
+                <p className="text-lg font-bold text-slate-900">
+                  {marca.pedidos}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <p className="text-[11px] text-slate-500">Unidades</p>
+                <p className="text-lg font-bold text-slate-900">
+                  {marca.unidades}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+                <span>Peso relativo por ingresos</span>
+                <span>{participacion == null ? '—' : `${participacion}%`}</span>
+              </div>
+
+              <div className="h-2 rounded-full bg-slate-200">
+                <div
+                  className="h-2 rounded-full"
+                  style={{
+                    width: getTrendBarWidth(ingresos, maxIngresosMarca),
+                    backgroundColor:
+                      getSafeBrandColor(marca.color_hex) ?? '#0f172a',
+                  }}
+                />
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  )}
+</section>
 
                         <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="mb-3">
