@@ -197,9 +197,14 @@ export async function GET(request: NextRequest) {
         description:
           'Permite administrar varias marcas internas dentro del mismo local y tenant.',
         enabled: !!access.addons.multi_brand,
-        configurable: true,
-        available: true,
-        status: access.addons.multi_brand ? 'Activo' : 'Inactivo',
+        configurable: access.plan !== 'esencial',
+        available: access.plan !== 'esencial',
+status:
+  access.plan === 'esencial'
+    ? 'Disponible desde Pro'
+    : access.addons.multi_brand
+    ? 'Activo'
+    : 'Inactivo',
       },
       {
         key: 'billing',
@@ -254,6 +259,47 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
+    try {
+  if (addonKey === 'multi_brand' && enabled && access.plan === 'esencial') {
+    return NextResponse.json(
+      { error: 'Multimarca está disponible desde el plan Pro.' },
+      { status: 409 }
+    );
+  }
+
+  if (addonKey === 'multi_brand') {
+    await setTenantAddon(access.tenantId, 'multi_brand', enabled);
+  }
+
+  if (addonKey === 'whatsapp_delivery') {
+    await Promise.all([
+      setTenantAddon(access.tenantId, 'whatsapp_delivery', enabled),
+      setWhatsAppDeliveryAddon(access.tenantId, enabled),
+    ]);
+  }
+
+  const updatedAccess = await resolveAdminAccess({
+    tenantSlug: access.restaurant?.slug ?? access.tenantId,
+    restaurantId: access.restaurant?.id ?? null,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    tenantId: updatedAccess.tenantId,
+    addons: {
+      whatsapp_delivery: !!updatedAccess.addons.whatsapp_delivery,
+      multi_brand: !!updatedAccess.addons.multi_brand,
+      billing: false,
+    },
+  });
+} catch (error) {
+  console.error('PUT /api/admin/addons error:', error);
+  return NextResponse.json(
+    { error: 'No se pudo actualizar el add-on.' },
+    { status: 500 }
+  );
+}
+
     if (addonKey === 'multi_brand') {
       await setTenantAddon(access.tenantId, 'multi_brand', enabled);
     }

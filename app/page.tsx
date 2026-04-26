@@ -420,37 +420,54 @@ export default function RestoSmartLanding() {
           </div>
 
           <div className="mt-6 rounded-3xl border border-violet-200 bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div className="max-w-2xl">
-                <div className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
-                  Add-on opcional
-                </div>
-                <h3 className="mt-3 text-xl font-bold">WhatsApp Delivery</h3>
-                <p className="mt-2 text-sm leading-relaxed text-zinc-700">
-                  Se contrata aparte por restaurante. No forma parte de las
-                  funcionalidades comunes de Esencial, Pro ni Intelligence.
-                </p>
-              </div>
+  <div className="max-w-2xl">
+    <div className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+      Add-ons opcionales
+    </div>
 
-              <div className="rounded-2xl border border-violet-100 bg-violet-50 px-4 py-3 text-sm text-violet-900">
-                Chatbot de pedidos + configuración operativa + conexión técnica
-              </div>
-            </div>
+    <h3 className="mt-3 text-xl font-bold">Módulos para crecer según tu operación</h3>
 
-            <ul className="mt-5 grid gap-2 text-sm text-zinc-800 md:grid-cols-2">
-              {[
-                'Toma de pedidos por WhatsApp',
-                'Configuración de cobro y entrega',
-                'Envío del pedido a la operación',
-                'Conexión técnica con Meta',
-              ].map((b) => (
-                <li key={b} className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-violet-600" />
-                  {b}
-                </li>
-              ))}
-            </ul>
-          </div>
+    <p className="mt-2 text-sm leading-relaxed text-zinc-700">
+      Sumá funcionalidades específicas sin cambiar el plan base. Los add-ons se
+      activan por local y se contratan por separado.
+    </p>
+  </div>
+
+  <div className="mt-5 grid gap-4 md:grid-cols-3">
+    <div className="rounded-2xl border border-violet-100 bg-violet-50 p-4">
+      <p className="text-sm font-semibold text-violet-900">WhatsApp Delivery</p>
+      <p className="mt-2 text-sm leading-relaxed text-violet-900">
+        Pedidos por WhatsApp integrados a la operación de RestoSmart.
+      </p>
+      <p className="mt-3 text-xs font-semibold text-violet-700">
+        Cotización aparte
+      </p>
+    </div>
+
+    <div className="rounded-2xl border border-fuchsia-100 bg-fuchsia-50 p-4">
+      <p className="text-sm font-semibold text-fuchsia-900">Multimarca</p>
+      <p className="mt-2 text-sm leading-relaxed text-fuchsia-900">
+        Vendé varias marcas desde el mismo local, sin duplicar pantallas ni operación.
+      </p>
+      <p className="mt-3 text-xs font-semibold text-fuchsia-700">
+        Pro: + $15.000/mes · hasta 3 marcas
+      </p>
+      <p className="mt-1 text-xs font-semibold text-fuchsia-700">
+        Intelligence: + $25.000/mes · ilimitado
+      </p>
+    </div>
+
+    <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+      <p className="text-sm font-semibold text-amber-900">Facturación ARCA</p>
+      <p className="mt-2 text-sm leading-relaxed text-amber-900">
+        Módulo futuro para asistir la emisión y gestión de comprobantes legales.
+      </p>
+      <p className="mt-3 text-xs font-semibold text-amber-700">
+        Próximamente
+      </p>
+    </div>
+  </div>
+</div>
         </div>
       </section>
 
@@ -508,9 +525,9 @@ export default function RestoSmartLanding() {
           <div className="max-w-2xl">
             <h2 className="text-2xl font-bold md:text-3xl">Planes y precios</h2>
             <p className="mt-2 text-zinc-700">
-              Elegí el plan que mejor se adapta a tu operación. WhatsApp Delivery se
-              activa aparte como add-on opcional.
-            </p>
+  Elegí el plan que mejor se adapta a tu operación. Los add-ons se contratan
+  aparte por local, según las necesidades de cada restaurante.
+</p>
           </div>
 
           <div className="mt-8 grid gap-6 md:grid-cols-3">
@@ -575,33 +592,95 @@ export default function RestoSmartLanding() {
             </div>
           </div>
 
-          <div className="mt-8 rounded-3xl border border-violet-200 bg-violet-50 p-6">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-violet-800">
-                  WhatsApp Delivery
-                </p>
-                <p className="mt-1 text-sm text-violet-900">
-                  Add-on opcional, con activación separada por restaurante.
-                </p>
-              </div>
+          <div className="mt-8 rounded-3xl border border-black/10 bg-zinc-50 p-6">
+  <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+    <div>
+      <h3 className="text-xl font-bold text-zinc-900">Add-ons disponibles</h3>
+      <p className="mt-1 text-sm text-zinc-700">
+        Funcionalidades opcionales para sumar según la operación del local.
+      </p>
+    </div>
 
-              <div className="text-left md:text-right">
-                <p className="text-lg font-bold text-violet-900">
-                  Cotización aparte
-                </p>
-                <p className="text-xs text-violet-700">
-                  No incluido en ningún plan base
-                </p>
-              </div>
-            </div>
-          </div>
+    <p className="text-xs text-zinc-500">
+      Se contratan por local y no forman parte del plan base.
+    </p>
+  </div>
+
+  <div className="mt-5 grid gap-4 md:grid-cols-3">
+    <div className="rounded-2xl border border-violet-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold text-zinc-900">WhatsApp Delivery</p>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-700">
+            Pedidos por WhatsApp conectados a la operación del local.
+          </p>
+        </div>
+
+        <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+          Add-on
+        </span>
+      </div>
+
+      <p className="mt-4 text-lg font-bold text-violet-800">Cotización aparte</p>
+      <p className="mt-1 text-xs text-zinc-500">
+        No incluido en ningún plan base.
+      </p>
+    </div>
+
+    <div className="rounded-2xl border border-fuchsia-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold text-zinc-900">Multimarca</p>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-700">
+            Varias marcas dentro del mismo local, con operación unificada.
+          </p>
+        </div>
+
+        <span className="rounded-full bg-fuchsia-50 px-2.5 py-1 text-[11px] font-semibold text-fuchsia-700">
+          Add-on
+        </span>
+      </div>
+
+      <div className="mt-4 space-y-2 text-sm">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <span className="font-semibold">Esencial:</span> no disponible
+        </div>
+        <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 px-3 py-2 text-fuchsia-900">
+          <span className="font-semibold">Pro:</span> + $15.000/mes · hasta 3 marcas
+        </div>
+        <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 px-3 py-2 text-fuchsia-900">
+          <span className="font-semibold">Intelligence:</span> + $25.000/mes · marcas ilimitadas
+        </div>
+      </div>
+    </div>
+
+    <div className="rounded-2xl border border-amber-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold text-zinc-900">Facturación ARCA</p>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-700">
+            Futuro módulo para asistir la emisión y gestión de comprobantes.
+          </p>
+        </div>
+
+        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+          Próximamente
+        </span>
+      </div>
+
+      <p className="mt-4 text-sm leading-relaxed text-zinc-600">
+        La activación deberá contemplar configuración fiscal, condiciones
+        comerciales y aclaraciones legales específicas.
+      </p>
+    </div>
+  </div>
+</div>
 
           <div className="mt-6 text-xs text-zinc-500">
-            Los planes se contratan por local. El modo del negocio puede ser
-            restaurante o take away. WhatsApp Delivery se ofrece siempre como
-            add-on separado.
-          </div>
+  Los planes se contratan por local. El modo del negocio puede ser restaurante
+  o take away. Los add-ons se contratan aparte y pueden tener disponibilidad,
+  límites o condiciones según el plan.
+</div>
         </div>
       </section>
 
@@ -752,6 +831,14 @@ export default function RestoSmartLanding() {
                 q: '¿WhatsApp Delivery está incluido en algún plan?',
                 a: 'No. WhatsApp Delivery se contrata aparte como add-on opcional por restaurante y no forma parte de las funcionalidades comunes de Esencial, Pro o Intelligence.',
               },
+              {
+  q: '¿Qué es Multimarca?',
+  a: 'Multimarca permite administrar varias marcas internas dentro del mismo local, manteniendo una sola operación. Es útil para dark kitchens, marcas virtuales o restaurantes que quieren vender distintas propuestas desde la misma cocina.',
+},
+{
+  q: '¿Multimarca está incluido en los planes?',
+  a: 'No. Es un add-on aparte. En Esencial no está disponible; en Pro permite hasta 3 marcas por $15.000 adicionales al mes; en Intelligence permite marcas ilimitadas por $25.000 adicionales al mes.',
+},
             ].map((item) => (
               <details
                 key={item.q}

@@ -100,6 +100,14 @@ type AddonItem = {
   status: string;
 };
 
+type AddonCard = AddonItem & {
+  commercialDescription: string;
+  priceText: string;
+  availabilityText: string;
+  actionAvailable: boolean;
+  disabledReason?: string;
+};
+
 const DEFAULT_LOCAL: LocalConfig = {
   nombre_local: '',
   direccion: '',
@@ -220,6 +228,67 @@ function getPublicOrderingMeta(businessMode: BusinessMode): PublicOrderingMeta {
   };
 }
 
+function getMultiBrandPriceText(plan: PlanCode) {
+  if (plan === 'pro') return '+ $15.000 / mes';
+  if (plan === 'intelligence') return '+ $25.000 / mes';
+  return 'Disponible desde Pro';
+}
+
+function getMultiBrandAvailabilityText(plan: PlanCode) {
+  if (plan === 'pro') return 'Hasta 3 marcas';
+  if (plan === 'intelligence') return 'Marcas ilimitadas';
+  return 'No disponible en Esencial';
+}
+
+function getAddonCard(item: AddonItem, plan: PlanCode): AddonCard {
+  if (item.key === 'multi_brand') {
+    const availableForPlan = plan === 'pro' || plan === 'intelligence';
+
+    return {
+      ...item,
+      available: item.available && availableForPlan,
+      configurable: item.configurable && availableForPlan,
+      actionAvailable: item.available && item.configurable && availableForPlan,
+      status: !availableForPlan
+        ? 'Disponible desde Pro'
+        : item.enabled
+        ? 'Activo'
+        : 'Inactivo',
+      priceText: getMultiBrandPriceText(plan),
+      availabilityText: getMultiBrandAvailabilityText(plan),
+      commercialDescription:
+        'Vendé varias marcas desde el mismo local, sin duplicar pantallas ni operación. En modo restaurante se mantiene oculto para clientes, cocina y mozo; en Admin se gestiona como herramienta comercial.',
+      disabledReason:
+        !availableForPlan
+          ? 'Para activar Multimarca, primero cambiá el local al plan Pro o Intelligence.'
+          : undefined,
+    };
+  }
+
+  if (item.key === 'whatsapp_delivery') {
+    return {
+      ...item,
+      actionAvailable: item.available && item.configurable,
+      priceText: 'Cotización aparte',
+      availabilityText: 'Disponible como add-on por local',
+      commercialDescription:
+        'Permite recibir pedidos por WhatsApp y gestionarlos dentro de RestoSmart. Se contrata aparte y no forma parte de ningún plan base.',
+    };
+  }
+
+  return {
+    ...item,
+    available: false,
+    configurable: false,
+    actionAvailable: false,
+    priceText: 'Próximamente',
+    availabilityText: 'Módulo futuro',
+    commercialDescription:
+      'Módulo futuro para asistir la emisión y gestión de comprobantes legales. La activación deberá incluir condiciones comerciales, fiscales y legales específicas.',
+    disabledReason: 'Todavía no disponible.',
+  };
+}
+
 export default function AdminConfiguracionPage() {
   const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
   const [localForm, setLocalForm] = useState<LocalConfig>(DEFAULT_LOCAL);
@@ -246,6 +315,11 @@ const [actualizandoAddonKey, setActualizandoAddonKey] =
     sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
   const businessModeLabel = formatBusinessModeLabel(localForm.business_mode);
   const planChanged = selectedPlan !== plan;
+
+  const addonCards = useMemo(
+  () => addonItems.map((item) => getAddonCard(item, plan)),
+  [addonItems, plan]
+);
 
   const waiterModeStatus =
     localForm.business_mode === 'takeaway'
@@ -346,6 +420,11 @@ async function cargarAddons() {
 
   async function toggleAddon(item: AddonItem) {
   if (!item.available || !item.configurable) return;
+
+  if (item.key === 'multi_brand' && plan === 'esencial') {
+  setError('Multimarca está disponible desde el plan Pro.');
+  return;
+}
 
   try {
     setActualizandoAddonKey(item.key);
@@ -899,7 +978,7 @@ async function cargarAddons() {
   ) : null}
 
   <div className="mt-4 grid gap-4 lg:grid-cols-3">
-    {addonItems.map((item) => {
+    {addonCards.map((item) => {
       const updating = actualizandoAddonKey === item.key;
 
       return (
@@ -917,8 +996,20 @@ async function cargarAddons() {
             <div>
               <h3 className="font-semibold text-slate-900">{item.label}</h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                {item.description}
-              </p>
+  {item.commercialDescription}
+</p>
+
+<div className="mt-3 grid gap-2 text-xs">
+  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+    <span className="font-semibold text-slate-700">Precio:</span>{' '}
+    {item.priceText}
+  </div>
+
+  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+    <span className="font-semibold text-slate-700">Disponibilidad:</span>{' '}
+    {item.availabilityText}
+  </div>
+</div>
             </div>
 
             <span
@@ -935,7 +1026,7 @@ async function cargarAddons() {
           </div>
 
           <div className="mt-4 space-y-2">
-            {item.available && item.configurable ? (
+            {item.actionAvailable ? (
               <button
                 type="button"
                 onClick={() => {
@@ -956,13 +1047,31 @@ async function cargarAddons() {
               </button>
             ) : (
               <button
-                type="button"
-                disabled
-                className="w-full rounded-xl bg-slate-300 px-4 py-2 text-sm font-semibold text-slate-600"
-              >
-                Próximamente
-              </button>
+  type="button"
+  disabled
+  className="w-full rounded-xl bg-slate-300 px-4 py-2 text-sm font-semibold text-slate-600"
+>
+  {item.key === 'multi_brand' && plan === 'esencial'
+    ? 'Disponible desde Pro'
+    : 'Próximamente'}
+</button>
             )}
+
+            {item.disabledReason ? (
+  <p className="text-xs leading-relaxed text-slate-500">
+    {item.disabledReason}
+  </p>
+) : null}
+
+{item.key === 'multi_brand' && plan === 'esencial' ? (
+  <button
+    type="button"
+    onClick={() => setSelectedPlan('pro')}
+    className="w-full rounded-xl border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+  >
+    Seleccionar plan Pro
+  </button>
+) : null}
 
             {item.key === 'whatsapp_delivery' && item.enabled ? (
               <Link

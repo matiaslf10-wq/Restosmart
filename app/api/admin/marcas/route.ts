@@ -4,11 +4,29 @@ import {
   getFallbackAdminAccess,
   resolveAdminAccess,
   type AdminAccessResolutionOptions,
+  type AdminAccessSnapshot,
 } from '@/lib/adminAccess';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const MARCAS_SELECT = `
+  id,
+  tenant_id,
+  restaurant_id,
+  slug,
+  nombre,
+  descripcion,
+  logo_url,
+  color_hex,
+  activa,
+  orden,
+  creado_en,
+  actualizada_en
+`;
+
+const PRO_ACTIVE_BRANDS_LIMIT = 3;
 
 type MarcaBody = {
   nombre?: string;
@@ -96,7 +114,10 @@ function extractRequestedTenantContext(
   };
 }
 
-async function resolveAccessForRequest(request: NextRequest, session: unknown) {
+async function resolveAccessForRequest(
+  request: NextRequest,
+  session: unknown
+): Promise<AdminAccessSnapshot> {
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
@@ -107,11 +128,29 @@ async function resolveAccessForRequest(request: NextRequest, session: unknown) {
   }
 }
 
-function assertCanUseMultiBrand(access: Awaited<ReturnType<typeof getFallbackAdminAccess>>) {
+function canUseMultiBrand(access: AdminAccessSnapshot) {
   return !!access.capabilities?.multi_brand;
 }
 
-async function ensureDefaultMarca(access: Awaited<ReturnType<typeof getFallbackAdminAccess>>) {
+function validateMultiBrandAccess(access: AdminAccessSnapshot) {
+  if (!canUseMultiBrand(access)) {
+    return NextResponse.json(
+      { error: 'El add-on Multimarca no está activo para este local.' },
+      { status: 403 }
+    );
+  }
+
+  if (access.plan === 'esencial') {
+    return NextResponse.json(
+      { error: 'Multimarca está disponible desde el plan Pro.' },
+      { status: 409 }
+    );
+  }
+
+  return null;
+}
+
+async function ensureDefaultMarca(access: AdminAccessSnapshot) {
   const { data: existing, error: existingError } = await supabaseAdmin
     .from('marcas')
     .select('id')
@@ -145,6 +184,43 @@ async function ensureDefaultMarca(access: Awaited<ReturnType<typeof getFallbackA
   }
 }
 
+async function countActiveBrands(tenantId: string) {
+  const { count, error } = await supabaseAdmin
+    .from('marcas')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .eq('activa', true);
+
+  if (error) {
+    throw error;
+  }
+
+  return count ?? 0;
+}
+
+async function validateBrandLimitForCreate(
+  access: AdminAccessSnapshot,
+  requestedActive: boolean
+) {
+  if (!requestedActive) return null;
+
+  if (access.plan !== 'pro') return null;
+
+  const activeBrandsCount = await countActiveBrands(access.tenantId);
+
+  if (activeBrandsCount >= PRO_ACTIVE_BRANDS_LIMIT) {
+    return NextResponse.json(
+      {
+        error:
+          'El add-on Multimarca en Pro permite hasta 3 marcas activas. Para marcas ilimitadas, usá Intelligence.',
+      },
+      { status: 409 }
+    );
+  }
+
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   const auth = requireAdminAuth(request);
 
@@ -154,21 +230,15 @@ export async function GET(request: NextRequest) {
 
   const access = await resolveAccessForRequest(request, auth.session);
 
-  if (!assertCanUseMultiBrand(access)) {
-    return NextResponse.json(
-      { error: 'El add-on Multimarca no está activo para este local.' },
-      { status: 403 }
-    );
-  }
+  const accessError = validateMultiBrandAccess(access);
+  if (accessError) return accessError;
 
   try {
     await ensureDefaultMarca(access);
 
     const { data, error } = await supabaseAdmin
       .from('marcas')
-      .select(
-        'id, tenant_id, restaurant_id, slug, nombre, descripcion, logo_url, color_hex, activa, orden, creado_en, actualizada_en'
-      )
+      .select(MARCAS_SELECT)
       .eq('tenant_id', access.tenantId)
       .order('activa', { ascending: false })
       .order('orden', { ascending: true })
@@ -179,6 +249,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       tenantId: access.tenantId,
+      plan: access.plan,
+      limit:
+        access.plan === 'pro'
+          ? {
+              active_brands: PRO_ACTIVE_BRANDS_LIMIT,
+              unlimited: false,
+            }
+          : {
+              active_brands: null,
+              unlimited: true,
+            },
       marcas: data ?? [],
     });
   } catch (error) {
@@ -199,12 +280,8 @@ export async function POST(request: NextRequest) {
 
   const access = await resolveAccessForRequest(request, auth.session);
 
-  if (!assertCanUseMultiBrand(access)) {
-    return NextResponse.json(
-      { error: 'El add-on Multimarca no está activo para este local.' },
-      { status: 403 }
-    );
-  }
+  const accessError = validateMultiBrandAccess(access);
+  if (accessError) return accessError;
 
   let body: MarcaBody | null = null;
 
@@ -223,30 +300,51 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const payload = {
-    tenant_id: access.tenantId,
-    restaurant_id: access.restaurant?.id ?? null,
-    slug: access.restaurant?.slug ?? access.tenantId,
-    nombre,
-    descripcion: normalizeNullableString(body?.descripcion),
-    logo_url: normalizeNullableString(body?.logo_url),
-    color_hex: normalizeNullableString(body?.color_hex),
-    activa: normalizeBoolean(body?.activa, true),
-    orden: normalizeInteger(body?.orden, 0),
-  };
+  const activa = normalizeBoolean(body?.activa, true);
 
   try {
+    await ensureDefaultMarca(access);
+
+    const limitError = await validateBrandLimitForCreate(access, activa);
+    if (limitError) return limitError;
+
+    const payload = {
+      tenant_id: access.tenantId,
+      restaurant_id: access.restaurant?.id ?? null,
+      slug: access.restaurant?.slug ?? access.tenantId,
+      nombre,
+      descripcion: normalizeNullableString(body?.descripcion),
+      logo_url: normalizeNullableString(body?.logo_url),
+      color_hex: normalizeNullableString(body?.color_hex),
+      activa,
+      orden: normalizeInteger(body?.orden, 0),
+    };
+
     const { data, error } = await supabaseAdmin
       .from('marcas')
       .insert([payload])
-      .select(
-        'id, tenant_id, restaurant_id, slug, nombre, descripcion, logo_url, color_hex, activa, orden, creado_en, actualizada_en'
-      )
+      .select(MARCAS_SELECT)
       .single();
 
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, marca: data }, { status: 201 });
+    return NextResponse.json(
+      {
+        ok: true,
+        marca: data,
+        limit:
+          access.plan === 'pro'
+            ? {
+                active_brands: PRO_ACTIVE_BRANDS_LIMIT,
+                unlimited: false,
+              }
+            : {
+                active_brands: null,
+                unlimited: true,
+              },
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error('POST /api/admin/marcas error:', error);
     return NextResponse.json(
