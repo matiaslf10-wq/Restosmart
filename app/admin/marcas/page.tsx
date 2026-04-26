@@ -1,7 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from 'react';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
 import { formatPlanLabel, type PlanCode } from '@/lib/plans';
 
 type Marca = {
@@ -44,6 +51,28 @@ const initialForm: FormMarca = {
   orden: '0',
 };
 
+const BRAND_COLOR_OPTIONS = [
+  { label: 'Azul', value: '#2563eb' },
+  { label: 'Celeste', value: '#0284c7' },
+  { label: 'Verde', value: '#16a34a' },
+  { label: 'Esmeralda', value: '#059669' },
+  { label: 'Ámbar', value: '#d97706' },
+  { label: 'Naranja', value: '#ea580c' },
+  { label: 'Rojo', value: '#dc2626' },
+  { label: 'Rosa', value: '#db2777' },
+  { label: 'Violeta', value: '#7c3aed' },
+  { label: 'Negro', value: '#111827' },
+];
+
+function sanitizeFileName(name: string) {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/-+/g, '-')
+    .toLowerCase();
+}
+
 function normalizeIntegerInput(value: string) {
   return value.replace(/[^\d-]/g, '');
 }
@@ -65,6 +94,9 @@ export default function AdminMarcasPage() {
 
   const [form, setForm] = useState<FormMarca>(initialForm);
   const [editandoId, setEditandoId] = useState<string | null>(null);
+
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+const [subiendoLogo, setSubiendoLogo] = useState(false);
 
   const marcasActivas = useMemo(
     () => marcas.filter((marca) => marca.activa !== false),
@@ -159,6 +191,50 @@ export default function AdminMarcasPage() {
           : '0',
     });
   };
+
+  const seleccionarLogo = async (e: ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+
+  if (!file) return;
+
+  setSubiendoLogo(true);
+  setMensaje(null);
+  setError(null);
+
+  try {
+    const ext = file.name.split('.').pop() || 'jpg';
+    const baseName = sanitizeFileName(file.name.replace(/\.[^.]+$/, ''));
+    const path = `marcas/${Date.now()}-${baseName}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('productos')
+      .upload(path, file, {
+        upsert: false,
+        cacheControl: '3600',
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage.from('productos').getPublicUrl(path);
+
+    setForm((prev) => ({
+      ...prev,
+      logo_url: data.publicUrl,
+    }));
+
+    setMensaje('Logo cargado correctamente. No te olvides de guardar la marca.');
+  } catch (err) {
+    console.error('Error subiendo logo de marca:', err);
+    setError(
+      err instanceof Error
+        ? err.message
+        : 'No se pudo subir el logo de la marca.'
+    );
+  } finally {
+    setSubiendoLogo(false);
+    e.target.value = '';
+  }
+};
 
   const guardarMarca = async () => {
     const nombre = form.nombre.trim();
@@ -448,35 +524,102 @@ export default function AdminMarcasPage() {
                 />
               </label>
 
-              <label className="grid gap-2">
-                <span className="text-sm font-medium text-slate-700">
-                  Logo URL
-                </span>
-                <input
-                  type="text"
-                  value={form.logo_url}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, logo_url: e.target.value }))
-                  }
-                  placeholder="https://..."
-                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
+              <div className="grid gap-2">
+  <span className="text-sm font-medium text-slate-700">Logo</span>
 
-              <label className="grid gap-2">
-                <span className="text-sm font-medium text-slate-700">
-                  Color
-                </span>
-                <input
-                  type="text"
-                  value={form.color_hex}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, color_hex: e.target.value }))
-                  }
-                  placeholder="#10b981"
-                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
+  <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+    {form.logo_url ? (
+      <img
+        src={form.logo_url}
+        alt="Logo de marca"
+        className="h-16 w-16 rounded-2xl border border-slate-200 bg-white object-cover"
+      />
+    ) : (
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white text-[11px] text-slate-400">
+        Sin logo
+      </div>
+    )}
+
+    <div className="flex flex-col gap-2">
+      <input
+        ref={logoInputRef}
+        type="file"
+        accept="image/*"
+        onChange={seleccionarLogo}
+        className="hidden"
+      />
+
+      <button
+        type="button"
+        onClick={() => logoInputRef.current?.click()}
+        disabled={subiendoLogo}
+        className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+      >
+        {subiendoLogo ? 'Subiendo logo...' : 'Seleccionar logo'}
+      </button>
+
+      {form.logo_url ? (
+        <button
+          type="button"
+          onClick={() =>
+            setForm((prev) => ({
+              ...prev,
+              logo_url: '',
+            }))
+          }
+          className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+        >
+          Quitar logo
+        </button>
+      ) : null}
+    </div>
+  </div>
+
+  <p className="text-xs text-slate-500">
+    Podés seleccionar una imagen del dispositivo. En celular, el selector suele
+    permitir elegir desde galería, archivos o Google Fotos según la configuración
+    del equipo.
+  </p>
+</div>
+
+              <div className="grid gap-2">
+  <span className="text-sm font-medium text-slate-700">Color de marca</span>
+
+  <div className="grid grid-cols-5 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+    {BRAND_COLOR_OPTIONS.map((color) => {
+      const selected = form.color_hex === color.value;
+
+      return (
+        <button
+          key={color.value}
+          type="button"
+          onClick={() =>
+            setForm((prev) => ({
+              ...prev,
+              color_hex: color.value,
+            }))
+          }
+          className={`flex flex-col items-center gap-1 rounded-xl border px-2 py-2 text-[11px] font-medium transition ${
+            selected
+              ? 'border-slate-900 bg-white ring-2 ring-slate-900'
+              : 'border-slate-200 bg-white hover:border-slate-400'
+          }`}
+          title={color.label}
+        >
+          <span
+            className="h-7 w-7 rounded-full border border-black/10"
+            style={{ backgroundColor: color.value }}
+          />
+          <span className="text-slate-700">{color.label}</span>
+        </button>
+      );
+    })}
+  </div>
+
+  <p className="text-xs text-slate-500">
+    Elegí un color predeterminado para identificar la marca en Admin y mostrador.
+  </p>
+</div>
 
               <label className="flex items-center gap-2 md:col-span-2">
                 <input
@@ -511,162 +654,216 @@ export default function AdminMarcasPage() {
           </section>
 
           <section className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Marcas activas
-              </h2>
+  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <h2 className="text-lg font-semibold text-slate-900">
+      Marcas activas
+    </h2>
 
-              {marcasActivas.length === 0 ? (
-                <p className="mt-3 text-sm text-slate-600">
-                  Todavía no hay marcas activas.
-                </p>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {marcasActivas.map((marca) => (
-                    <article
-                      key={marca.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="font-semibold text-slate-900">
-                              {marca.nombre}
-                            </h3>
+    {marcasActivas.length === 0 ? (
+      <p className="mt-3 text-sm text-slate-600">
+        Todavía no hay marcas activas.
+      </p>
+    ) : (
+      <div className="mt-4 space-y-3">
+        {marcasActivas.map((marca) => (
+          <article
+            key={marca.id}
+            className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                {marca.logo_url ? (
+                  <img
+                    src={marca.logo_url}
+                    alt={marca.nombre}
+                    className="h-12 w-12 rounded-2xl border border-slate-200 bg-white object-cover"
+                  />
+                ) : (
+                  <div
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 text-xs font-bold text-white"
+                    style={{ backgroundColor: marca.color_hex || '#64748b' }}
+                  >
+                    {marca.nombre.trim().charAt(0).toUpperCase()}
+                  </div>
+                )}
 
-                            {isMarcaPrincipal(marca) ? (
-                              <span className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700">
-                                Principal
-                              </span>
-                            ) : null}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-semibold text-slate-900">
+                      {marca.nombre}
+                    </h3>
 
-                            <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-800">
-                              Activa
-                            </span>
-                          </div>
+                    {isMarcaPrincipal(marca) ? (
+                      <span className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700">
+                        Principal
+                      </span>
+                    ) : null}
 
-                          {marca.descripcion ? (
-                            <p className="mt-1 text-sm text-slate-600">
-                              {marca.descripcion}
-                            </p>
-                          ) : null}
+                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-800">
+                      Activa
+                    </span>
+                  </div>
 
-                          <p className="mt-2 text-xs text-slate-500">
-                            Orden: {marca.orden ?? 0}
-                          </p>
-                        </div>
+                  {marca.descripcion ? (
+                    <p className="mt-1 text-sm text-slate-600">
+                      {marca.descripcion}
+                    </p>
+                  ) : null}
 
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            onClick={() => comenzarEdicion(marca)}
-                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            Editar
-                          </button>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span>Orden: {marca.orden ?? 0}</span>
 
-                          {!isMarcaPrincipal(marca) ? (
-                            <button
-                              onClick={() => {
-                                void alternarActiva(marca);
-                              }}
-                              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100"
-                            >
-                              Desactivar
-                            </button>
-                          ) : null}
-
-                          {!isMarcaPrincipal(marca) ? (
-                            <button
-                              onClick={() => {
-                                void eliminarMarca(marca);
-                              }}
-                              disabled={eliminandoId === marca.id}
-                              className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
-                            >
-                              {eliminandoId === marca.id ? 'Eliminando...' : 'Eliminar'}
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    </article>
-                  ))}
+                    {marca.color_hex ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span
+                          className="h-3 w-3 rounded-full border border-black/10"
+                          style={{ backgroundColor: marca.color_hex }}
+                        />
+                        {marca.color_hex}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
-              )}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => comenzarEdicion(marca)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  Editar
+                </button>
+
+                {!isMarcaPrincipal(marca) ? (
+                  <button
+                    onClick={() => {
+                      void alternarActiva(marca);
+                    }}
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                  >
+                    Desactivar
+                  </button>
+                ) : null}
+
+                {!isMarcaPrincipal(marca) ? (
+                  <button
+                    onClick={() => {
+                      void eliminarMarca(marca);
+                    }}
+                    disabled={eliminandoId === marca.id}
+                    className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                  >
+                    {eliminandoId === marca.id ? 'Eliminando...' : 'Eliminar'}
+                  </button>
+                ) : null}
+              </div>
             </div>
+          </article>
+        ))}
+      </div>
+    )}
+  </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Marcas inactivas
-              </h2>
+  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <h2 className="text-lg font-semibold text-slate-900">
+      Marcas inactivas
+    </h2>
 
-              {marcasInactivas.length === 0 ? (
-                <p className="mt-3 text-sm text-slate-600">
-                  No hay marcas inactivas.
-                </p>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {marcasInactivas.map((marca) => (
-                    <article
-                      key={marca.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4 opacity-80"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="font-semibold text-slate-900">
-                              {marca.nombre}
-                            </h3>
+    {marcasInactivas.length === 0 ? (
+      <p className="mt-3 text-sm text-slate-600">
+        No hay marcas inactivas.
+      </p>
+    ) : (
+      <div className="mt-4 space-y-3">
+        {marcasInactivas.map((marca) => (
+          <article
+            key={marca.id}
+            className="rounded-2xl border border-slate-200 bg-slate-50 p-4 opacity-80"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                {marca.logo_url ? (
+                  <img
+                    src={marca.logo_url}
+                    alt={marca.nombre}
+                    className="h-12 w-12 rounded-2xl border border-slate-200 bg-white object-cover"
+                  />
+                ) : (
+                  <div
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 text-xs font-bold text-white"
+                    style={{ backgroundColor: marca.color_hex || '#64748b' }}
+                  >
+                    {marca.nombre.trim().charAt(0).toUpperCase()}
+                  </div>
+                )}
 
-                            <span className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700">
-                              Inactiva
-                            </span>
-                          </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-semibold text-slate-900">
+                      {marca.nombre}
+                    </h3>
 
-                          {marca.descripcion ? (
-                            <p className="mt-1 text-sm text-slate-600">
-                              {marca.descripcion}
-                            </p>
-                          ) : null}
+                    <span className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700">
+                      Inactiva
+                    </span>
+                  </div>
 
-                          <p className="mt-2 text-xs text-slate-500">
-                            Orden: {marca.orden ?? 0}
-                          </p>
-                        </div>
+                  {marca.descripcion ? (
+                    <p className="mt-1 text-sm text-slate-600">
+                      {marca.descripcion}
+                    </p>
+                  ) : null}
 
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            onClick={() => comenzarEdicion(marca)}
-                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            Editar
-                          </button>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span>Orden: {marca.orden ?? 0}</span>
 
-                          <button
-                            onClick={() => {
-                              void alternarActiva(marca);
-                            }}
-                            className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
-                          >
-                            Activar
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              void eliminarMarca(marca);
-                            }}
-                            disabled={eliminandoId === marca.id}
-                            className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
-                          >
-                            {eliminandoId === marca.id ? 'Eliminando...' : 'Eliminar'}
-                          </button>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
+                    {marca.color_hex ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span
+                          className="h-3 w-3 rounded-full border border-black/10"
+                          style={{ backgroundColor: marca.color_hex }}
+                        />
+                        {marca.color_hex}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
-              )}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => comenzarEdicion(marca)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  Editar
+                </button>
+
+                <button
+                  onClick={() => {
+                    void alternarActiva(marca);
+                  }}
+                  className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                >
+                  Activar
+                </button>
+
+                <button
+                  onClick={() => {
+                    void eliminarMarca(marca);
+                  }}
+                  disabled={eliminandoId === marca.id}
+                  className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                >
+                  {eliminandoId === marca.id ? 'Eliminando...' : 'Eliminar'}
+                </button>
+              </div>
             </div>
-          </section>
+          </article>
+        ))}
+      </div>
+    )}
+  </div>
+</section>
         </>
       ) : null}
     </div>
