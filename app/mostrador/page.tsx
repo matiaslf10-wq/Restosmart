@@ -608,8 +608,9 @@ function MostradorPageContent() {
         }
 
         setCurrentPlan((session?.plan ?? 'esencial') as PlanCode);
-        setCanUseWaiterMode(!!session?.capabilities?.waiter_mode);
-        setBusinessMode(
+setCanUseWaiterMode(!!session?.capabilities?.waiter_mode);
+setCanUseMultiBrand(!!session?.capabilities?.multi_brand);
+setBusinessMode(
           normalizeBusinessMode(
             session?.business_mode ?? session?.restaurant?.business_mode
           )
@@ -666,7 +667,7 @@ function MostradorPageContent() {
             id,
             cantidad,
             comentarios,
-            producto:productos ( id, nombre, precio )
+            producto:productos ( id, nombre, precio, marca_id )
           )
         `
       )
@@ -678,15 +679,28 @@ function MostradorPageContent() {
       .select('id, numero, nombre');
 
     const productosPromise = fetch('/api/productos?soloDisponibles=1', {
+  method: 'GET',
+  cache: 'no-store',
+});
+
+const marcasPromise = canUseMultiBrand
+  ? fetch('/api/admin/marcas', {
       method: 'GET',
       cache: 'no-store',
-    });
+    })
+  : Promise.resolve(null);
 
-    const [
-      { data: pedidosData, error: pedidosError },
-      { data: mesasData, error: mesasError },
-      productosRes,
-    ] = await Promise.all([pedidosPromise, mesasPromise, productosPromise]);
+const [
+  { data: pedidosData, error: pedidosError },
+  { data: mesasData, error: mesasError },
+  productosRes,
+  marcasRes,
+] = await Promise.all([
+  pedidosPromise,
+  mesasPromise,
+  productosPromise,
+  marcasPromise,
+]);
 
     if (pedidosError) {
       console.error('Error cargando pedidos en mostrador:', pedidosError);
@@ -804,6 +818,26 @@ function MostradorPageContent() {
         if (prev && cats.includes(prev)) return prev;
         return cats[0] ?? null;
       });
+
+      if (!canUseMultiBrand) {
+  setMarcas([]);
+} else if (marcasRes) {
+  const marcasBody = await marcasRes.json().catch(() => null);
+
+  if (!marcasRes.ok) {
+    console.error('Error cargando marcas en mostrador:', {
+      status: marcasRes.status,
+      body: marcasBody,
+    });
+    setMarcas([]);
+  } else {
+    const marcasData = ((marcasBody?.marcas ?? []) as Marca[]).filter(
+      (marca) => marca.activa !== false
+    );
+
+    setMarcas(marcasData);
+  }
+}
     }
   } catch (err) {
     console.error('Error inesperado cargando mostrador:', err);
@@ -812,6 +846,7 @@ function MostradorPageContent() {
     setCargando(false);
   }
 }, [
+  canUseMultiBrand,
   focusMesaId,
   manualMesaId,
   marcarPedidosComoNuevos,
@@ -889,6 +924,48 @@ function MostradorPageContent() {
     () => new Set(recentlyArrivedPedidoIds),
     [recentlyArrivedPedidoIds]
   );
+
+  const marcasPorId = useMemo(() => {
+  return new Map(marcas.map((marca) => [marca.id, marca]));
+}, [marcas]);
+
+function getMarcaProducto(producto: Producto | ItemPedido['producto'] | null | undefined) {
+  if (!canUseMultiBrand) return null;
+
+  const marcaId = producto?.marca_id ?? null;
+  if (!marcaId) return null;
+
+  return marcasPorId.get(marcaId) ?? null;
+}
+
+function renderMarcaBadge(
+  producto: Producto | ItemPedido['producto'] | null | undefined
+) {
+  const marca = getMarcaProducto(producto);
+
+  if (!marca) return null;
+
+  const color = marca.color_hex?.trim() || '#64748b';
+
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-700">
+      {marca.logo_url ? (
+        <img
+          src={marca.logo_url}
+          alt={marca.nombre}
+          className="h-3.5 w-3.5 rounded-full object-cover"
+        />
+      ) : (
+        <span
+          className="h-2.5 w-2.5 rounded-full"
+          style={{ backgroundColor: color }}
+        />
+      )}
+
+      <span className="truncate">{marca.nombre}</span>
+    </span>
+  );
+}
 
   function agregarAlCarrito(producto: Producto) {
     setError(null);
@@ -1758,9 +1835,12 @@ function MostradorPageContent() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <span className="font-medium text-slate-900">
-                              {item.producto.nombre}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-1">
+  <span className="font-medium text-slate-900">
+    {item.producto.nombre}
+  </span>
+  {renderMarcaBadge(item.producto)}
+</div>
                             {tieneLimite ? (
                               <p className="text-xs text-slate-500">
                                 Máximo disponible: {maxCantidad}
@@ -2095,8 +2175,10 @@ function MostradorPageContent() {
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-1">
                                   <span className="text-[11px] font-semibold text-slate-900">
-                                    {item.cantidad} × {item.producto?.nombre ?? '—'}
-                                  </span>
+  {item.cantidad} × {item.producto?.nombre ?? '—'}
+</span>
+
+{renderMarcaBadge(item.producto)}
 
                                   <span
                                     className={`rounded-full px-2 py-1 text-[10px] font-medium ${
@@ -2440,8 +2522,10 @@ const isPassedToCash = mesa.pasadaACaja;
                                       <div className="min-w-0">
                                         <div className="flex flex-wrap items-center gap-1">
                                           <span className="text-[11px] font-medium text-slate-900">
-                                            {item.cantidad} × {item.producto?.nombre ?? '—'}
-                                          </span>
+  {item.cantidad} × {item.producto?.nombre ?? '—'}
+</span>
+
+{renderMarcaBadge(item.producto)}
 
                                           <span
                                             className={`rounded-full px-2 py-1 text-[10px] font-medium ${
