@@ -31,6 +31,16 @@ type RowCanal = {
   ingresos: number;
 };
 
+type RowMarca = {
+  marca_id: string | null;
+  marca_nombre: string;
+  color_hex: string | null;
+  logo_url: string | null;
+  pedidos: number;
+  unidades: number;
+  ingresos: number;
+};
+
 type RowSerieDiaria = {
   fecha: string;
   pedidos: number;
@@ -58,6 +68,13 @@ type PedidoAnalyticsRow = {
   tipo_servicio: string | null;
   origen: string | null;
   items_pedido: unknown[] | null;
+};
+
+type MarcaRow = {
+  id: string;
+  nombre: string;
+  color_hex: string | null;
+  logo_url: string | null;
 };
 
 const CLOSED_STATUSES = new Set(['cerrado', 'entregado', 'finalizado']);
@@ -185,56 +202,39 @@ function getProductoRaw(item: unknown): unknown {
   return (item as { producto?: unknown }).producto ?? null;
 }
 
-function getProductoPrecio(item: unknown): number {
+function getProductoObject(item: unknown): Record<string, unknown> | null {
   const producto = getProductoRaw(item);
 
   if (Array.isArray(producto)) {
-    return Number(
-      (producto[0] as { precio?: number | null } | undefined)?.precio ?? 0
-    );
+    return asRecord(producto[0]);
   }
 
-  if (producto && typeof producto === 'object') {
-    return Number((producto as { precio?: number | null }).precio ?? 0);
-  }
+  return asRecord(producto);
+}
 
-  return 0;
+function getProductoPrecio(item: unknown): number {
+  const producto = getProductoObject(item);
+  return Number(producto?.precio ?? 0);
 }
 
 function getProductoNombre(item: unknown): string {
-  const producto = getProductoRaw(item);
-
-  if (Array.isArray(producto)) {
-    return String(
-      (producto[0] as { nombre?: string | null } | undefined)?.nombre ??
-        'Producto'
-    );
-  }
-
-  if (producto && typeof producto === 'object') {
-    return String((producto as { nombre?: string | null }).nombre ?? 'Producto');
-  }
-
-  return 'Producto';
+  const producto = getProductoObject(item);
+  return String(producto?.nombre ?? 'Producto');
 }
 
 function getProductoId(item: unknown): number {
-  const producto = getProductoRaw(item);
-
-  if (Array.isArray(producto)) {
-    return Number(
-      (producto[0] as { id?: number | null } | undefined)?.id ?? 0
-    );
-  }
-
-  if (producto && typeof producto === 'object') {
-    return Number((producto as { id?: number | null }).id ?? 0);
-  }
-
-  return 0;
+  const producto = getProductoObject(item);
+  return Number(producto?.id ?? 0);
 }
 
-function getPedidoCanal(pedido: Pick<PedidoAnalyticsRow, 'mesa_id' | 'tipo_servicio' | 'origen'>): CanalCode {
+function getProductoMarcaId(item: unknown): string | null {
+  const producto = getProductoObject(item);
+  return normalizeNonEmptyString(producto?.marca_id);
+}
+
+function getPedidoCanal(
+  pedido: Pick<PedidoAnalyticsRow, 'mesa_id' | 'tipo_servicio' | 'origen'>
+): CanalCode {
   const tipoServicio = normalizeText(pedido.tipo_servicio);
   const origen = normalizeText(pedido.origen);
 
@@ -331,7 +331,12 @@ function buildPedidosQuery(isoDesde: string, isoHasta: string) {
       origen,
       items_pedido (
         cantidad,
-        producto:productos ( id, nombre, precio )
+        producto:productos (
+          id,
+          nombre,
+          precio,
+          marca_id
+        )
       )
     `
     )
@@ -350,19 +355,17 @@ async function loadPedidosRango(
       restaurantId
     );
 
-    if (!byRestaurant.error && (byRestaurant.data?.length ?? 0) > 0) {
+    if (!byRestaurant.error) {
       return {
         data: byRestaurant.data ?? [],
         scopeUsed: 'restaurant_id',
       };
     }
 
-    if (byRestaurant.error) {
-      console.error(
-        'analytics pedidos by restaurant_id error:',
-        byRestaurant.error
-      );
-    }
+    console.error(
+      'analytics pedidos by restaurant_id error:',
+      byRestaurant.error
+    );
   }
 
   const unscoped = await buildPedidosQuery(isoDesde, isoHasta);
@@ -377,24 +380,115 @@ async function loadPedidosRango(
   };
 }
 
-function buildTiemposQuery(isoDesde: string, isoHasta: string) {
-  return supabaseAdmin
-    .from('vw_tiempos_pedido')
-    .select(
-      `
-      pedido_id,
-      mesa_id,
-      creado_en,
-      estado_actual,
-      min_mozo_confirma,
-      min_espera_cocina,
-      min_preparacion,
-      min_total_hasta_listo
-    `
-    )
-    .gte('creado_en', isoDesde)
-    .lte('creado_en', isoHasta)
-    .order('creado_en', { ascending: false });
+async function loadMarcasByIds(marcaIds: string[]) {
+  const uniqueIds = Array.from(new Set(marcaIds.filter(Boolean)));
+
+  if (uniqueIds.length === 0) {
+    return new Map<string, MarcaRow>();
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('marcas')
+    .select('id, nombre, color_hex, logo_url')
+    .in('id', uniqueIds);
+
+  if (error) {
+    console.error('analytics marcas read error:', error);
+    return new Map<string, MarcaRow>();
+  }
+
+  return new Map(
+    ((data ?? []) as MarcaRow[]).map((marca) => [String(marca.id), marca])
+  );
+}
+
+function collectMarcaIdsFromPedidos(lista: PedidoAnalyticsRow[]) {
+  const ids = new Set<string>();
+
+  for (const pedido of lista) {
+    const items: unknown[] = Array.isArray(pedido.items_pedido)
+      ? pedido.items_pedido
+      : [];
+
+    for (const item of items) {
+      const marcaId = getProductoMarcaId(item);
+      if (marcaId) ids.add(marcaId);
+    }
+  }
+
+  return Array.from(ids);
+}
+
+function buildVentasPorMarca(
+  lista: PedidoAnalyticsRow[],
+  marcasMap: Map<string, MarcaRow>
+): RowMarca[] {
+  const SIN_MARCA_KEY = '__sin_marca__';
+
+  const map = new Map<
+    string,
+    {
+      marca_id: string | null;
+      marca_nombre: string;
+      color_hex: string | null;
+      logo_url: string | null;
+      pedidoIds: Set<number>;
+      unidades: number;
+      ingresos: number;
+    }
+  >();
+
+  for (const pedido of lista) {
+    if (!isClosedStatus(pedido.estado)) continue;
+
+    const items: unknown[] = Array.isArray(pedido.items_pedido)
+      ? pedido.items_pedido
+      : [];
+
+    for (const item of items) {
+      const marcaId = getProductoMarcaId(item);
+      const marca = marcaId ? marcasMap.get(marcaId) : null;
+      const key = marcaId ?? SIN_MARCA_KEY;
+
+      const cantidad = getItemCantidad(item);
+      const precio = getProductoPrecio(item);
+      const ingresosItem = cantidad * precio;
+
+      const prev =
+        map.get(key) ??
+        {
+          marca_id: marcaId,
+          marca_nombre: marca?.nombre ?? 'Sin marca',
+          color_hex: marca?.color_hex ?? null,
+          logo_url: marca?.logo_url ?? null,
+          pedidoIds: new Set<number>(),
+          unidades: 0,
+          ingresos: 0,
+        };
+
+      prev.pedidoIds.add(Number(pedido.id));
+      prev.unidades += cantidad;
+      prev.ingresos = safeRound(prev.ingresos + ingresosItem);
+
+      map.set(key, prev);
+    }
+  }
+
+  return Array.from(map.values())
+    .map((row) => ({
+      marca_id: row.marca_id,
+      marca_nombre: row.marca_nombre,
+      color_hex: row.color_hex,
+      logo_url: row.logo_url,
+      pedidos: row.pedidoIds.size,
+      unidades: row.unidades,
+      ingresos: row.ingresos,
+    }))
+    .sort((a, b) => {
+      if (b.ingresos !== a.ingresos) return b.ingresos - a.ingresos;
+      if (b.unidades !== a.unidades) return b.unidades - a.unidades;
+      return a.marca_nombre.localeCompare(b.marca_nombre);
+    });
 }
 
 async function loadTiemposRango(
@@ -459,7 +553,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const restaurantId = access.restaurant?.id ?? requestedContext.restaurantId ?? null;
+  const restaurantId =
+    access.restaurant?.id ?? requestedContext.restaurantId ?? null;
   const tenantId = access.tenantId ?? requestedContext.tenantSlug ?? null;
 
   if (!restaurantId && !tenantId) {
@@ -482,7 +577,8 @@ export async function GET(request: NextRequest) {
   if (desde > hasta) {
     return NextResponse.json(
       {
-        error: 'El rango es inválido: la fecha Desde no puede ser mayor que Hasta.',
+        error:
+          'El rango es inválido: la fecha Desde no puede ser mayor que Hasta.',
       },
       { status: 400 }
     );
@@ -493,22 +589,22 @@ export async function GET(request: NextRequest) {
 
   try {
     const pedidosResult = await loadPedidosRango(
-  isoDesde,
-  isoHasta,
-  restaurantId
-);
+      isoDesde,
+      isoHasta,
+      restaurantId
+    );
 
-const pedidosRango = pedidosResult.data;
+    const pedidosRango = pedidosResult.data;
 
-console.log('ANALYTICS DEBUG PEDIDOS', {
-  restaurantId,
-  tenantId,
-  desde,
-  hasta,
-  scopeUsed: pedidosResult.scopeUsed,
-  pedidosCount: pedidosRango.length,
-  firstPedido: pedidosRango[0] ?? null,
-});
+    console.log('ANALYTICS DEBUG PEDIDOS', {
+      restaurantId,
+      tenantId,
+      desde,
+      hasta,
+      scopeUsed: pedidosResult.scopeUsed,
+      pedidosCount: pedidosRango.length,
+      firstPedido: pedidosRango[0] ?? null,
+    });
 
     const lista = (pedidosRango ?? []) as unknown as PedidoAnalyticsRow[];
 
@@ -597,6 +693,10 @@ console.log('ANALYTICS DEBUG PEDIDOS', {
       })
       .slice(0, 15);
 
+    const marcaIds = collectMarcaIdsFromPedidos(lista);
+    const marcasMap = await loadMarcasByIds(marcaIds);
+    const ventasPorMarca = buildVentasPorMarca(lista, marcasMap);
+
     const canalesBase: Record<CanalCode, RowCanal> = {
       salon: { canal: 'salon', cantidad: 0, ingresos: 0 },
       takeaway: { canal: 'takeaway', cantidad: 0, ingresos: 0 },
@@ -628,7 +728,7 @@ console.log('ANALYTICS DEBUG PEDIDOS', {
       canalesBase.delivery,
     ];
 
-        const serieDiariaBase = new Map<string, RowSerieDiaria>();
+    const serieDiariaBase = new Map<string, RowSerieDiaria>();
 
     for (const fecha of buildDateRangeList(desde, hasta)) {
       serieDiariaBase.set(fecha, {
@@ -667,29 +767,28 @@ console.log('ANALYTICS DEBUG PEDIDOS', {
       }
     }
 
-    const serieDiaria: RowSerieDiaria[] = Array.from(serieDiariaBase.values()).sort(
-      (a, b) => a.fecha.localeCompare(b.fecha)
-    );
+    const serieDiaria: RowSerieDiaria[] = Array.from(
+      serieDiariaBase.values()
+    ).sort((a, b) => a.fecha.localeCompare(b.fecha));
 
     let tiempos: RowTiemposPedido[] = [];
 
-try {
-  const tiemposData = await loadTiemposRango(
-  isoDesde,
-  isoHasta,
-  pedidosRango.map((pedido) => Number(pedido.id)).filter((id) => id > 0)
-);
+    try {
+      const tiemposData = await loadTiemposRango(
+        isoDesde,
+        isoHasta,
+        pedidosRango.map((pedido) => Number(pedido.id)).filter((id) => id > 0)
+      );
 
-  tiempos = tiemposData as RowTiemposPedido[];
-} catch (error) {
-  console.error('GET /api/admin/analytics tiempos unexpected warning:', error);
-}
+      tiempos = tiemposData as RowTiemposPedido[];
+    } catch (error) {
+      console.error('GET /api/admin/analytics tiempos unexpected warning:', error);
+    }
 
     return NextResponse.json(
-  {
-    ok: true,
-    
-    data: {
+      {
+        ok: true,
+        data: {
           range: {
             desde,
             hasta,
@@ -703,8 +802,9 @@ try {
             ingresos,
             ticketPromedio,
           },
-        pedidosHora,
+          pedidosHora,
           topProductos,
+          ventasPorMarca,
           canales,
           serieDiaria,
           tiempos,
