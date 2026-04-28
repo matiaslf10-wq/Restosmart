@@ -70,6 +70,9 @@ type FormProducto = {
 
 type AdminSessionPayload = {
   plan?: PlanCode;
+  addons?: {
+    multi_brand?: boolean;
+  };
   capabilities?: {
     stock_control?: boolean;
     multi_brand?: boolean;
@@ -194,30 +197,50 @@ export default function AdminProductosPage() {
   const [eliminandoCategoriaId, setEliminandoCategoriaId] = useState<number | null>(null);
 
   const cargarSession = async () => {
-    try {
-      const res = await fetch('/api/admin/session', {
-        method: 'GET',
-        cache: 'no-store',
-      });
+  try {
+    const res = await fetch('/api/admin/session', {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'include',
+    });
 
-      const raw = await res.json().catch(() => null);
+    const raw = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        throw new Error(raw?.error || 'No se pudo cargar la sesión del admin.');
-      }
-
-      const session = (raw?.session as AdminSessionPayload | null) ?? null;
-
-      setCurrentPlan(session?.plan ?? 'esencial');
-      setStockControlEnabled(!!session?.capabilities?.stock_control);
-      setMultiBrandEnabled(!!session?.capabilities?.multi_brand);
-    } catch (error) {
-      console.error('Error cargando sesión admin:', error);
-      setCurrentPlan('esencial');
-      setStockControlEnabled(false);
-      setMultiBrandEnabled(false);
+    if (!res.ok) {
+      throw new Error(raw?.error || 'No se pudo cargar la sesión del admin.');
     }
-  };
+
+    const session = (raw?.session as AdminSessionPayload | null) ?? null;
+    const resolvedPlan = session?.plan ?? 'esencial';
+
+    const stockEnabled =
+      !!session?.capabilities?.stock_control ||
+      resolvedPlan === 'pro' ||
+      resolvedPlan === 'intelligence';
+
+    const multiBrand =
+      !!session?.capabilities?.multi_brand || !!session?.addons?.multi_brand;
+
+    setCurrentPlan(resolvedPlan);
+    setStockControlEnabled(stockEnabled);
+    setMultiBrandEnabled(multiBrand);
+
+    return {
+      stockControlEnabled: stockEnabled,
+      multiBrandEnabled: multiBrand,
+    };
+  } catch (error) {
+    console.error('Error cargando sesión admin:', error);
+    setCurrentPlan('esencial');
+    setStockControlEnabled(false);
+    setMultiBrandEnabled(false);
+
+    return {
+      stockControlEnabled: false,
+      multiBrandEnabled: false,
+    };
+  }
+};
 
   const cargarProductos = async () => {
   try {
@@ -305,12 +328,18 @@ useEffect(() => {
     setCargando(true);
     setMensaje(null);
 
+    const sessionFlags = await cargarSession();
+
     await Promise.all([
-      cargarSession(),
       cargarProductos(),
       cargarCategorias(),
-      cargarMarcas(),
+      sessionFlags.multiBrandEnabled ? cargarMarcas() : Promise.resolve(),
     ]);
+
+    if (!sessionFlags.multiBrandEnabled) {
+      setMarcas([]);
+      setFiltroMarca('todas');
+    }
 
     setCargando(false);
   };
@@ -362,14 +391,18 @@ useEffect(() => {
 };
 
   const onChangeForm = (
-    field: keyof FormProducto,
-    value: string | boolean
-  ) => {
-    setForm((prev) => {
-      const next = {
-        ...prev,
-        [field]: value,
-      };
+  field: keyof FormProducto,
+  value: string | boolean
+) => {
+  setForm((prev) => {
+    if (field === 'control_stock' && value === true && !stockControlEnabled) {
+      return prev;
+    }
+
+    const next = {
+      ...prev,
+      [field]: value,
+    };
 
       if (field === 'control_stock' && value === false) {
         next.stock_actual = '0';
@@ -710,6 +743,8 @@ if (!Number.isFinite(stockActualNumber) || stockActualNumber < 0) {
   return;
 }
 
+const controlStockFinal = stockControlEnabled && form.control_stock;
+
 const payload = {
   nombre: form.nombre.trim(),
   descripcion: form.descripcion.trim() || null,
@@ -718,9 +753,9 @@ const payload = {
   marca_id: multiBrandEnabled ? form.marca_id || marcas[0]?.id || null : null,
   disponible: form.disponible,
   imagen_url: productoEditando?.imagen_url ?? null,
-  control_stock: form.control_stock,
-  stock_actual: form.control_stock ? stockActualNumber : 0,
-  permitir_sin_stock: form.control_stock ? form.permitir_sin_stock : true,
+  control_stock: controlStockFinal,
+  stock_actual: controlStockFinal ? stockActualNumber : 0,
+  permitir_sin_stock: controlStockFinal ? form.permitir_sin_stock : true,
 };
 
     if (!payload.nombre) {
@@ -919,20 +954,28 @@ const getMarcaNombre = (producto: Producto) => {
         </div>
 
         <button
-          onClick={async () => {
-            setCargando(true);
-            await Promise.all([
-  cargarSession(),
-  cargarProductos(),
-  cargarCategorias(),
-  cargarMarcas(),
-]);
-            setCargando(false);
-          }}
-          className="px-3 py-1 rounded-lg text-sm bg-slate-800 text-white hover:bg-slate-700"
-        >
-          Actualizar lista
-        </button>
+  onClick={async () => {
+    setCargando(true);
+
+    const sessionFlags = await cargarSession();
+
+    await Promise.all([
+      cargarProductos(),
+      cargarCategorias(),
+      sessionFlags.multiBrandEnabled ? cargarMarcas() : Promise.resolve(),
+    ]);
+
+    if (!sessionFlags.multiBrandEnabled) {
+      setMarcas([]);
+      setFiltroMarca('todas');
+    }
+
+    setCargando(false);
+  }}
+  className="px-3 py-1 rounded-lg text-sm bg-slate-800 text-white hover:bg-slate-700"
+>
+  Actualizar lista
+</button>
       </section>
 
       {mensaje && (
@@ -1166,14 +1209,20 @@ const getMarcaNombre = (producto: Producto) => {
 
           <div className="mt-3 flex items-center gap-2">
   <input
-    id="control_stock"
-    type="checkbox"
-    checked={form.control_stock}
-    onChange={(e) => onChangeForm('control_stock', e.target.checked)}
-  />
-  <label htmlFor="control_stock" className="text-xs text-slate-700">
-    Controlar stock real
-  </label>
+  id="control_stock"
+  type="checkbox"
+  checked={form.control_stock}
+  disabled={!stockControlEnabled}
+  onChange={(e) => onChangeForm('control_stock', e.target.checked)}
+/>
+  <label
+  htmlFor="control_stock"
+  className={`text-xs ${
+    stockControlEnabled ? 'text-slate-700' : 'text-slate-400'
+  }`}
+>
+  Controlar stock real
+</label>
 </div>
 
 {form.control_stock ? (

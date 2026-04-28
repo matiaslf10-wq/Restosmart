@@ -28,6 +28,9 @@ type Marca = {
 
 type AdminSessionPayload = {
   plan?: PlanCode;
+  addons?: {
+    multi_brand?: boolean;
+  };
   capabilities?: {
     multi_brand?: boolean;
   };
@@ -103,30 +106,36 @@ const [subiendoLogo, setSubiendoLogo] = useState(false);
     [marcas]
   );
 
-  const marcasInactivas = useMemo(
-    () => marcas.filter((marca) => marca.activa === false),
-    [marcas]
-  );
+  const marcaEditando = useMemo(() => {
+  if (!editandoId) return null;
+  return marcas.find((marca) => marca.id === editandoId) ?? null;
+}, [editandoId, marcas]);
+
+const editandoMarcaPrincipal = !!marcaEditando && isMarcaPrincipal(marcaEditando);
 
   const cargarSession = async () => {
-    const res = await fetch('/api/admin/session', {
-      method: 'GET',
-      cache: 'no-store',
-    });
+  const res = await fetch('/api/admin/session', {
+    method: 'GET',
+    cache: 'no-store',
+    credentials: 'include',
+  });
 
-    const raw = await res.json().catch(() => null);
+  const raw = await res.json().catch(() => null);
 
-    if (!res.ok) {
-      throw new Error(raw?.error || 'No se pudo cargar la sesión.');
-    }
+  if (!res.ok) {
+    throw new Error(raw?.error || 'No se pudo cargar la sesión.');
+  }
 
-    const session = (raw?.session as AdminSessionPayload | null) ?? null;
+  const session = (raw?.session as AdminSessionPayload | null) ?? null;
 
-    setPlan(session?.plan ?? 'esencial');
-    setMultiBrandEnabled(!!session?.capabilities?.multi_brand);
+  const enabled =
+    !!session?.capabilities?.multi_brand || !!session?.addons?.multi_brand;
 
-    return !!session?.capabilities?.multi_brand;
-  };
+  setPlan(session?.plan ?? 'esencial');
+  setMultiBrandEnabled(enabled);
+
+  return enabled;
+};
 
   const cargarMarcas = async () => {
     const res = await fetch('/api/admin/marcas', {
@@ -237,12 +246,14 @@ const [subiendoLogo, setSubiendoLogo] = useState(false);
 };
 
   const guardarMarca = async () => {
-    const nombre = form.nombre.trim();
+    const nombre = editandoMarcaPrincipal
+  ? 'Marca principal'
+  : form.nombre.trim();
 
-    if (!nombre) {
-      setError('El nombre de la marca es obligatorio.');
-      return;
-    }
+if (!nombre) {
+  setError('El nombre de la marca es obligatorio.');
+  return;
+}
 
     setGuardando(true);
     setMensaje(null);
@@ -440,12 +451,26 @@ const [subiendoLogo, setSubiendoLogo] = useState(false);
         <section className="rounded-3xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-900 shadow-sm">
           <h2 className="text-lg font-semibold">Add-on Multimarca no activo</h2>
           <p className="mt-2 leading-relaxed">
-            Este local todavía no tiene habilitada la administración de marcas.
-            Activá el add-on <strong>multi_brand</strong> para este tenant desde Supabase.
-          </p>
-          <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 font-mono text-xs text-amber-950">
-            tenant_addons · addon_key = multi_brand · enabled = true
-          </p>
+  Este local todavía no tiene habilitada la administración de marcas.
+  Podés activar el add-on <strong>Multimarca</strong> desde Configuración,
+  siempre que el plan sea Pro o Intelligence.
+</p>
+
+<div className="mt-4 flex flex-wrap gap-3">
+  <Link
+    href="/admin/configuracion"
+    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+  >
+    Ir a configuración
+  </Link>
+
+  <Link
+    href="/#precios"
+    className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+  >
+    Ver planes
+  </Link>
+</div>
         </section>
       ) : null}
 
@@ -479,14 +504,25 @@ const [subiendoLogo, setSubiendoLogo] = useState(false);
                   Nombre de la marca
                 </span>
                 <input
-                  type="text"
-                  value={form.nombre}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, nombre: e.target.value }))
-                  }
-                  placeholder="Ej: Burger House"
-                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                />
+  type="text"
+  value={form.nombre}
+  disabled={editandoMarcaPrincipal}
+  onChange={(e) =>
+    setForm((prev) => ({ ...prev, nombre: e.target.value }))
+  }
+  placeholder="Ej: Burger House"
+  className={`rounded-xl border border-slate-300 px-3 py-2 text-sm ${
+    editandoMarcaPrincipal
+      ? 'cursor-not-allowed bg-slate-100 text-slate-500'
+      : ''
+  }`}
+/>
+
+{editandoMarcaPrincipal ? (
+  <p className="text-xs text-slate-500">
+    La Marca principal puede editar logo, color, descripción y orden, pero no su nombre.
+  </p>
+) : null}
               </label>
 
               <label className="grid gap-2">
