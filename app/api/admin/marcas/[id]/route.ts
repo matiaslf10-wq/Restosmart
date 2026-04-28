@@ -4,11 +4,17 @@ import {
   getFallbackAdminAccess,
   resolveAdminAccess,
   type AdminAccessResolutionOptions,
+  type AdminAccessSnapshot,
 } from '@/lib/adminAccess';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const MARCAS_SELECT =
+  'id, tenant_id, restaurant_id, slug, nombre, descripcion, logo_url, color_hex, activa, orden, creado_en, actualizada_en';
+
+const PRO_ACTIVE_BRANDS_LIMIT = 3;
 
 type Params = {
   params: Promise<{ id: string }>;
@@ -111,8 +117,32 @@ async function resolveAccessForRequest(request: NextRequest, session: unknown) {
   }
 }
 
-function assertCanUseMultiBrand(access: Awaited<ReturnType<typeof getFallbackAdminAccess>>) {
-  return !!access.capabilities?.multi_brand;
+function canUseMultiBrand(access: AdminAccessSnapshot) {
+  const accessRecord = asRecord(access);
+  const addonsRecord = asRecord(accessRecord?.addons);
+
+  return (
+    !!access.capabilities?.multi_brand ||
+    addonsRecord?.multi_brand === true
+  );
+}
+
+function validateMultiBrandAccess(access: AdminAccessSnapshot) {
+  if (!canUseMultiBrand(access)) {
+    return NextResponse.json(
+      { error: 'El add-on Multimarca no está activo para este local.' },
+      { status: 403 }
+    );
+  }
+
+  if (access.plan === 'esencial') {
+    return NextResponse.json(
+      { error: 'Multimarca está disponible desde el plan Pro.' },
+      { status: 409 }
+    );
+  }
+
+  return null;
 }
 
 async function countProductosByMarcaId(marcaId: string) {
@@ -129,6 +159,40 @@ async function countProductosByMarcaId(marcaId: string) {
   return count ?? 0;
 }
 
+function isMarcaPrincipalName(value: unknown) {
+  return String(value ?? '').trim().toLowerCase() === 'marca principal';
+}
+
+async function getMarcaById(id: string, tenantId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('marcas')
+    .select('id, nombre, activa')
+    .eq('id', id)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function countActiveBrandsExcluding(tenantId: string, excludedId: string) {
+  const { count, error } = await supabaseAdmin
+    .from('marcas')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .eq('activa', true)
+    .neq('id', excludedId);
+
+  if (error) {
+    throw error;
+  }
+
+  return count ?? 0;
+}
+
 export async function PUT(request: NextRequest, { params }: Params) {
   const auth = requireAdminAuth(request);
 
@@ -138,12 +202,8 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
   const access = await resolveAccessForRequest(request, auth.session);
 
-  if (!assertCanUseMultiBrand(access)) {
-    return NextResponse.json(
-      { error: 'El add-on Multimarca no está activo para este local.' },
-      { status: 403 }
-    );
-  }
+  const accessError = validateMultiBrandAccess(access);
+if (accessError) return accessError;
 
   const { id } = await params;
 
@@ -157,22 +217,65 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
   const nombre = normalizeNonEmptyString(body?.nombre);
 
-  if (!nombre) {
+if (!nombre) {
+  return NextResponse.json(
+    { error: 'El nombre de la marca es obligatorio.' },
+    { status: 400 }
+  );
+}
+
+const marcaActual = await getMarcaById(id, access.tenantId);
+
+if (!marcaActual) {
+  return NextResponse.json(
+    { error: 'Marca no encontrada.' },
+    { status: 404 }
+  );
+}
+
+const esMarcaPrincipal = isMarcaPrincipalName(marcaActual.nombre);
+const activa = normalizeBoolean(body?.activa, true);
+
+if (esMarcaPrincipal && !isMarcaPrincipalName(nombre)) {
+  return NextResponse.json(
+    { error: 'La Marca principal no se puede renombrar.' },
+    { status: 409 }
+  );
+}
+
+if (esMarcaPrincipal && activa === false) {
+  return NextResponse.json(
+    { error: 'La Marca principal no se puede desactivar.' },
+    { status: 409 }
+  );
+}
+
+if (access.plan === 'pro' && activa) {
+  const activeBrandsExcludingCurrent = await countActiveBrandsExcluding(
+    access.tenantId,
+    id
+  );
+
+  if (activeBrandsExcludingCurrent >= PRO_ACTIVE_BRANDS_LIMIT) {
     return NextResponse.json(
-      { error: 'El nombre de la marca es obligatorio.' },
-      { status: 400 }
+      {
+        error:
+          'El add-on Multimarca en Pro permite hasta 3 marcas activas. Para marcas ilimitadas, usá Intelligence.',
+      },
+      { status: 409 }
     );
   }
+}
 
-  const payload = {
-    nombre,
-    descripcion: normalizeNullableString(body?.descripcion),
-    logo_url: normalizeNullableString(body?.logo_url),
-    color_hex: normalizeNullableString(body?.color_hex),
-    activa: normalizeBoolean(body?.activa, true),
-    orden: normalizeInteger(body?.orden, 0),
-    actualizada_en: new Date().toISOString(),
-  };
+const payload = {
+  nombre: esMarcaPrincipal ? 'Marca principal' : nombre,
+  descripcion: normalizeNullableString(body?.descripcion),
+  logo_url: normalizeNullableString(body?.logo_url),
+  color_hex: normalizeNullableString(body?.color_hex),
+  activa,
+  orden: normalizeInteger(body?.orden, 0),
+  actualizada_en: new Date().toISOString(),
+};
 
   try {
     const { data, error } = await supabaseAdmin
@@ -180,9 +283,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       .update(payload)
       .eq('id', id)
       .eq('tenant_id', access.tenantId)
-      .select(
-        'id, tenant_id, restaurant_id, slug, nombre, descripcion, logo_url, color_hex, activa, orden, creado_en, actualizada_en'
-      )
+      .select(MARCAS_SELECT)
       .maybeSingle();
 
     if (error) throw error;
@@ -213,14 +314,26 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
   const access = await resolveAccessForRequest(request, auth.session);
 
-  if (!assertCanUseMultiBrand(access)) {
-    return NextResponse.json(
-      { error: 'El add-on Multimarca no está activo para este local.' },
-      { status: 403 }
-    );
-  }
+  const accessError = validateMultiBrandAccess(access);
+if (accessError) return accessError;
 
   const { id } = await params;
+
+  const marcaActual = await getMarcaById(id, access.tenantId);
+
+if (!marcaActual) {
+  return NextResponse.json(
+    { error: 'Marca no encontrada.' },
+    { status: 404 }
+  );
+}
+
+if (isMarcaPrincipalName(marcaActual.nombre)) {
+  return NextResponse.json(
+    { error: 'La Marca principal no se puede eliminar.' },
+    { status: 409 }
+  );
+}
 
   try {
     const productosAsignados = await countProductosByMarcaId(id);

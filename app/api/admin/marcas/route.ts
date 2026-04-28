@@ -129,7 +129,13 @@ async function resolveAccessForRequest(
 }
 
 function canUseMultiBrand(access: AdminAccessSnapshot) {
-  return !!access.capabilities?.multi_brand;
+  const accessRecord = asRecord(access);
+  const addonsRecord = asRecord(accessRecord?.addons);
+
+  return (
+    !!access.capabilities?.multi_brand ||
+    addonsRecord?.multi_brand === true
+  );
 }
 
 function validateMultiBrandAccess(access: AdminAccessSnapshot) {
