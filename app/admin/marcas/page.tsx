@@ -106,6 +106,11 @@ const [subiendoLogo, setSubiendoLogo] = useState(false);
     [marcas]
   );
 
+  const marcasInactivas = useMemo(
+  () => marcas.filter((marca) => marca.activa === false),
+  [marcas]
+);
+
   const marcaEditando = useMemo(() => {
   if (!editandoId) return null;
   return marcas.find((marca) => marca.id === editandoId) ?? null;
