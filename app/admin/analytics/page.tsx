@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { utils, writeFileXLSX } from 'xlsx';
 import { useRouter } from 'next/navigation';
 import {
@@ -27,11 +27,11 @@ type RowCanal = {
 type RowMarca = {
   marca_id: string | null;
   marca_nombre: string;
-  color_hex: string | null;
-  logo_url: string | null;
-  pedidos: number;
+  marca_logo_url: string | null;
+  marca_color_hex: string | null;
   unidades: number;
   ingresos: number;
+  pedidos: number;
 };
 
 type RowSerieDiaria = {
@@ -55,6 +55,7 @@ type ComparativaState = {
   hasta: string;
   kpis: RangeKpis;
   canales: RowCanal[];
+  marcas: RowMarca[];
 } | null;
 
 type ExecutiveSignalRow = {
@@ -77,13 +78,82 @@ type RowTiemposPedido = {
   min_total_hasta_listo: number | null;
 };
 
-
-function toIsoStartOfDayAR(localDate: string) {
-  return new Date(`${localDate}T00:00:00-03:00`).toISOString();
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 
-function toIsoEndOfDayAR(localDate: string) {
-  return new Date(`${localDate}T23:59:59.999-03:00`).toISOString();
+function readString(
+  record: Record<string, unknown>,
+  keys: string[],
+  fallback = ''
+) {
+  for (const key of keys) {
+    const value = record[key];
+
+    if (value !== null && value !== undefined) {
+      const text = String(value).trim();
+      if (text.length > 0) return text;
+    }
+  }
+
+  return fallback;
+}
+
+function readNullableString(record: Record<string, unknown>, keys: string[]) {
+  const text = readString(record, keys, '');
+  return text.length > 0 ? text : null;
+}
+
+function readNumber(record: Record<string, unknown>, keys: string[], fallback = 0) {
+  for (const key of keys) {
+    const num = Number(record[key]);
+    if (Number.isFinite(num)) return num;
+  }
+
+  return fallback;
+}
+
+function normalizeMarcaRows(value: unknown): RowMarca[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((item) => {
+    const record = asRecord(item);
+
+    if (!record) {
+      return {
+        marca_id: null,
+        marca_nombre: 'Sin marca',
+        marca_logo_url: null,
+        marca_color_hex: null,
+        unidades: 0,
+        ingresos: 0,
+        pedidos: 0,
+      };
+    }
+
+    return {
+      marca_id: readNullableString(record, ['marca_id', 'id']),
+      marca_nombre: readString(
+        record,
+        ['marca_nombre', 'nombre', 'label'],
+        'Sin marca'
+      ),
+      marca_logo_url: readNullableString(record, [
+        'marca_logo_url',
+        'logo_url',
+        'logo',
+      ]),
+      marca_color_hex: readNullableString(record, [
+        'marca_color_hex',
+        'color_hex',
+        'color',
+      ]),
+      unidades: readNumber(record, ['unidades', 'cantidad', 'items'], 0),
+      ingresos: readNumber(record, ['ingresos', 'total'], 0),
+      pedidos: readNumber(record, ['pedidos', 'cantidad_pedidos'], 0),
+    };
+  });
 }
 
 function formatCurrency(value: number | null | undefined) {
@@ -152,39 +222,6 @@ function getTrendBarWidth(value: number, max: number) {
   return `${Math.max((value / max) * 100, 6)}%`;
 }
 
-function getSafeBrandColor(value: string | null | undefined) {
-  const color = String(value ?? '').trim();
-
-  if (/^#[0-9a-fA-F]{6}$/.test(color)) {
-    return color;
-  }
-
-  return null;
-}
-
-function getBrandCardStyle(colorHex: string | null | undefined): CSSProperties | undefined {
-  const color = getSafeBrandColor(colorHex);
-
-  if (!color) return undefined;
-
-  return {
-    borderColor: color,
-    boxShadow: `inset 5px 0 0 ${color}`,
-  };
-}
-
-function getBrandBadgeStyle(colorHex: string | null | undefined): CSSProperties | undefined {
-  const color = getSafeBrandColor(colorHex);
-
-  if (!color) return undefined;
-
-  return {
-    borderColor: color,
-    backgroundColor: `${color}1A`,
-    color,
-  };
-}
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function formatInputDateAR(date: Date) {
@@ -206,8 +243,7 @@ function getPreviousComparableRange(desde: string, hasta: string) {
   const start = new Date(`${desde}T00:00:00-03:00`);
   const end = new Date(`${hasta}T00:00:00-03:00`);
 
-  const days =
-    Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
+  const days = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
 
   const prevEnd = new Date(start.getTime() - DAY_MS);
   const prevStart = new Date(start.getTime() - days * DAY_MS);
@@ -280,10 +316,7 @@ function getDeltaMeta(delta: number | null, invert = false) {
   };
 }
 
-function formatShortDeltaLabel(
-  prefix: string,
-  delta: number | null
-) {
+function formatShortDeltaLabel(prefix: string, delta: number | null) {
   if (delta == null) return `${prefix}: sin base`;
   if (delta === 0) return `${prefix}: 0%`;
 
@@ -291,9 +324,7 @@ function formatShortDeltaLabel(
   return `${prefix}: ${sign}${delta}%`;
 }
 
-function getExecutiveSignalClasses(
-  estado: ExecutiveSignalRow['estado']
-) {
+function getExecutiveSignalClasses(estado: ExecutiveSignalRow['estado']) {
   switch (estado) {
     case 'positivo':
       return 'border-emerald-200 bg-emerald-50 text-emerald-700';
@@ -307,20 +338,46 @@ function getExecutiveSignalClasses(
   }
 }
 
+function isValidHexColor(value: string | null | undefined) {
+  return /^#[0-9a-fA-F]{6}$/.test(String(value ?? '').trim());
+}
+
+function getMarcaColor(marca: RowMarca, fallback = '#64748b') {
+  return isValidHexColor(marca.marca_color_hex)
+    ? String(marca.marca_color_hex)
+    : fallback;
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.replace('#', '');
+
+  if (normalized.length !== 6) {
+    return `rgba(100, 116, 139, ${alpha})`;
+  }
+
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function getMarcaKey(marca: RowMarca) {
+  return marca.marca_id ?? `nombre:${marca.marca_nombre.toLowerCase()}`;
+}
+
+function getMarcaLabel(marca: RowMarca) {
+  return marca.marca_nombre || 'Sin marca';
+}
+
 export default function AdminAnalyticsPage() {
   const router = useRouter();
 
   const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, '0');
-  const dd = String(today.getDate()).padStart(2, '0');
-  const todayStr = `${yyyy}-${mm}-${dd}`;
+  const todayStr = formatInputDateAR(today);
 
-  const sevenDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
-  const y2 = sevenDaysAgo.getFullYear();
-  const m2 = String(sevenDaysAgo.getMonth() + 1).padStart(2, '0');
-  const d2 = String(sevenDaysAgo.getDate()).padStart(2, '0');
-  const sevenDaysAgoStr = `${y2}-${m2}-${d2}`;
+  const sevenDaysAgo = new Date(Date.now() - 6 * DAY_MS);
+  const sevenDaysAgoStr = formatInputDateAR(sevenDaysAgo);
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [canViewAnalytics, setCanViewAnalytics] = useState(false);
@@ -332,23 +389,22 @@ export default function AdminAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-    const [pedidosHora, setPedidosHora] = useState<RowPedidosHora[]>([]);
+  const [pedidosHora, setPedidosHora] = useState<RowPedidosHora[]>([]);
   const [topProductos, setTopProductos] = useState<RowTopProductos[]>([]);
   const [canales, setCanales] = useState<RowCanal[]>([]);
+  const [ventasPorMarca, setVentasPorMarca] = useState<RowMarca[]>([]);
   const [serieDiaria, setSerieDiaria] = useState<RowSerieDiaria[]>([]);
   const [tiempos, setTiempos] = useState<RowTiemposPedido[]>([]);
-  const [ventasPorMarca, setVentasPorMarca] = useState<RowMarca[]>([]);
   const [kpiPedidosTotal, setKpiPedidosTotal] = useState(0);
   const [kpiPedidosCerrados, setKpiPedidosCerrados] = useState(0);
   const [kpiPedidosCancelados, setKpiPedidosCancelados] = useState(0);
   const [kpiIngresos, setKpiIngresos] = useState(0);
   const [kpiTicketProm, setKpiTicketProm] = useState<number | null>(null);
   const [comparativa, setComparativa] = useState<ComparativaState>(null);
-  
 
   const rangoInvalido = useMemo(() => desde > hasta, [desde, hasta]);
 
-      const cargar = async () => {
+  const cargar = async () => {
     if (rangoInvalido) {
       setErrorMsg(
         'El rango es inválido: la fecha Desde no puede ser mayor que Hasta.'
@@ -362,15 +418,15 @@ export default function AdminAnalyticsPage() {
 
     try {
       const params = new URLSearchParams({
-  desde,
-  hasta,
-});
+        desde,
+        hasta,
+      });
 
-const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
-  method: 'GET',
-  cache: 'no-store',
-  credentials: 'include',
-});
+      const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'include',
+      });
 
       const payload = await res.json().catch(() => null);
 
@@ -391,12 +447,12 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
             : Number(data.kpis.ticketPromedio),
       };
 
-            setPedidosHora((data?.pedidosHora ?? []) as RowPedidosHora[]);
+      setPedidosHora((data?.pedidosHora ?? []) as RowPedidosHora[]);
       setTopProductos((data?.topProductos ?? []) as RowTopProductos[]);
       setCanales((data?.canales ?? []) as RowCanal[]);
+      setVentasPorMarca(normalizeMarcaRows(data?.ventasPorMarca));
       setSerieDiaria((data?.serieDiaria ?? []) as RowSerieDiaria[]);
       setTiempos((data?.tiempos ?? []) as RowTiemposPedido[]);
-      setVentasPorMarca((data?.ventasPorMarca ?? []) as RowMarca[]);
 
       setKpiPedidosTotal(currentKpis.pedidosTotal);
       setKpiPedidosCerrados(currentKpis.pedidosCerrados);
@@ -412,13 +468,13 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
       });
 
       const previousRes = await fetch(
-  `/api/admin/analytics?${previousParams.toString()}`,
-  {
-    method: 'GET',
-    cache: 'no-store',
-    credentials: 'include',
-  }
-);
+        `/api/admin/analytics?${previousParams.toString()}`,
+        {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'include',
+        }
+      );
 
       const previousPayload = await previousRes.json().catch(() => null);
 
@@ -436,11 +492,12 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
               : Number(previousData.kpis.ticketPromedio),
         };
 
-                setComparativa({
+        setComparativa({
           desde: previousRange.desde,
           hasta: previousRange.hasta,
           kpis: previousKpis,
           canales: (previousData?.canales ?? []) as RowCanal[],
+          marcas: normalizeMarcaRows(previousData?.ventasPorMarca),
         });
       } else {
         setComparativa(null);
@@ -462,56 +519,56 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
   };
 
   useEffect(() => {
-  let active = true;
+    let active = true;
 
-  async function bootstrap() {
-    try {
-      const res = await fetch('/api/admin/session', {
-        method: 'GET',
-        cache: 'no-store',
-        credentials: 'include',
-      });
+    async function bootstrap() {
+      try {
+        const res = await fetch('/api/admin/session', {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'include',
+        });
 
-      if (!res.ok) {
-        router.replace('/admin/login');
-        return;
-      }
+        if (!res.ok) {
+          router.replace('/admin/login');
+          return;
+        }
 
-      const data = await res.json().catch(() => null);
-      const session = data?.session;
+        const data = await res.json().catch(() => null);
+        const session = data?.session;
 
-      if (!active) return;
+        if (!active) return;
 
-      const plan = (session?.plan ?? 'esencial') as PlanCode;
-      const enabled =
-        typeof session?.capabilities?.analytics === 'boolean'
-          ? session.capabilities.analytics
-          : canAccessAnalytics(plan);
+        const plan = (session?.plan ?? 'esencial') as PlanCode;
+        const enabled =
+          typeof session?.capabilities?.analytics === 'boolean'
+            ? session.capabilities.analytics
+            : canAccessAnalytics(plan);
 
-      setCurrentPlan(plan);
-      setCanViewAnalytics(enabled);
+        setCurrentPlan(plan);
+        setCanViewAnalytics(enabled);
 
-      if (enabled) {
-        await cargar();
-      }
-    } catch (error) {
-      console.error('No se pudo verificar acceso a analytics', error);
-      if (!active) return;
-      setCanViewAnalytics(false);
-    } finally {
-      if (active) {
-        setCheckingAccess(false);
+        if (enabled) {
+          await cargar();
+        }
+      } catch (error) {
+        console.error('No se pudo verificar acceso a analytics', error);
+        if (!active) return;
+        setCanViewAnalytics(false);
+      } finally {
+        if (active) {
+          setCheckingAccess(false);
+        }
       }
     }
-  }
 
-  bootstrap();
+    void bootstrap();
 
-  return () => {
-    active = false;
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [router]);
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
 
   const promedio = (values: (number | null)[]) => {
     const xs = values.filter(
@@ -550,7 +607,7 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
     return safeRound((kpiPedidosCancelados / kpiPedidosTotal) * 100);
   }, [kpiPedidosCancelados, kpiPedidosTotal]);
 
-    const deltaPedidosTotal = useMemo(() => {
+  const deltaPedidosTotal = useMemo(() => {
     return getDeltaPct(kpiPedidosTotal, comparativa?.kpis.pedidosTotal);
   }, [kpiPedidosTotal, comparativa]);
 
@@ -565,7 +622,8 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
   const deltaTicketProm = useMemo(() => {
     return getDeltaPct(kpiTicketProm, comparativa?.kpis.ticketPromedio);
   }, [kpiTicketProm, comparativa]);
-    const comparativaCancelacion = useMemo(() => {
+
+  const comparativaCancelacion = useMemo(() => {
     if (!comparativa || comparativa.kpis.pedidosTotal === 0) return null;
 
     return safeRound(
@@ -577,7 +635,7 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
     return getDeltaPct(porcentajeCancelacion, comparativaCancelacion);
   }, [porcentajeCancelacion, comparativaCancelacion]);
 
-    const deltaMetaPedidosTotal = useMemo(
+  const deltaMetaPedidosTotal = useMemo(
     () => getDeltaMeta(deltaPedidosTotal),
     [deltaPedidosTotal]
   );
@@ -615,7 +673,7 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
     return topProductos.length > 0 ? topProductos[0] : null;
   }, [topProductos]);
 
-    const canalLider = useMemo(() => {
+  const canalLider = useMemo(() => {
     if (canales.length === 0) return null;
 
     return [...canales].sort((a, b) => {
@@ -625,38 +683,28 @@ const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
   }, [canales]);
 
   const marcaLider = useMemo(() => {
-  if (ventasPorMarca.length === 0) return null;
+    if (ventasPorMarca.length === 0) return null;
 
-  return [...ventasPorMarca].sort((a, b) => {
-    if (Number(b.ingresos) !== Number(a.ingresos)) {
-      return Number(b.ingresos) - Number(a.ingresos);
-    }
+    return [...ventasPorMarca].sort((a, b) => {
+      if (b.ingresos !== a.ingresos) return b.ingresos - a.ingresos;
+      if (b.unidades !== a.unidades) return b.unidades - a.unidades;
+      return b.pedidos - a.pedidos;
+    })[0];
+  }, [ventasPorMarca]);
 
-    return Number(b.unidades) - Number(a.unidades);
-  })[0];
-}, [ventasPorMarca]);
-
-const ingresosTotalesMarca = useMemo(() => {
-  return ventasPorMarca.reduce(
-    (acc, marca) => acc + Number(marca.ingresos ?? 0),
-    0
-  );
-}, [ventasPorMarca]);
-
-const maxIngresosMarca = useMemo(() => {
-  return ventasPorMarca.reduce(
-    (max, marca) => Math.max(max, Number(marca.ingresos ?? 0)),
-    0
-  );
-}, [ventasPorMarca]);
-
-    const comparativaCanalesMap = useMemo(() => {
+  const comparativaCanalesMap = useMemo(() => {
     return new Map(
       (comparativa?.canales ?? []).map((canal) => [canal.canal, canal])
     );
   }, [comparativa]);
 
-    const getCanalComparativo = useCallback(
+  const comparativaMarcasMap = useMemo(() => {
+    return new Map(
+      (comparativa?.marcas ?? []).map((marca) => [getMarcaKey(marca), marca])
+    );
+  }, [comparativa]);
+
+  const getCanalComparativo = useCallback(
     (canalCode: RowCanal['canal']) => {
       return comparativaCanalesMap.get(canalCode) ?? null;
     },
@@ -679,11 +727,47 @@ const maxIngresosMarca = useMemo(() => {
     [getCanalComparativo]
   );
 
+  const getMarcaComparativa = useCallback(
+    (marca: RowMarca) => {
+      return comparativaMarcasMap.get(getMarcaKey(marca)) ?? null;
+    },
+    [comparativaMarcasMap]
+  );
+
+  const getMarcaDeltaPedidos = useCallback(
+    (marca: RowMarca) => {
+      const previo = getMarcaComparativa(marca);
+      return getDeltaPct(marca.pedidos, previo?.pedidos);
+    },
+    [getMarcaComparativa]
+  );
+
+  const getMarcaDeltaUnidades = useCallback(
+    (marca: RowMarca) => {
+      const previo = getMarcaComparativa(marca);
+      return getDeltaPct(marca.unidades, previo?.unidades);
+    },
+    [getMarcaComparativa]
+  );
+
+  const getMarcaDeltaIngresos = useCallback(
+    (marca: RowMarca) => {
+      const previo = getMarcaComparativa(marca);
+      return getDeltaPct(marca.ingresos, previo?.ingresos);
+    },
+    [getMarcaComparativa]
+  );
+
+  const maxIngresosMarca = useMemo(() => {
+    return ventasPorMarca.reduce((max, row) => Math.max(max, row.ingresos), 0);
+  }, [ventasPorMarca]);
+
   const alertaPrincipal = useMemo(() => {
     if (kpiPedidosTotal === 0) {
       return {
         titulo: 'Sin datos suficientes',
-        detalle: 'Todavía no hay actividad suficiente en el rango para detectar una alerta principal.',
+        detalle:
+          'Todavía no hay actividad suficiente en el rango para detectar una alerta principal.',
         tone: 'border-slate-200 bg-slate-50 text-slate-700',
       };
     }
@@ -714,7 +798,8 @@ const maxIngresosMarca = useMemo(() => {
 
     return {
       titulo: 'Operación estable',
-      detalle: 'No aparecen alertas fuertes en el período. La operación muestra señales saludables.',
+      detalle:
+        'No aparecen alertas fuertes en el período. La operación muestra señales saludables.',
       tone: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     };
   }, [kpiPedidosTotal, porcentajeCancelacion, promTotal]);
@@ -729,7 +814,7 @@ const maxIngresosMarca = useMemo(() => {
       .slice(0, 10);
   }, [tiempos]);
 
-    const maxPedidosSerie = useMemo(() => {
+  const maxPedidosSerie = useMemo(() => {
     return serieDiaria.reduce((max, row) => Math.max(max, row.pedidos), 0);
   }, [serieDiaria]);
 
@@ -738,165 +823,170 @@ const maxIngresosMarca = useMemo(() => {
   }, [serieDiaria]);
 
   const exportarCsv = useCallback(() => {
-  const lines: string[] = [];
+    const lines: string[] = [];
 
-  lines.push(buildCsvLine(['RestoSmart Analytics']));
-  lines.push(buildCsvLine(['Rango actual', `${desde} → ${hasta}`]));
-  lines.push(
-    buildCsvLine([
-      'Rango comparado',
-      comparativa ? `${comparativa.desde} → ${comparativa.hasta}` : 'Sin base comparable',
-    ])
-  );
-  lines.push(buildCsvLine(['Exportado en', new Date().toLocaleString('es-AR')]));
-  lines.push('');
-
-  lines.push(buildCsvLine(['KPIs']));
-  lines.push(buildCsvLine(['Indicador', 'Valor actual', 'Comparación']));
-  lines.push(buildCsvLine(['Pedidos totales', kpiPedidosTotal, formatDelta(deltaPedidosTotal)]));
-  lines.push(buildCsvLine(['Pedidos cerrados', kpiPedidosCerrados, formatDelta(deltaPedidosCerrados)]));
-  lines.push(buildCsvLine(['Ingresos', formatCurrency(kpiIngresos), formatDelta(deltaIngresos)]));
-  lines.push(
-    buildCsvLine([
-      'Ticket promedio',
-      kpiTicketProm == null ? '—' : formatCurrency(kpiTicketProm),
-      formatDelta(deltaTicketProm),
-    ])
-  );
-  lines.push(
-    buildCsvLine([
-      '% cancelación',
-      porcentajeCancelacion == null ? '—' : `${porcentajeCancelacion}%`,
-      formatDelta(deltaCancelacion),
-    ])
-  );
-  lines.push('');
-
-  lines.push(buildCsvLine(['Ventas por canal']));
-  lines.push(buildCsvLine(['Canal', 'Pedidos', 'Var. pedidos', 'Ingresos', 'Var. ingresos']));
-  for (const canal of canales) {
+    lines.push(buildCsvLine(['RestoSmart Analytics']));
+    lines.push(buildCsvLine(['Rango actual', `${desde} → ${hasta}`]));
     lines.push(
       buildCsvLine([
-        formatCanalLabel(canal.canal),
-        canal.cantidad,
-        formatShortDeltaLabel('Pedidos', getCanalDeltaPedidos(canal)),
-        formatCurrency(canal.ingresos),
-        formatShortDeltaLabel('Ingresos', getCanalDeltaIngresos(canal)),
+        'Rango comparado',
+        comparativa
+          ? `${comparativa.desde} → ${comparativa.hasta}`
+          : 'Sin base comparable',
       ])
     );
-  }
-  lines.push('');
+    lines.push(buildCsvLine(['Exportado en', new Date().toLocaleString('es-AR')]));
+    lines.push('');
 
-  lines.push(buildCsvLine(['Pedidos por hora']));
-  lines.push(buildCsvLine(['Hora', 'Pedidos']));
-  for (const row of pedidosHora) {
-    lines.push(buildCsvLine([formatDateTime(row.hora), row.pedidos]));
-  }
-  lines.push('');
-
-  
-
-  lines.push(buildCsvLine(['Top productos']));
-  lines.push(buildCsvLine(['Producto', 'Unidades', 'Ingresos']));
-  for (const row of topProductos) {
+    lines.push(buildCsvLine(['KPIs']));
+    lines.push(buildCsvLine(['Indicador', 'Valor actual', 'Comparación']));
+    lines.push(buildCsvLine(['Pedidos totales', kpiPedidosTotal, formatDelta(deltaPedidosTotal)]));
+    lines.push(buildCsvLine(['Pedidos cerrados', kpiPedidosCerrados, formatDelta(deltaPedidosCerrados)]));
+    lines.push(buildCsvLine(['Ingresos', formatCurrency(kpiIngresos), formatDelta(deltaIngresos)]));
     lines.push(
       buildCsvLine([
-        row.producto_nombre,
-        row.unidades,
-        formatCurrency(row.ingresos),
+        'Ticket promedio',
+        kpiTicketProm == null ? '—' : formatCurrency(kpiTicketProm),
+        formatDelta(deltaTicketProm),
       ])
     );
-  }
-  lines.push('');
-
-  lines.push(buildCsvLine(['Ventas por marca']));
-lines.push(
-  buildCsvLine([
-    'Marca',
-    'Pedidos',
-    'Unidades vendidas',
-    'Ingresos',
-    'Color',
-    'Logo',
-  ])
-);
-
-for (const row of ventasPorMarca) {
-  lines.push(
-    buildCsvLine([
-      row.marca_nombre,
-      row.pedidos,
-      row.unidades,
-      formatCurrency(row.ingresos),
-      row.color_hex ?? '',
-      row.logo_url ?? '',
-    ])
-  );
-}
-
-lines.push('');
-
-  lines.push(buildCsvLine(['Outliers']));
-  lines.push(
-    buildCsvLine([
-      'Pedido',
-      'Mesa',
-      'Creado',
-      'Total min',
-      'Mozo',
-      'Cola',
-      'Preparación',
-    ])
-  );
-  for (const row of outliers) {
     lines.push(
       buildCsvLine([
-        `#${row.pedido_id}`,
-        row.mesa_id,
-        formatDateTime(row.creado_en),
-        row.min_total_hasta_listo ?? '—',
-        row.min_mozo_confirma ?? '—',
-        row.min_espera_cocina ?? '—',
-        row.min_preparacion ?? '—',
+        '% cancelación',
+        porcentajeCancelacion == null ? '—' : `${porcentajeCancelacion}%`,
+        formatDelta(deltaCancelacion),
       ])
     );
-  }
+    lines.push('');
 
-  const csvContent = `\ufeff${lines.join('\n')}`;
-  const blob = new Blob([csvContent], {
-    type: 'text/csv;charset=utf-8;',
-  });
+    lines.push(buildCsvLine(['Ventas por canal']));
+    lines.push(buildCsvLine(['Canal', 'Pedidos', 'Var. pedidos', 'Ingresos', 'Var. ingresos']));
+    for (const canal of canales) {
+      lines.push(
+        buildCsvLine([
+          formatCanalLabel(canal.canal),
+          canal.cantidad,
+          formatShortDeltaLabel('Pedidos', getCanalDeltaPedidos(canal)),
+          formatCurrency(canal.ingresos),
+          formatShortDeltaLabel('Ingresos', getCanalDeltaIngresos(canal)),
+        ])
+      );
+    }
+    lines.push('');
 
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `analytics-${desde}-a-${hasta}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}, [
-  desde,
-  hasta,
-  comparativa,
-  kpiPedidosTotal,
-  kpiPedidosCerrados,
-  kpiIngresos,
-  kpiTicketProm,
-  porcentajeCancelacion,
-  deltaPedidosTotal,
-  deltaPedidosCerrados,
-  deltaIngresos,
-  deltaTicketProm,
-  deltaCancelacion,
-  canales,
-  ventasPorMarca,
-  pedidosHora,
-  topProductos,
-  outliers,
-  getCanalDeltaPedidos,
-  getCanalDeltaIngresos,
-]);
+    lines.push(buildCsvLine(['Desempeño por marca']));
+    lines.push(
+      buildCsvLine([
+        'Marca',
+        'Pedidos',
+        'Var. pedidos',
+        'Unidades',
+        'Var. unidades',
+        'Ingresos',
+        'Var. ingresos',
+        'Color',
+      ])
+    );
+    for (const marca of ventasPorMarca) {
+      lines.push(
+        buildCsvLine([
+          getMarcaLabel(marca),
+          marca.pedidos,
+          formatShortDeltaLabel('Pedidos', getMarcaDeltaPedidos(marca)),
+          marca.unidades,
+          formatShortDeltaLabel('Unidades', getMarcaDeltaUnidades(marca)),
+          formatCurrency(marca.ingresos),
+          formatShortDeltaLabel('Ingresos', getMarcaDeltaIngresos(marca)),
+          marca.marca_color_hex ?? '',
+        ])
+      );
+    }
+    lines.push('');
+
+    lines.push(buildCsvLine(['Pedidos por hora']));
+    lines.push(buildCsvLine(['Hora', 'Pedidos']));
+    for (const row of pedidosHora) {
+      lines.push(buildCsvLine([formatDateTime(row.hora), row.pedidos]));
+    }
+    lines.push('');
+
+    lines.push(buildCsvLine(['Top productos']));
+    lines.push(buildCsvLine(['Producto', 'Unidades', 'Ingresos']));
+    for (const row of topProductos) {
+      lines.push(
+        buildCsvLine([
+          row.producto_nombre,
+          row.unidades,
+          formatCurrency(row.ingresos),
+        ])
+      );
+    }
+    lines.push('');
+
+    lines.push(buildCsvLine(['Outliers']));
+    lines.push(
+      buildCsvLine([
+        'Pedido',
+        'Mesa',
+        'Creado',
+        'Total min',
+        'Mozo',
+        'Cola',
+        'Preparación',
+      ])
+    );
+    for (const row of outliers) {
+      lines.push(
+        buildCsvLine([
+          `#${row.pedido_id}`,
+          row.mesa_id,
+          formatDateTime(row.creado_en),
+          row.min_total_hasta_listo ?? '—',
+          row.min_mozo_confirma ?? '—',
+          row.min_espera_cocina ?? '—',
+          row.min_preparacion ?? '—',
+        ])
+      );
+    }
+
+    const csvContent = `\ufeff${lines.join('\n')}`;
+    const blob = new Blob([csvContent], {
+      type: 'text/csv;charset=utf-8;',
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `analytics-${desde}-a-${hasta}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [
+    desde,
+    hasta,
+    comparativa,
+    kpiPedidosTotal,
+    kpiPedidosCerrados,
+    kpiIngresos,
+    kpiTicketProm,
+    porcentajeCancelacion,
+    deltaPedidosTotal,
+    deltaPedidosCerrados,
+    deltaIngresos,
+    deltaTicketProm,
+    deltaCancelacion,
+    canales,
+    ventasPorMarca,
+    pedidosHora,
+    topProductos,
+    outliers,
+    getCanalDeltaPedidos,
+    getCanalDeltaIngresos,
+    getMarcaDeltaPedidos,
+    getMarcaDeltaUnidades,
+    getMarcaDeltaIngresos,
+  ]);
 
   const estadoOperacion = useMemo(() => {
     if (kpiPedidosTotal === 0) {
@@ -940,6 +1030,12 @@ lines.push('');
 
   const insights = useMemo(() => {
     const items: string[] = [];
+
+    if (marcaLider) {
+      items.push(
+        `La marca con mejor desempeño fue ${getMarcaLabel(marcaLider)}, con ${marcaLider.unidades} unidades y ${formatCurrency(marcaLider.ingresos)} de ingresos.`
+      );
+    }
 
     if (productoLider) {
       items.push(
@@ -992,9 +1088,9 @@ lines.push('');
     }
 
     return items.slice(0, 4);
-  }, [horaPico, porcentajeCancelacion, productoLider, promTotal]);
+  }, [horaPico, porcentajeCancelacion, productoLider, marcaLider, promTotal]);
 
-    const resumenComparativo = useMemo(() => {
+  const resumenComparativo = useMemo(() => {
     const items: string[] = [];
 
     if (deltaIngresos != null) {
@@ -1045,7 +1141,7 @@ lines.push('');
     deltaCancelacion,
   ]);
 
-    const senalesEjecutivas = useMemo<ExecutiveSignalRow[]>(() => {
+  const senalesEjecutivas = useMemo<ExecutiveSignalRow[]>(() => {
     const rows: ExecutiveSignalRow[] = [];
 
     rows.push({
@@ -1207,6 +1303,33 @@ lines.push('');
               : 'No hay un canal con cambio relevante en el período.',
     });
 
+    if (marcaLider) {
+      const deltaMarcaLider = getMarcaDeltaIngresos(marcaLider);
+
+      rows.push({
+        id: 'marca-lider',
+        indicador: 'Marca líder',
+        valorActual: getMarcaLabel(marcaLider),
+        variacion: formatShortDeltaLabel('Ingresos', deltaMarcaLider),
+        estado:
+          deltaMarcaLider == null
+            ? 'neutral'
+            : deltaMarcaLider > 0
+              ? 'positivo'
+              : deltaMarcaLider < 0
+                ? 'alerta'
+                : 'neutral',
+        lectura:
+          deltaMarcaLider == null
+            ? `${getMarcaLabel(marcaLider)} lidera el período, sin base comparable suficiente.`
+            : deltaMarcaLider > 0
+              ? `${getMarcaLabel(marcaLider)} lidera y además crece frente al período anterior.`
+              : deltaMarcaLider < 0
+                ? `${getMarcaLabel(marcaLider)} lidera, pero facturó menos que en el período anterior.`
+                : `${getMarcaLabel(marcaLider)} lidera con ingresos estables frente al período anterior.`,
+      });
+    }
+
     return rows;
   }, [
     kpiIngresos,
@@ -1220,130 +1343,150 @@ lines.push('');
     promTotal,
     canales,
     getCanalDeltaIngresos,
+    marcaLider,
+    getMarcaDeltaIngresos,
   ]);
 
   const exportarXlsx = useCallback(() => {
-  const wb = utils.book_new();
+    const wb = utils.book_new();
 
-  const resumenRows = [
-    {
-      indicador: 'Rango actual',
-      valor: `${desde} → ${hasta}`,
-      comparacion: '',
-    },
-    {
-      indicador: 'Rango comparado',
-      valor: comparativa
-        ? `${comparativa.desde} → ${comparativa.hasta}`
-        : 'Sin base comparable',
-      comparacion: '',
-    },
-    {
-      indicador: 'Pedidos totales',
-      valor: kpiPedidosTotal,
-      comparacion: formatDelta(deltaPedidosTotal),
-    },
-    {
-      indicador: 'Pedidos cerrados',
-      valor: kpiPedidosCerrados,
-      comparacion: formatDelta(deltaPedidosCerrados),
-    },
-    {
-      indicador: 'Ingresos',
-      valor: kpiIngresos,
-      comparacion: formatDelta(deltaIngresos),
-    },
-    {
-      indicador: 'Ticket promedio',
-      valor: kpiTicketProm ?? '',
-      comparacion: formatDelta(deltaTicketProm),
-    },
-    {
-      indicador: '% cancelación',
-      valor: porcentajeCancelacion ?? '',
-      comparacion: formatDelta(deltaCancelacion),
-    },
-    {
-      indicador: 'Exportado en',
-      valor: new Date().toLocaleString('es-AR'),
-      comparacion: '',
-    },
-  ];
+    const resumenRows = [
+      {
+        indicador: 'Rango actual',
+        valor: `${desde} → ${hasta}`,
+        comparacion: '',
+      },
+      {
+        indicador: 'Rango comparado',
+        valor: comparativa
+          ? `${comparativa.desde} → ${comparativa.hasta}`
+          : 'Sin base comparable',
+        comparacion: '',
+      },
+      {
+        indicador: 'Pedidos totales',
+        valor: kpiPedidosTotal,
+        comparacion: formatDelta(deltaPedidosTotal),
+      },
+      {
+        indicador: 'Pedidos cerrados',
+        valor: kpiPedidosCerrados,
+        comparacion: formatDelta(deltaPedidosCerrados),
+      },
+      {
+        indicador: 'Ingresos',
+        valor: kpiIngresos,
+        comparacion: formatDelta(deltaIngresos),
+      },
+      {
+        indicador: 'Ticket promedio',
+        valor: kpiTicketProm ?? '',
+        comparacion: formatDelta(deltaTicketProm),
+      },
+      {
+        indicador: '% cancelación',
+        valor: porcentajeCancelacion ?? '',
+        comparacion: formatDelta(deltaCancelacion),
+      },
+      {
+        indicador: 'Exportado en',
+        valor: new Date().toLocaleString('es-AR'),
+        comparacion: '',
+      },
+    ];
 
-  const canalesRows = canales.map((canal) => ({
-    canal: formatCanalLabel(canal.canal),
-    pedidos: canal.cantidad,
-    var_pedidos: getCanalDeltaPedidos(canal),
-    ingresos: canal.ingresos,
-    var_ingresos: getCanalDeltaIngresos(canal),
-  }));
+    const canalesRows = canales.map((canal) => ({
+      canal: formatCanalLabel(canal.canal),
+      pedidos: canal.cantidad,
+      var_pedidos: getCanalDeltaPedidos(canal),
+      ingresos: canal.ingresos,
+      var_ingresos: getCanalDeltaIngresos(canal),
+    }));
 
-  const pedidosHoraRows = pedidosHora.map((row) => ({
-    hora: formatDateTime(row.hora),
-    pedidos: row.pedidos,
-  }));
+    const marcasRows = ventasPorMarca.map((marca) => ({
+      marca: getMarcaLabel(marca),
+      pedidos: marca.pedidos,
+      var_pedidos: getMarcaDeltaPedidos(marca),
+      unidades: marca.unidades,
+      var_unidades: getMarcaDeltaUnidades(marca),
+      ingresos: marca.ingresos,
+      var_ingresos: getMarcaDeltaIngresos(marca),
+      color: marca.marca_color_hex ?? '',
+      logo: marca.marca_logo_url ?? '',
+    }));
 
-  const productosRows = topProductos.map((row) => ({
-    producto: row.producto_nombre,
-    unidades: row.unidades,
-    ingresos: row.ingresos,
-  }));
+    const pedidosHoraRows = pedidosHora.map((row) => ({
+      hora: formatDateTime(row.hora),
+      pedidos: row.pedidos,
+    }));
 
-  const outliersRows = outliers.map((row) => ({
-    pedido: row.pedido_id,
-    mesa: row.mesa_id,
-    creado: formatDateTime(row.creado_en),
-    total_min: row.min_total_hasta_listo ?? '',
-    mozo: row.min_mozo_confirma ?? '',
-    cola: row.min_espera_cocina ?? '',
-    preparacion: row.min_preparacion ?? '',
-  }));
+    const productosRows = topProductos.map((row) => ({
+      producto: row.producto_nombre,
+      unidades: row.unidades,
+      ingresos: row.ingresos,
+    }));
 
-  const serieDiariaRows = serieDiaria.map((row) => ({
-    fecha: row.fecha,
-    pedidos: row.pedidos,
-    cerrados: row.cerrados,
-    cancelados: row.cancelados,
-    ingresos: row.ingresos,
-  }));
+    const outliersRows = outliers.map((row) => ({
+      pedido: row.pedido_id,
+      mesa: row.mesa_id,
+      creado: formatDateTime(row.creado_en),
+      total_min: row.min_total_hasta_listo ?? '',
+      mozo: row.min_mozo_confirma ?? '',
+      cola: row.min_espera_cocina ?? '',
+      preparacion: row.min_preparacion ?? '',
+    }));
 
-  const wsResumen = utils.json_to_sheet(resumenRows);
-  const wsCanales = utils.json_to_sheet(canalesRows);
-  const wsPedidosHora = utils.json_to_sheet(pedidosHoraRows);
-  const wsProductos = utils.json_to_sheet(productosRows);
-  const wsOutliers = utils.json_to_sheet(outliersRows);
-  const wsSerieDiaria = utils.json_to_sheet(serieDiariaRows);
+    const serieDiariaRows = serieDiaria.map((row) => ({
+      fecha: row.fecha,
+      pedidos: row.pedidos,
+      cerrados: row.cerrados,
+      cancelados: row.cancelados,
+      ingresos: row.ingresos,
+    }));
 
-  utils.book_append_sheet(wb, wsResumen, 'Resumen');
-  utils.book_append_sheet(wb, wsCanales, 'Canales');
-  utils.book_append_sheet(wb, wsSerieDiaria, 'Tendencia');
-  utils.book_append_sheet(wb, wsPedidosHora, 'Pedidos por hora');
-  utils.book_append_sheet(wb, wsProductos, 'Top productos');
-  utils.book_append_sheet(wb, wsOutliers, 'Outliers');
+    const wsResumen = utils.json_to_sheet(resumenRows);
+    const wsCanales = utils.json_to_sheet(canalesRows);
+    const wsMarcas = utils.json_to_sheet(marcasRows);
+    const wsPedidosHora = utils.json_to_sheet(pedidosHoraRows);
+    const wsProductos = utils.json_to_sheet(productosRows);
+    const wsOutliers = utils.json_to_sheet(outliersRows);
+    const wsSerieDiaria = utils.json_to_sheet(serieDiariaRows);
 
-  writeFileXLSX(wb, `analytics-${desde}-a-${hasta}.xlsx`);
-}, [
-  desde,
-  hasta,
-  comparativa,
-  kpiPedidosTotal,
-  kpiPedidosCerrados,
-  kpiIngresos,
-  kpiTicketProm,
-  porcentajeCancelacion,
-  deltaPedidosTotal,
-  deltaPedidosCerrados,
-  deltaIngresos,
-  deltaTicketProm,
-  deltaCancelacion,
-  canales,
-  pedidosHora,
-  topProductos,
-  outliers,
-  serieDiaria,
-  getCanalDeltaPedidos,
-  getCanalDeltaIngresos,
-]);
+    utils.book_append_sheet(wb, wsResumen, 'Resumen');
+    utils.book_append_sheet(wb, wsCanales, 'Canales');
+    utils.book_append_sheet(wb, wsMarcas, 'Marcas');
+    utils.book_append_sheet(wb, wsSerieDiaria, 'Tendencia');
+    utils.book_append_sheet(wb, wsPedidosHora, 'Pedidos por hora');
+    utils.book_append_sheet(wb, wsProductos, 'Top productos');
+    utils.book_append_sheet(wb, wsOutliers, 'Outliers');
+
+    writeFileXLSX(wb, `analytics-${desde}-a-${hasta}.xlsx`);
+  }, [
+    desde,
+    hasta,
+    comparativa,
+    kpiPedidosTotal,
+    kpiPedidosCerrados,
+    kpiIngresos,
+    kpiTicketProm,
+    porcentajeCancelacion,
+    deltaPedidosTotal,
+    deltaPedidosCerrados,
+    deltaIngresos,
+    deltaTicketProm,
+    deltaCancelacion,
+    canales,
+    ventasPorMarca,
+    pedidosHora,
+    topProductos,
+    outliers,
+    serieDiaria,
+    getCanalDeltaPedidos,
+    getCanalDeltaIngresos,
+    getMarcaDeltaPedidos,
+    getMarcaDeltaUnidades,
+    getMarcaDeltaIngresos,
+  ]);
 
   if (checkingAccess) {
     return (
@@ -1382,6 +1525,7 @@ lines.push('');
                 <ul className="mt-3 space-y-2 text-sm text-slate-700">
                   <li>• KPIs operativos y comerciales</li>
                   <li>• Ranking de productos</li>
+                  <li>• Desempeño por marca</li>
                   <li>• Tiempos de preparación y outliers</li>
                   <li>• Lectura ejecutiva para decisiones</li>
                 </ul>
@@ -1393,8 +1537,8 @@ lines.push('');
                 </p>
                 <p className="mt-3 text-sm text-slate-700">
                   Te permite ver qué vendés más, dónde se te traba la operación,
-                  cuándo se concentra la demanda y qué señales conviene atacar
-                  primero.
+                  cuándo se concentra la demanda, qué marca rinde mejor y qué
+                  señales conviene atacar primero.
                 </p>
               </div>
             </div>
@@ -1433,7 +1577,7 @@ lines.push('');
 
             <h1 className="text-2xl font-bold text-slate-900">Analytics</h1>
             <p className="text-sm text-slate-600">
-              KPIs operativos y lectura ejecutiva basados en pedidos reales.
+              KPIs operativos, marcas y lectura ejecutiva basados en pedidos reales.
             </p>
           </div>
 
@@ -1465,20 +1609,22 @@ lines.push('');
             >
               {loading ? 'Actualizando…' : 'Actualizar'}
             </button>
-                        <button
+
+            <button
               onClick={exportarCsv}
               disabled={loading}
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Exportar CSV
             </button>
+
             <button
-  onClick={exportarXlsx}
-  disabled={loading}
-  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
->
-  Exportar Excel
-</button>
+              onClick={exportarXlsx}
+              disabled={loading}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Exportar Excel
+            </button>
           </div>
         </header>
 
@@ -1498,7 +1644,6 @@ lines.push('');
           <p className="text-slate-600">Cargando analytics…</p>
         ) : (
           <>
-
             <section className="grid gap-3 xl:grid-cols-5">
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1513,6 +1658,49 @@ lines.push('');
                   {canalLider
                     ? `${formatCurrency(canalLider.ingresos)} · ${canalLider.cantidad} pedidos`
                     : 'Todavía no hay datos para comparar canales.'}
+                </p>
+              </div>
+
+              <div
+                className="rounded-2xl border bg-white p-4"
+                style={
+                  marcaLider
+                    ? {
+                        borderColor: getMarcaColor(marcaLider),
+                        boxShadow: `inset 4px 0 0 ${getMarcaColor(marcaLider)}`,
+                      }
+                    : undefined
+                }
+              >
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Marca líder
+                </div>
+
+                <div className="mt-2 flex items-center gap-2">
+                  {marcaLider?.marca_logo_url ? (
+                    <img
+                      src={marcaLider.marca_logo_url}
+                      alt={getMarcaLabel(marcaLider)}
+                      className="h-8 w-8 rounded-full border border-slate-200 object-cover"
+                    />
+                  ) : marcaLider ? (
+                    <span
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white"
+                      style={{ backgroundColor: getMarcaColor(marcaLider) }}
+                    >
+                      {getMarcaLabel(marcaLider).slice(0, 1).toUpperCase()}
+                    </span>
+                  ) : null}
+
+                  <div className="text-lg font-bold text-slate-900">
+                    {marcaLider ? getMarcaLabel(marcaLider) : 'Sin datos'}
+                  </div>
+                </div>
+
+                <p className="mt-2 text-sm text-slate-600">
+                  {marcaLider
+                    ? `${formatCurrency(marcaLider.ingresos)} · ${marcaLider.unidades} unidades`
+                    : 'Todavía no hay ventas por marca.'}
                 </p>
               </div>
 
@@ -1560,44 +1748,10 @@ lines.push('');
                 <p className="mt-2 text-sm leading-relaxed">
                   {alertaPrincipal.detalle}
                 </p>
-
-                <div
-  className="rounded-2xl border border-slate-200 bg-white p-4"
-  style={getBrandCardStyle(marcaLider?.color_hex)}
->
-  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-    Marca líder
-  </div>
-
-  <div className="mt-2 flex items-center gap-2">
-    {marcaLider?.logo_url ? (
-      <img
-        src={marcaLider.logo_url}
-        alt={marcaLider.marca_nombre}
-        className="h-7 w-7 rounded-full border border-slate-200 object-cover"
-      />
-    ) : marcaLider?.color_hex ? (
-      <span
-        className="h-7 w-7 rounded-full border"
-        style={getBrandBadgeStyle(marcaLider.color_hex)}
-      />
-    ) : null}
-
-    <div className="text-lg font-bold text-slate-900">
-      {marcaLider?.marca_nombre ?? 'Sin datos'}
-    </div>
-  </div>
-
-  <p className="mt-2 text-sm text-slate-600">
-    {marcaLider
-      ? `${formatCurrency(marcaLider.ingresos)} · ${marcaLider.unidades} unidades`
-      : 'Todavía no hay datos para comparar marcas.'}
-  </p>
-</div>
               </div>
             </section>
 
-                        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <section className="rounded-2xl border border-slate-200 bg-white p-4">
               <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1631,19 +1785,19 @@ lines.push('');
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
-    {desde} → {hasta}
-  </span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+                    {desde} → {hasta}
+                  </span>
 
-  {comparativa && (
-    <span className="text-xs text-slate-500">
-      comparado con {comparativa.desde} → {comparativa.hasta}
-    </span>
-  )}
-</div>
+                  {comparativa && (
+                    <span className="text-xs text-slate-500">
+                      comparado con {comparativa.desde} → {comparativa.hasta}
+                    </span>
+                  )}
+                </div>
               </div>
 
-                            <div className="mt-4 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+              <div className="mt-4 rounded-2xl border border-violet-200 bg-violet-50 p-4">
                 <div className="text-xs font-semibold uppercase tracking-wide text-violet-700">
                   Resumen ejecutivo comparativo
                 </div>
@@ -1672,7 +1826,7 @@ lines.push('');
               </div>
             </section>
 
-                        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <section className="rounded-2xl border border-slate-200 bg-white p-4">
               <div className="mb-3">
                 <h2 className="font-semibold text-slate-900">
                   Qué sube / qué baja
@@ -1722,9 +1876,7 @@ lines.push('');
                           </span>
                         </td>
 
-                        <td className="py-3 text-slate-700">
-                          {row.lectura}
-                        </td>
+                        <td className="py-3 text-slate-700">{row.lectura}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1732,37 +1884,37 @@ lines.push('');
               </div>
             </section>
 
-            <section className="grid gap-3 md:grid-cols-4"></section>
-
             <section className="grid gap-3 md:grid-cols-4">
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Pedidos totales</div>
                 <div className="text-xl font-bold">{kpiPedidosTotal}</div>
-<div
-  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaPedidosTotal.className}`}
->
-  <span>{deltaMetaPedidosTotal.icon}</span>
-  <span>{deltaMetaPedidosTotal.label}</span>
-</div>
-                <div className={`mt-1 text-xs font-medium ${getDeltaTone(deltaPedidosTotal)}`}>
-  {formatDelta(deltaPedidosTotal)}
-</div>
+                <div
+                  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaPedidosTotal.className}`}
+                >
+                  <span>{deltaMetaPedidosTotal.icon}</span>
+                  <span>{deltaMetaPedidosTotal.label}</span>
+                </div>
+                <div
+                  className={`mt-1 text-xs font-medium ${getDeltaTone(deltaPedidosTotal)}`}
+                >
+                  {formatDelta(deltaPedidosTotal)}
+                </div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Pedidos cerrados</div>
                 <div className="text-xl font-bold">{kpiPedidosCerrados}</div>
-<div
-  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaPedidosCerrados.className}`}
->
-  <span>{deltaMetaPedidosCerrados.icon}</span>
-  <span>{deltaMetaPedidosCerrados.label}</span>
-</div>
                 <div
-  className={`mt-1 text-xs font-medium ${getDeltaTone(deltaPedidosCerrados)}`}
->
-  {formatDelta(deltaPedidosCerrados)}
-</div>
+                  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaPedidosCerrados.className}`}
+                >
+                  <span>{deltaMetaPedidosCerrados.icon}</span>
+                  <span>{deltaMetaPedidosCerrados.label}</span>
+                </div>
+                <div
+                  className={`mt-1 text-xs font-medium ${getDeltaTone(deltaPedidosCerrados)}`}
+                >
+                  {formatDelta(deltaPedidosCerrados)}
+                </div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -1773,17 +1925,19 @@ lines.push('');
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Ingresos (cerrados)</div>
                 <div className="text-xl font-bold">
-  {formatCurrency(kpiIngresos)}
-</div>
-<div
-  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaIngresos.className}`}
->
-  <span>{deltaMetaIngresos.icon}</span>
-  <span>{deltaMetaIngresos.label}</span>
-</div>
-                <div className={`mt-1 text-xs font-medium ${getDeltaTone(deltaIngresos)}`}>
-  {formatDelta(deltaIngresos)}
-</div>
+                  {formatCurrency(kpiIngresos)}
+                </div>
+                <div
+                  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaIngresos.className}`}
+                >
+                  <span>{deltaMetaIngresos.icon}</span>
+                  <span>{deltaMetaIngresos.label}</span>
+                </div>
+                <div
+                  className={`mt-1 text-xs font-medium ${getDeltaTone(deltaIngresos)}`}
+                >
+                  {formatDelta(deltaIngresos)}
+                </div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3 md:col-span-2">
@@ -1791,17 +1945,19 @@ lines.push('');
                   Ticket promedio (cerrados)
                 </div>
                 <div className="text-xl font-bold">
-  {kpiTicketProm == null ? '—' : formatCurrency(kpiTicketProm)}
-</div>
-<div
-  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaTicketProm.className}`}
->
-  <span>{deltaMetaTicketProm.icon}</span>
-  <span>{deltaMetaTicketProm.label}</span>
-</div>
-                <div className={`mt-1 text-xs font-medium ${getDeltaTone(deltaTicketProm)}`}>
-  {formatDelta(deltaTicketProm)}
-</div>
+                  {kpiTicketProm == null ? '—' : formatCurrency(kpiTicketProm)}
+                </div>
+                <div
+                  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaTicketProm.className}`}
+                >
+                  <span>{deltaMetaTicketProm.icon}</span>
+                  <span>{deltaMetaTicketProm.label}</span>
+                </div>
+                <div
+                  className={`mt-1 text-xs font-medium ${getDeltaTone(deltaTicketProm)}`}
+                >
+                  {formatDelta(deltaTicketProm)}
+                </div>
                 <div className="mt-1 text-[11px] text-slate-500">
                   Calculado como ingresos / cantidad de pedidos cerrados
                 </div>
@@ -1810,16 +1966,16 @@ lines.push('');
               <div className="rounded-xl border border-slate-200 bg-white p-3 md:col-span-2">
                 <div className="text-xs text-slate-500">% cancelación</div>
                 <div className="text-xl font-bold">
-  {porcentajeCancelacion == null
-    ? '—'
-    : `${porcentajeCancelacion}%`}
-</div>
-<div
-  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaCancelacion.className}`}
->
-  <span>{deltaMetaCancelacion.icon}</span>
-  <span>{deltaMetaCancelacion.label}</span>
-</div>
+                  {porcentajeCancelacion == null
+                    ? '—'
+                    : `${porcentajeCancelacion}%`}
+                </div>
+                <div
+                  className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${deltaMetaCancelacion.className}`}
+                >
+                  <span>{deltaMetaCancelacion.icon}</span>
+                  <span>{deltaMetaCancelacion.label}</span>
+                </div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -1851,7 +2007,7 @@ lines.push('');
               </div>
             </section>
 
-                        <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="mb-3">
                 <h2 className="font-semibold text-slate-900">Ventas por canal</h2>
                 <p className="text-sm text-slate-500">
@@ -1865,10 +2021,10 @@ lines.push('');
                 <div className="grid gap-3 md:grid-cols-3">
                   {canales.map((canal) => {
                     const deltaPedidos = getCanalDeltaPedidos(canal);
-                    const deltaIngresos = getCanalDeltaIngresos(canal);
+                    const deltaIngresosCanal = getCanalDeltaIngresos(canal);
 
                     const metaPedidos = getDeltaMeta(deltaPedidos);
-                    const metaIngresos = getDeltaMeta(deltaIngresos);
+                    const metaIngresos = getDeltaMeta(deltaIngresosCanal);
 
                     return (
                       <div
@@ -1905,7 +2061,7 @@ lines.push('');
                             className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${metaIngresos.className}`}
                           >
                             <span>{metaIngresos.icon}</span>
-                            <span>{formatShortDeltaLabel('Ingresos', deltaIngresos)}</span>
+                            <span>{formatShortDeltaLabel('Ingresos', deltaIngresosCanal)}</span>
                           </span>
                         </div>
                       </div>
@@ -1916,115 +2072,159 @@ lines.push('');
             </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-4">
-  <div className="mb-3">
-    <h2 className="font-semibold text-slate-900">Desempeño por marca</h2>
-    <p className="text-sm text-slate-500">
-      Ventas, unidades e ingresos agrupados por marca. Los colores corresponden a
-      la configuración elegida en Marcas.
-    </p>
-  </div>
-
-  {ventasPorMarca.length === 0 ? (
-    <p className="text-sm text-slate-600">
-      Sin datos por marca en el rango seleccionado.
-    </p>
-  ) : (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {ventasPorMarca.map((marca) => {
-        const ingresos = Number(marca.ingresos ?? 0);
-        const participacion =
-          ingresosTotalesMarca > 0
-            ? safeRound((ingresos / ingresosTotalesMarca) * 100)
-            : null;
-
-        return (
-          <article
-            key={marca.marca_id ?? marca.marca_nombre}
-            className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-            style={getBrandCardStyle(marca.color_hex)}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  {marca.logo_url ? (
-                    <img
-                      src={marca.logo_url}
-                      alt={marca.marca_nombre}
-                      className="h-9 w-9 rounded-full border border-slate-200 bg-white object-cover"
-                    />
-                  ) : (
-                    <span
-                      className="h-9 w-9 rounded-full border bg-white"
-                      style={getBrandBadgeStyle(marca.color_hex)}
-                    />
-                  )}
-
-                  <div className="min-w-0">
-                    <h3 className="truncate font-semibold text-slate-900">
-                      {marca.marca_nombre}
-                    </h3>
-
-                    <span
-                      className="mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold"
-                      style={getBrandBadgeStyle(marca.color_hex)}
-                    >
-                      {participacion == null
-                        ? 'Sin participación'
-                        : `${participacion}% del total`}
-                    </span>
-                  </div>
+              <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="font-semibold text-slate-900">
+                    Desempeño por marca
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    Ingresos, pedidos y unidades agrupados por marca. Los colores
+                    usan la configuración elegida en Marcas.
+                  </p>
                 </div>
+
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+                  {ventasPorMarca.length} marca{ventasPorMarca.length === 1 ? '' : 's'}
+                </span>
               </div>
 
-              <div className="text-right">
-                <p className="text-xs text-slate-500">Ingresos</p>
-                <p className="font-bold text-slate-900">
-                  {formatCurrency(ingresos)}
-                </p>
-              </div>
-            </div>
+              {ventasPorMarca.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+                  Sin datos por marca. Revisá que los productos tengan marca asignada
+                  y que el endpoint devuelva <code>ventasPorMarca</code>.
+                </div>
+              ) : (
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {ventasPorMarca.map((marca) => {
+                    const color = getMarcaColor(marca);
+                    const deltaPedidosMarca = getMarcaDeltaPedidos(marca);
+                    const deltaUnidadesMarca = getMarcaDeltaUnidades(marca);
+                    const deltaIngresosMarca = getMarcaDeltaIngresos(marca);
+                    const metaIngresos = getDeltaMeta(deltaIngresosMarca);
+                    const width = getTrendBarWidth(
+                      marca.ingresos,
+                      maxIngresosMarca
+                    );
 
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                <p className="text-[11px] text-slate-500">Pedidos</p>
-                <p className="text-lg font-bold text-slate-900">
-                  {marca.pedidos}
-                </p>
-              </div>
+                    return (
+                      <article
+                        key={getMarcaKey(marca)}
+                        className="overflow-hidden rounded-2xl border bg-white shadow-sm"
+                        style={{
+                          borderColor: color,
+                          boxShadow: `inset 5px 0 0 ${color}`,
+                        }}
+                      >
+                        <div
+                          className="p-4"
+                          style={{ backgroundColor: hexToRgba(color, 0.07) }}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-3">
+                              {marca.marca_logo_url ? (
+                                <img
+                                  src={marca.marca_logo_url}
+                                  alt={getMarcaLabel(marca)}
+                                  className="h-12 w-12 rounded-2xl border border-white bg-white object-cover shadow-sm"
+                                />
+                              ) : (
+                                <span
+                                  className="inline-flex h-12 w-12 items-center justify-center rounded-2xl text-base font-bold text-white shadow-sm"
+                                  style={{ backgroundColor: color }}
+                                >
+                                  {getMarcaLabel(marca).slice(0, 1).toUpperCase()}
+                                </span>
+                              )}
 
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                <p className="text-[11px] text-slate-500">Unidades</p>
-                <p className="text-lg font-bold text-slate-900">
-                  {marca.unidades}
-                </p>
-              </div>
-            </div>
+                              <div className="min-w-0">
+                                <h3 className="truncate text-base font-bold text-slate-900">
+                                  {getMarcaLabel(marca)}
+                                </h3>
+                                <p className="mt-0.5 text-xs text-slate-600">
+                                  {marca.pedidos} pedido
+                                  {marca.pedidos === 1 ? '' : 's'} ·{' '}
+                                  {marca.unidades} unidad
+                                  {marca.unidades === 1 ? '' : 'es'}
+                                </p>
+                              </div>
+                            </div>
 
-            <div className="mt-4">
-              <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
-                <span>Peso relativo por ingresos</span>
-                <span>{participacion == null ? '—' : `${participacion}%`}</span>
-              </div>
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${metaIngresos.className}`}
+                            >
+                              <span>{metaIngresos.icon}</span>
+                              <span>{formatShortDeltaLabel('Ingresos', deltaIngresosMarca)}</span>
+                            </span>
+                          </div>
 
-              <div className="h-2 rounded-full bg-slate-200">
-                <div
-                  className="h-2 rounded-full"
-                  style={{
-                    width: getTrendBarWidth(ingresos, maxIngresosMarca),
-                    backgroundColor:
-                      getSafeBrandColor(marca.color_hex) ?? '#0f172a',
-                  }}
-                />
-              </div>
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  )}
-</section>
+                          <div className="mt-4">
+                            <div className="flex items-center justify-between text-xs text-slate-600">
+                              <span>Ingresos cerrados</span>
+                              <span className="font-semibold text-slate-900">
+                                {formatCurrency(marca.ingresos)}
+                              </span>
+                            </div>
 
-                        <section className="rounded-xl border border-slate-200 bg-white p-4">
+                            <div className="mt-2 h-2 rounded-full bg-white/80">
+                              <div
+                                className="h-2 rounded-full"
+                                style={{ width, backgroundColor: color }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                            <div className="rounded-xl border border-white/70 bg-white/80 p-3">
+                              <div className="text-[11px] text-slate-500">
+                                Pedidos
+                              </div>
+                              <div className="text-lg font-bold text-slate-900">
+                                {marca.pedidos}
+                              </div>
+                              <div
+                                className={`text-[11px] font-medium ${getDeltaTone(deltaPedidosMarca)}`}
+                              >
+                                {formatShortDeltaLabel('Pedidos', deltaPedidosMarca)}
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl border border-white/70 bg-white/80 p-3">
+                              <div className="text-[11px] text-slate-500">
+                                Unidades
+                              </div>
+                              <div className="text-lg font-bold text-slate-900">
+                                {marca.unidades}
+                              </div>
+                              <div
+                                className={`text-[11px] font-medium ${getDeltaTone(deltaUnidadesMarca)}`}
+                              >
+                                {formatShortDeltaLabel('Unidades', deltaUnidadesMarca)}
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl border border-white/70 bg-white/80 p-3">
+                              <div className="text-[11px] text-slate-500">
+                                Ingresos
+                              </div>
+                              <div className="text-lg font-bold text-slate-900">
+                                {formatCurrency(marca.ingresos)}
+                              </div>
+                              <div
+                                className={`text-[11px] font-medium ${getDeltaTone(deltaIngresosMarca)}`}
+                              >
+                                {formatShortDeltaLabel('Ingresos', deltaIngresosMarca)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="mb-3">
                 <h2 className="font-semibold text-slate-900">Tendencia diaria</h2>
                 <p className="text-sm text-slate-500">
