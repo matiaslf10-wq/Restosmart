@@ -347,7 +347,8 @@ function buildPedidosQuery(isoDesde: string, isoHasta: string) {
 async function loadPedidosRango(
   isoDesde: string,
   isoHasta: string,
-  restaurantId: string | null
+  restaurantId: string | null,
+  tenantId: string | null
 ) {
   if (restaurantId) {
     const byRestaurant = await buildPedidosQuery(isoDesde, isoHasta).eq(
@@ -368,16 +369,38 @@ async function loadPedidosRango(
     );
   }
 
-  const unscoped = await buildPedidosQuery(isoDesde, isoHasta);
+  if (tenantId) {
+    const byTenant = await buildPedidosQuery(isoDesde, isoHasta).eq(
+      'tenant_id',
+      tenantId
+    );
 
-  if (unscoped.error) {
-    throw unscoped.error;
+    if (!byTenant.error) {
+      return {
+        data: byTenant.data ?? [],
+        scopeUsed: 'tenant_id',
+      };
+    }
+
+    console.error('analytics pedidos by tenant_id error:', byTenant.error);
   }
 
-  return {
-    data: unscoped.data ?? [],
-    scopeUsed: 'unscoped',
-  };
+  if (process.env.NODE_ENV !== 'production') {
+    const unscoped = await buildPedidosQuery(isoDesde, isoHasta);
+
+    if (unscoped.error) {
+      throw unscoped.error;
+    }
+
+    return {
+      data: unscoped.data ?? [],
+      scopeUsed: 'unscoped_dev_only',
+    };
+  }
+
+  throw new Error(
+    'No se pudo consultar pedidos con el contexto del restaurante.'
+  );
 }
 
 async function loadMarcasByIds(marcaIds: string[]) {
@@ -554,8 +577,8 @@ export async function GET(request: NextRequest) {
   }
 
   const restaurantId =
-    access.restaurant?.id ?? requestedContext.restaurantId ?? null;
-  const tenantId = access.tenantId ?? requestedContext.tenantSlug ?? null;
+  access.restaurant?.id ?? requestedContext.restaurantId ?? null;
+const tenantId = access.tenantId ?? null;
 
   if (!restaurantId && !tenantId) {
     return NextResponse.json(
@@ -589,10 +612,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const pedidosResult = await loadPedidosRango(
-      isoDesde,
-      isoHasta,
-      restaurantId
-    );
+  isoDesde,
+  isoHasta,
+  restaurantId,
+  tenantId
+);
 
     const pedidosRango = pedidosResult.data;
 

@@ -370,6 +370,18 @@ function getMarcaLabel(marca: RowMarca) {
   return marca.marca_nombre || 'Sin marca';
 }
 
+function promedio(values: (number | null)[]) {
+  const xs = values.filter(
+    (value): value is number =>
+      typeof value === 'number' && !Number.isNaN(value)
+  );
+
+  if (xs.length === 0) return null;
+
+  const total = xs.reduce((acc, value) => acc + value, 0);
+  return safeRound(total / xs.length);
+}
+
 export default function AdminAnalyticsPage() {
   const router = useRouter();
 
@@ -570,17 +582,7 @@ export default function AdminAnalyticsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  const promedio = (values: (number | null)[]) => {
-    const xs = values.filter(
-      (value): value is number =>
-        typeof value === 'number' && !Number.isNaN(value)
-    );
-
-    if (xs.length === 0) return null;
-
-    const total = xs.reduce((acc, value) => acc + value, 0);
-    return safeRound(total / xs.length);
-  };
+  
 
   const promMozo = useMemo(
     () => promedio(tiempos.map((t) => t.min_mozo_confirma)),
@@ -674,13 +676,17 @@ export default function AdminAnalyticsPage() {
   }, [topProductos]);
 
   const canalLider = useMemo(() => {
-    if (canales.length === 0) return null;
+  const canalesConActividad = canales.filter(
+    (canal) => canal.cantidad > 0 || canal.ingresos > 0
+  );
 
-    return [...canales].sort((a, b) => {
-      if (b.ingresos !== a.ingresos) return b.ingresos - a.ingresos;
-      return b.cantidad - a.cantidad;
-    })[0];
-  }, [canales]);
+  if (canalesConActividad.length === 0) return null;
+
+  return [...canalesConActividad].sort((a, b) => {
+    if (b.ingresos !== a.ingresos) return b.ingresos - a.ingresos;
+    return b.cantidad - a.cantidad;
+  })[0];
+}, [canales]);
 
   const marcaLider = useMemo(() => {
     if (ventasPorMarca.length === 0) return null;
