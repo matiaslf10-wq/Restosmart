@@ -20,15 +20,15 @@ type AdminSessionPayload = {
   plan?: PlanCode;
   business_mode?: BusinessMode;
   addons?: {
-  whatsapp_delivery?: boolean;
-  multi_brand?: boolean;
-};
-capabilities?: {
-  analytics?: boolean;
-  delivery?: boolean;
-  waiter_mode?: boolean;
-  multi_brand?: boolean;
-};
+    whatsapp_delivery?: boolean;
+    multi_brand?: boolean;
+  };
+  capabilities?: {
+    analytics?: boolean;
+    delivery?: boolean;
+    waiter_mode?: boolean;
+    multi_brand?: boolean;
+  };
   restaurant?: {
     id: string;
     slug: string;
@@ -87,10 +87,14 @@ export default function AdminLayout({
 
         const session = (data?.session as AdminSessionPayload | null) ?? null;
         const capabilities = session?.capabilities ?? {};
-        const plan = (session?.plan ?? 'esencial') as PlanCode;
-        const businessMode = normalizeBusinessMode(
-          session?.business_mode ?? session?.restaurant?.business_mode
-        );
+const addons = session?.addons ?? {};
+const plan = (session?.plan ?? 'esencial') as PlanCode;
+const businessMode = normalizeBusinessMode(
+  session?.business_mode ?? session?.restaurant?.business_mode
+);
+
+const multiBrandEnabled =
+  !!capabilities.multi_brand || !!addons.multi_brand;
 
         const hasOperationalManagement =
           plan === 'pro' || plan === 'intelligence';
@@ -113,7 +117,7 @@ export default function AdminLayout({
   pathname.startsWith('/admin/mesas') && businessMode !== 'restaurant';
 
 const marcasBlocked =
-  pathname.startsWith('/admin/marcas') && !capabilities.multi_brand;
+  pathname.startsWith('/admin/marcas') && !multiBrandEnabled;
 
         if (
   analyticsBlocked ||
@@ -164,9 +168,14 @@ const marcasBlocked =
   }
 
   const plan = (sessionData?.plan ?? 'esencial') as PlanCode;
-  const capabilities = sessionData?.capabilities ?? {};
-  const hasOperationalManagement =
-    plan === 'pro' || plan === 'intelligence';
+const capabilities = sessionData?.capabilities ?? {};
+const addons = sessionData?.addons ?? {};
+
+const hasOperationalManagement =
+  plan === 'pro' || plan === 'intelligence';
+
+const multiBrandEnabled =
+  !!capabilities.multi_brand || !!addons.multi_brand;
 
   const businessMode = normalizeBusinessMode(
     sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
@@ -181,7 +190,7 @@ const marcasBlocked =
 {
   href: '/admin/marcas',
   label: 'Marcas',
-  visible: !!capabilities.multi_brand,
+  visible: multiBrandEnabled,
 },
 { href: '/cocina', label: 'Cocina', visible: true },
       { href: '/mostrador', label: 'Mostrador / Caja', visible: true },
@@ -217,7 +226,7 @@ const marcasBlocked =
         visible: !!capabilities.analytics,
       },
     ].filter((item) => item.visible);
-  }, [businessMode, capabilities, hasOperationalManagement]);
+  }, [businessMode, capabilities, hasOperationalManagement, multiBrandEnabled]);
 
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin';
@@ -294,7 +303,7 @@ const marcasBlocked =
                 </span>
               ) : null}
 
-              {sessionData?.addons?.multi_brand ? (
+              {multiBrandEnabled ? (
   <span className="rounded-full bg-fuchsia-600/20 border border-fuchsia-400/30 px-2.5 py-1 text-xs text-fuchsia-100">
     Multimarca activo
   </span>

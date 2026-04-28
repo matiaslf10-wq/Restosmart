@@ -308,9 +308,13 @@ const [actualizandoAddonKey, setActualizandoAddonKey] =
   const planLabel = formatPlanLabel(plan);
   const addons = sessionData?.addons ?? {};
   const capabilities = sessionData?.capabilities ?? {};
-  const deliveryAddonEnabled = !!addons.whatsapp_delivery;
-  const multiBrandAddonEnabled = !!addons.multi_brand;
-  const analyticsEnabled = !!capabilities.analytics;
+  const deliveryAddonEnabled =
+  !!addons.whatsapp_delivery || !!capabilities.delivery;
+
+const multiBrandAddonEnabled =
+  !!addons.multi_brand || !!capabilities.multi_brand;
+
+const analyticsEnabled = !!capabilities.analytics;
   const tenantLabel =
     sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
   const businessModeLabel = formatBusinessModeLabel(localForm.business_mode);
@@ -397,26 +401,24 @@ async function cargarAddons() {
 }
 
   async function reloadSession() {
-    const sessionRes = await fetch(
-      `/api/admin/session?tenant=${encodeURIComponent(tenantLabel)}`,
-      {
-        method: 'GET',
-        cache: 'no-store',
-      }
+  const sessionRes = await fetch('/api/admin/session', {
+    method: 'GET',
+    cache: 'no-store',
+    credentials: 'include',
+  });
+
+  const sessionJson = await sessionRes.json().catch(() => null);
+
+  if (!sessionRes.ok) {
+    throw new Error(
+      getApiErrorMessage(sessionJson, 'No se pudo refrescar la sesión.')
     );
-
-    const sessionJson = await sessionRes.json().catch(() => null);
-
-    if (!sessionRes.ok) {
-      throw new Error(
-        getApiErrorMessage(sessionJson, 'No se pudo refrescar la sesión.')
-      );
-    }
-
-    const session = (sessionJson?.session as AdminSessionPayload | null) ?? null;
-    setSessionData(session);
-    setSelectedPlan((session?.plan ?? 'esencial') as PlanCode);
   }
+
+  const session = (sessionJson?.session as AdminSessionPayload | null) ?? null;
+  setSessionData(session);
+  setSelectedPlan((session?.plan ?? 'esencial') as PlanCode);
+}
 
   async function toggleAddon(item: AddonItem) {
   if (!item.available || !item.configurable) return;
@@ -665,8 +667,9 @@ async function cargarAddons() {
       }
 
       await reloadSession();
+await cargarAddons();
 
-      setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
+setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
       setError('');
     } catch (err) {
       console.error(err);
