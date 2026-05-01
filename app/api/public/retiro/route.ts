@@ -5,12 +5,6 @@ import { getRestaurantContext } from '@/lib/tenant';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type RestaurantContext = {
-  id: string | number;
-  slug: string;
-  plan?: string | null;
-};
-
 type PedidoRow = {
   id: number;
   codigo_publico?: string | null;
@@ -62,115 +56,16 @@ function normalizeBusinessMode(value: unknown): 'restaurant' | 'takeaway' {
   return normalizeText(value) === 'takeaway' ? 'takeaway' : 'restaurant';
 }
 
-async function resolveRestaurantContext() {
-  const ctx = await getRestaurantContext().catch(() => null);
-
-  if (ctx?.id) {
-    return ctx as RestaurantContext;
-  }
-
-  const defaultTenantId = process.env.DEFAULT_TENANT_ID?.trim();
-
-  if (defaultTenantId) {
-    const bySlug = await supabaseAdmin
-      .from('restaurants')
-      .select('id, slug, plan')
-      .eq('slug', defaultTenantId)
-      .maybeSingle();
-
-    if (!bySlug.error && bySlug.data?.id) {
-      return bySlug.data as RestaurantContext;
-    }
-  }
-
-  const fallback = await supabaseAdmin
-    .from('restaurants')
-    .select('id, slug, plan')
-    .order('id', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (!fallback.error && fallback.data?.id) {
-    return fallback.data as RestaurantContext;
-  }
-
-  return null;
-}
-
-async function loadPublicConfig(restaurant: RestaurantContext | null) {
-  if (restaurant?.id != null) {
-    const byRestaurant = await supabaseAdmin
-      .from('configuracion_local')
-      .select('nombre_local, business_mode')
-      .eq('restaurant_id', restaurant.id)
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (byRestaurant.error) {
-      return {
-        data: null,
-        error: byRestaurant.error,
-      };
-    }
-
-    if (byRestaurant.data) {
-      return {
-        data: byRestaurant.data as LocalConfigRow,
-        error: null,
-      };
-    }
-  }
-
-  if (restaurant?.slug) {
-    const byTenant = await supabaseAdmin
-      .from('configuracion_local')
-      .select('nombre_local, business_mode')
-      .eq('tenant_id', restaurant.slug)
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (byTenant.error) {
-      return {
-        data: null,
-        error: byTenant.error,
-      };
-    }
-
-    if (byTenant.data) {
-      return {
-        data: byTenant.data as LocalConfigRow,
-        error: null,
-      };
-    }
-  }
-
-  const fallback = await supabaseAdmin
-    .from('configuracion_local')
-    .select('nombre_local, business_mode')
-    .order('id', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (fallback.error) {
-    return {
-      data: null,
-      error: fallback.error,
-    };
-  }
-
-  return {
-    data: (fallback.data ?? null) as LocalConfigRow | null,
-    error: null,
-  };
-}
-
 export async function GET() {
   try {
-    const restaurant = await resolveRestaurantContext();
+    const restaurant = await getRestaurantContext().catch(() => null);
 
-    const configPromise = loadPublicConfig(restaurant);
+    const configQuery = supabaseAdmin
+      .from('configuracion_local')
+      .select('nombre_local, business_mode')
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
     let pedidosQuery = supabaseAdmin
       .from('pedidos')
@@ -194,7 +89,7 @@ export async function GET() {
     }
 
     const [configResult, pedidosResult] = await Promise.all([
-      configPromise,
+      configQuery,
       pedidosQuery,
     ]);
 
@@ -216,7 +111,7 @@ export async function GET() {
       );
     }
 
-    const config = configResult.data;
+    const config = (configResult.data ?? null) as LocalConfigRow | null;
     const businessMode = normalizeBusinessMode(config?.business_mode);
 
     const pedidos = ((pedidosResult.data ?? []) as PedidoRow[]).filter(

@@ -88,7 +88,7 @@ export default function RetiroPage() {
   const [data, setData] = useState<PublicRetiroResponse | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
-  const [now, setNow] = useState(() => new Date());
+  const [now, setNow] = useState<Date | null>(null);
   const [preparingPage, setPreparingPage] = useState(0);
   const [readyPage, setReadyPage] = useState(0);
 
@@ -132,10 +132,10 @@ export default function RetiroPage() {
     }
 
     cargar();
+setNow(new Date());
 
-    const refreshInterval = setInterval(cargar, REFRESH_INTERVAL_MS);
-    const clockInterval = setInterval(() => setNow(new Date()), CLOCK_INTERVAL_MS);
-
+const refreshInterval = setInterval(cargar, REFRESH_INTERVAL_MS);
+const clockInterval = setInterval(() => setNow(new Date()), CLOCK_INTERVAL_MS);
     return () => {
       activo = false;
       clearInterval(refreshInterval);
@@ -233,7 +233,7 @@ export default function RetiroPage() {
                   Hora actual
                 </p>
                 <p className="mt-2 text-[clamp(1.7rem,2.2vw,2.8rem)] font-black leading-none tabular-nums text-white">
-                  {formatClock(now)}
+                  {now ? formatClock(now) : '--:--'}
                 </p>
                 <p className="mt-2 text-xs text-slate-500">
                   {generatedLabel

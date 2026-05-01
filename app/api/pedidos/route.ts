@@ -462,69 +462,23 @@ async function resolveRestaurantContext() {
   return null;
 }
 
-async function resolveBusinessMode(restaurant: RestaurantContext | null) {
-  if (restaurant?.id != null) {
-    const byRestaurant = await supabaseAdmin
-      .from('configuracion_local')
-      .select('business_mode')
-      .eq('restaurant_id', restaurant.id)
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (byRestaurant.error) {
-      console.error(
-        'POST /api/pedidos - no se pudo leer business_mode por restaurant_id:',
-        byRestaurant.error
-      );
-      return 'restaurant' as BusinessMode;
-    }
-
-    if (byRestaurant.data) {
-      const config = byRestaurant.data as LocalConfigRow;
-      return normalizeBusinessMode(config?.business_mode);
-    }
-  }
-
-  if (restaurant?.slug) {
-    const byTenant = await supabaseAdmin
-      .from('configuracion_local')
-      .select('business_mode')
-      .eq('tenant_id', restaurant.slug)
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (byTenant.error) {
-      console.error(
-        'POST /api/pedidos - no se pudo leer business_mode por tenant_id:',
-        byTenant.error
-      );
-      return 'restaurant' as BusinessMode;
-    }
-
-    if (byTenant.data) {
-      const config = byTenant.data as LocalConfigRow;
-      return normalizeBusinessMode(config?.business_mode);
-    }
-  }
-
-  const fallback = await supabaseAdmin
+async function resolveBusinessMode(_restaurant: RestaurantContext | null) {
+  const result = await supabaseAdmin
     .from('configuracion_local')
     .select('business_mode')
     .order('id', { ascending: true })
     .limit(1)
     .maybeSingle();
 
-  if (fallback.error) {
+  if (result.error) {
     console.error(
-      'POST /api/pedidos - no se pudo leer business_mode fallback:',
-      fallback.error
+      'POST /api/pedidos - no se pudo leer business_mode:',
+      result.error
     );
     return 'restaurant' as BusinessMode;
   }
 
-  const config = (fallback.data ?? null) as LocalConfigRow | null;
+  const config = (result.data ?? null) as LocalConfigRow | null;
   return normalizeBusinessMode(config?.business_mode);
 }
 
