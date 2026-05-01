@@ -183,10 +183,15 @@ const multiBrandEnabled =
   const businessModeLabel = formatBusinessModeLabel(businessMode);
 
   const navItems = useMemo<NavItem[]>(() => {
-    return [
-      { href: '/inicio', label: 'Inicio', visible: true },
-      { href: '/admin', label: 'Dashboard', visible: true },
-      { href: '/admin/productos', label: 'Menú / Productos', visible: true },
+  return [
+    { href: '/inicio', label: 'Inicio', visible: true },
+    { href: '/admin', label: 'Dashboard', visible: true },
+    {
+      href: '/admin/restaurantes',
+      label: 'Restaurantes',
+      visible: true,
+    },
+    { href: '/admin/productos', label: 'Menú / Productos', visible: true },
 {
   href: '/admin/marcas',
   label: 'Marcas',
