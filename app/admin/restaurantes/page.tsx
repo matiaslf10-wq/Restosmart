@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import TakeAwayQrCard from '@/components/TakeAwayQrCard';
 import {
   formatBusinessModeLabel,
   type BusinessMode,
@@ -531,6 +532,16 @@ con Multimarca activo.
                   </p>
                 ) : null}
               </div>
+
+              <div className="mt-4">
+  <TakeAwayQrCard
+    localName={item.nombre_local || item.slug}
+    routePath={buildPublicOrderHref(item.slug)}
+    title="QR público del restaurante"
+    description="Escaneando este QR, el cliente entra al menú público de esta sucursal para hacer un pedido de retiro."
+    badgeLabel="QR TAKE AWAY"
+  />
+</div>
 
               <div className="mt-4 grid gap-2">
                 <Link
