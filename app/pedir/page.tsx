@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { BusinessMode } from '@/lib/plans';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -26,6 +27,12 @@ type Marca = {
   color_hex?: string | null;
   activa: boolean | null;
   orden: number | null;
+};
+
+type RestaurantPublicContext = {
+  id: string | number;
+  slug: string;
+  plan?: string | null;
 };
 
 type ItemCarrito = {
@@ -63,6 +70,11 @@ function normalizeBusinessModeForPublic(value: unknown): BusinessMode {
     : 'restaurant';
 }
 
+function normalizePublicSlug(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
 function getStockDisponible(producto: Producto) {
   if (!producto.control_stock) return null;
   if (producto.permitir_sin_stock) return null;
@@ -91,15 +103,67 @@ function getStockMessage(producto: Producto) {
   return null;
 }
 
+function buildPublicEndpoint(basePath: string, restaurantSlug: string | null) {
+  if (!restaurantSlug) return basePath;
+
+  const separator = basePath.includes('?') ? '&' : '?';
+  return `${basePath}${separator}restaurant=${encodeURIComponent(
+    restaurantSlug
+  )}`;
+}
+
+function LoadingMenu() {
+  return (
+    <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <p className="text-slate-700">Cargando menú...</p>
+    </main>
+  );
+}
+
 export default function PedirPage() {
+  return (
+    <Suspense fallback={<LoadingMenu />}>
+      <PedirPageContent />
+    </Suspense>
+  );
+}
+
+function PedirPageContent() {
+  const searchParams = useSearchParams();
+
+  const restaurantSlug = useMemo(() => {
+    return normalizePublicSlug(
+      searchParams.get('restaurant') ||
+        searchParams.get('restaurantSlug') ||
+        searchParams.get('tenant') ||
+        searchParams.get('tenantSlug') ||
+        searchParams.get('slug')
+    );
+  }, [searchParams]);
+
+  const productosEndpoint = useMemo(
+    () =>
+      buildPublicEndpoint(
+        '/api/productos?soloDisponibles=1',
+        restaurantSlug
+      ),
+    [restaurantSlug]
+  );
+
+  const pedidosEndpoint = useMemo(
+    () => buildPublicEndpoint('/api/pedidos', restaurantSlug),
+    [restaurantSlug]
+  );
+
   const [localConfig, setLocalConfig] = useState<LocalPublicConfig | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
-const [marcas, setMarcas] = useState<Marca[]>([]);
-const [categorias, setCategorias] = useState<string[]>([]);
-const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string | null>(
-  null
-);
-const [marcaSeleccionada, setMarcaSeleccionada] = useState<string>('todas');
+  const [marcas, setMarcas] = useState<Marca[]>([]);
+  const [categorias, setCategorias] = useState<string[]>([]);
+  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<
+    string | null
+  >(null);
+  const [marcaSeleccionada, setMarcaSeleccionada] =
+    useState<string>('todas');
 
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [clienteNombre, setClienteNombre] = useState('');
@@ -108,163 +172,200 @@ const [marcaSeleccionada, setMarcaSeleccionada] = useState<string>('todas');
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const businessMode = normalizeBusinessModeForPublic(localConfig?.business_mode);
+  const businessMode = normalizeBusinessModeForPublic(
+    localConfig?.business_mode
+  );
   const isTakeawayMode = businessMode === 'takeaway';
 
   const cargarProductos = useCallback(async () => {
-  const res = await fetch('/api/productos?soloDisponibles=1', {
-    method: 'GET',
-    cache: 'no-store',
-  });
+    const res = await fetch(productosEndpoint, {
+      method: 'GET',
+      cache: 'no-store',
+    });
 
-  const body = await res.json().catch(() => null);
+    const body = await res.json().catch(() => null);
 
-  if (!res.ok) {
-    throw new Error(body?.error || 'No se pudieron cargar los productos.');
-  }
+    if (!res.ok) {
+      throw new Error(body?.error || 'No se pudieron cargar los productos.');
+    }
 
-  const listaProductos = (body ?? []) as Producto[];
-  setProductos(listaProductos);
+    const listaProductos = (body ?? []) as Producto[];
+    setProductos(listaProductos);
 
-  const cats = Array.from(
-    new Set(
-      listaProductos
-        .map((p) => p.categoria)
-        .filter((c): c is string => !!c && c.trim() !== '')
-    )
-  ).sort((a, b) => a.localeCompare(b));
+    const cats = Array.from(
+      new Set(
+        listaProductos
+          .map((p) => p.categoria)
+          .filter((c): c is string => !!c && c.trim() !== '')
+      )
+    ).sort((a, b) => a.localeCompare(b));
 
-  setCategorias(cats);
-  setCategoriaSeleccionada((prev) =>
-    prev && cats.includes(prev) ? prev : cats[0] ?? null
-  );
-}, []);
+    setCategorias(cats);
+    setCategoriaSeleccionada((prev) =>
+      prev && cats.includes(prev) ? prev : cats[0] ?? null
+    );
+  }, [productosEndpoint]);
 
   useEffect(() => {
-  let activo = true;
+    let activo = true;
 
-  async function cargar() {
-    try {
-      setCargando(true);
-      setMensaje(null);
-      setError(null);
+    async function cargar() {
+      try {
+        setCargando(true);
+        setMensaje(null);
+        setError(null);
 
-      const [configRes, productosRes, marcasRes] = await Promise.all([
-  supabase
-    .from('configuracion_local')
-    .select('nombre_local, direccion, horario_atencion, business_mode')
-    .order('id', { ascending: true })
-    .limit(1)
-    .maybeSingle(),
-  fetch('/api/productos?soloDisponibles=1', {
-    method: 'GET',
-    cache: 'no-store',
-  }),
-  supabase
-    .from('marcas')
-    .select('id, nombre, descripcion, logo_url, color_hex, activa, orden')
-    .eq('activa', true)
-    .order('orden', { ascending: true })
-    .order('nombre', { ascending: true }),
-]);
+        let restaurantContext: RestaurantPublicContext | null = null;
 
-      if (!activo) return;
+        if (restaurantSlug) {
+          const { data, error: restaurantError } = await supabase
+            .from('restaurants')
+            .select('id, slug, plan')
+            .eq('slug', restaurantSlug)
+            .maybeSingle();
 
-      if (configRes.error) {
-        console.warn(
-          'No se pudo cargar configuracion_local en /pedir:',
-          configRes.error
-        );
-      } else {
-        setLocalConfig((configRes.data as LocalPublicConfig | null) ?? null);
-      }
+          if (restaurantError) {
+            console.warn(
+              'No se pudo cargar el restaurante público en /pedir:',
+              restaurantError
+            );
+          }
 
-      if (marcasRes.error) {
-  console.warn('No se pudieron cargar marcas en /pedir:', marcasRes.error);
-  setMarcas([]);
-  setMarcaSeleccionada('todas');
-} else {
-  const listaMarcas = (marcasRes.data as Marca[]) ?? [];
-  setMarcas(listaMarcas);
-  setMarcaSeleccionada((prev) => {
-    if (prev === 'todas') return prev;
-    return listaMarcas.some((marca) => marca.id === prev) ? prev : 'todas';
-  });
-}
+          if (!data?.id) {
+            throw new Error(
+              'No encontramos el local asociado a este QR. Revisá que el enlace sea correcto.'
+            );
+          }
 
-      const productosBody = await productosRes.json().catch(() => null);
+          restaurantContext = data as RestaurantPublicContext;
+        }
 
-      if (!productosRes.ok) {
-        throw new Error(
-          productosBody?.error || 'No se pudieron cargar los productos.'
-        );
-      }
+        const configQuery = supabase
+          .from('configuracion_local')
+          .select('nombre_local, direccion, horario_atencion, business_mode')
+          .order('id', { ascending: true })
+          .limit(1);
 
-      const listaProductos = (productosBody as Producto[]) ?? [];
-      setProductos(listaProductos);
+        const configPromise =
+          restaurantContext?.id != null
+            ? configQuery.eq('restaurant_id', restaurantContext.id).maybeSingle()
+            : configQuery.maybeSingle();
 
-      const cats = Array.from(
-        new Set(
-          listaProductos
-            .map((p) => p.categoria)
-            .filter((c): c is string => !!c && c.trim() !== '')
-        )
-      ).sort((a, b) => a.localeCompare(b));
+        const marcasQuery = supabase
+          .from('marcas')
+          .select('id, nombre, descripcion, logo_url, color_hex, activa, orden')
+          .eq('activa', true)
+          .order('orden', { ascending: true })
+          .order('nombre', { ascending: true });
 
-      setCategorias(cats);
-      setCategoriaSeleccionada(cats[0] ?? null);
-    } catch (err) {
-      console.error(err);
-      if (!activo) return;
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'No se pudo cargar el menú.'
-      );
-    } finally {
-      if (activo) {
-        setCargando(false);
+        const marcasPromise = restaurantContext?.slug
+          ? marcasQuery.eq('tenant_id', restaurantContext.slug)
+          : marcasQuery;
+
+        const [configRes, productosRes, marcasRes] = await Promise.all([
+          configPromise,
+          fetch(productosEndpoint, {
+            method: 'GET',
+            cache: 'no-store',
+          }),
+          marcasPromise,
+        ]);
+
+        if (!activo) return;
+
+        if (configRes.error) {
+          console.warn(
+            'No se pudo cargar configuracion_local en /pedir:',
+            configRes.error
+          );
+        } else {
+          setLocalConfig((configRes.data as LocalPublicConfig | null) ?? null);
+        }
+
+        if (marcasRes.error) {
+          console.warn('No se pudieron cargar marcas en /pedir:', marcasRes.error);
+          setMarcas([]);
+          setMarcaSeleccionada('todas');
+        } else {
+          const listaMarcas = (marcasRes.data as Marca[]) ?? [];
+          setMarcas(listaMarcas);
+          setMarcaSeleccionada((prev) => {
+            if (prev === 'todas') return prev;
+            return listaMarcas.some((marca) => marca.id === prev)
+              ? prev
+              : 'todas';
+          });
+        }
+
+        const productosBody = await productosRes.json().catch(() => null);
+
+        if (!productosRes.ok) {
+          throw new Error(
+            productosBody?.error || 'No se pudieron cargar los productos.'
+          );
+        }
+
+        const listaProductos = (productosBody as Producto[]) ?? [];
+        setProductos(listaProductos);
+
+        const cats = Array.from(
+          new Set(
+            listaProductos
+              .map((p) => p.categoria)
+              .filter((c): c is string => !!c && c.trim() !== '')
+          )
+        ).sort((a, b) => a.localeCompare(b));
+
+        setCategorias(cats);
+        setCategoriaSeleccionada(cats[0] ?? null);
+      } catch (err) {
+        console.error(err);
+        if (!activo) return;
+        setError(err instanceof Error ? err.message : 'No se pudo cargar el menú.');
+      } finally {
+        if (activo) {
+          setCargando(false);
+        }
       }
     }
-  }
 
-  void cargar();
+    void cargar();
 
-  return () => {
-    activo = false;
-  };
-}, []);
+    return () => {
+      activo = false;
+    };
+  }, [productosEndpoint, restaurantSlug]);
 
   const marcasPorId = useMemo(() => {
-  return new Map(marcas.map((marca) => [marca.id, marca]));
-}, [marcas]);
+    return new Map(marcas.map((marca) => [marca.id, marca]));
+  }, [marcas]);
 
-const mostrarFiltroMarcas = isTakeawayMode && marcas.length > 1;
+  const mostrarFiltroMarcas = marcas.length > 1;
 
-function getMarcaNombre(producto: Producto) {
-  if (!producto.marca_id) return null;
-  return marcasPorId.get(producto.marca_id)?.nombre ?? null;
-}
+  function getMarcaNombre(producto: Producto) {
+    if (!producto.marca_id) return null;
+    return marcasPorId.get(producto.marca_id)?.nombre ?? null;
+  }
 
-const productosFiltrados = useMemo(() => {
-  if (categoriaSeleccionada == null) return [];
+  const productosFiltrados = useMemo(() => {
+    if (categoriaSeleccionada == null) return [];
 
-  return productos.filter((p) => {
-    const coincideCategoria = p.categoria === categoriaSeleccionada;
+    return productos.filter((p) => {
+      const coincideCategoria = p.categoria === categoriaSeleccionada;
 
-    const coincideMarca =
-      !mostrarFiltroMarcas ||
-      marcaSeleccionada === 'todas' ||
-      (p.marca_id ?? '') === marcaSeleccionada;
+      const coincideMarca =
+        !mostrarFiltroMarcas ||
+        marcaSeleccionada === 'todas' ||
+        (p.marca_id ?? '') === marcaSeleccionada;
 
-    return coincideCategoria && coincideMarca;
-  });
-}, [
-  productos,
-  categoriaSeleccionada,
-  marcaSeleccionada,
-  mostrarFiltroMarcas,
-]);
+      return coincideCategoria && coincideMarca;
+    });
+  }, [
+    productos,
+    categoriaSeleccionada,
+    marcaSeleccionada,
+    mostrarFiltroMarcas,
+  ]);
 
   function agregarAlCarrito(producto: Producto) {
     setError(null);
@@ -314,7 +415,9 @@ const productosFiltrados = useMemo(() => {
     }
 
     if (cantidadAjustada !== cantidad) {
-      setError(`Solo hay ${maxCantidad} unidad(es) disponible(s) de "${itemActual.producto.nombre}".`);
+      setError(
+        `Solo hay ${maxCantidad} unidad(es) disponible(s) de "${itemActual.producto.nombre}".`
+      );
     } else {
       setError(null);
     }
@@ -380,7 +483,7 @@ const productosFiltrados = useMemo(() => {
         items,
       };
 
-      const res = await fetch('/api/pedidos', {
+      const res = await fetch(pedidosEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -421,20 +524,17 @@ const productosFiltrados = useMemo(() => {
   const localHorario = localConfig?.horario_atencion?.trim() || '';
 
   const heroBadge = isTakeawayMode ? 'TAKE AWAY' : 'PEDIDO ONLINE';
-const heroTitle = 'Hacé tu pedido para retirar';
-const heroDescription =
-  'Elegí tus productos, indicá tu nombre y confirmá el pedido. Te avisaremos cuando esté listo para retirar por el mostrador.';
+  const heroTitle = 'Hacé tu pedido para retirar';
+  const heroDescription =
+    'Elegí tus productos, indicá tu nombre y confirmá el pedido. Te avisaremos cuando esté listo para retirar por el mostrador.';
 
-const sideTitle = 'Tu pedido';
-const menuTitle = 'Menú';
-const helperText =
-  'Tu pedido queda registrado con tu nombre para que puedan identificarlo al momento del retiro.';
+  const sideTitle = 'Tu pedido';
+  const menuTitle = 'Menú';
+  const helperText =
+    'Tu pedido queda registrado con tu nombre para que puedan identificarlo al momento del retiro.';
+
   if (cargando) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-        <p className="text-slate-700">Cargando menú...</p>
-      </main>
-    );
+    return <LoadingMenu />;
   }
 
   return (
@@ -443,10 +543,10 @@ const helperText =
         <header className="rounded-3xl border bg-white p-6 shadow-sm">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-    {heroBadge}
-  </span>
-</div>
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                {heroBadge}
+              </span>
+            </div>
 
             <h1 className="mt-3 text-3xl font-bold text-slate-900">
               {localNombre}
@@ -466,7 +566,6 @@ const helperText =
                 {localHorario ? <p>🕒 {localHorario}</p> : null}
               </div>
             )}
-
           </div>
         </header>
 
@@ -504,15 +603,16 @@ const helperText =
                 </label>
 
                 <p className="text-xs text-slate-500">
-                  Este nombre se guarda dentro del pedido y se usa para identificarlo
-                  cuando esté listo. En esta pantalla la referencia principal siempre
-                  es la persona que retira.
+                  Este nombre se guarda dentro del pedido y se usa para
+                  identificarlo cuando esté listo.
                 </p>
               </div>
             </div>
 
             <div className="rounded-3xl border bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">Categorías</h2>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Categorías
+              </h2>
 
               {categorias.length === 0 ? (
                 <p className="mt-3 text-sm text-slate-600">
@@ -544,45 +644,47 @@ const helperText =
             </div>
 
             {mostrarFiltroMarcas ? (
-  <div className="rounded-3xl border bg-white p-5 shadow-sm">
-    <h2 className="text-lg font-semibold text-slate-900">Marcas</h2>
+              <div className="rounded-3xl border bg-white p-5 shadow-sm">
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Marcas
+                </h2>
 
-    <div className="mt-4 flex flex-wrap gap-2">
-      <button
-        type="button"
-        onClick={() => setMarcaSeleccionada('todas')}
-        className={
-          'rounded-full border px-3 py-1 text-sm ' +
-          (marcaSeleccionada === 'todas'
-            ? 'border-emerald-700 bg-emerald-700 text-white'
-            : 'border-slate-300 bg-white text-slate-900')
-        }
-      >
-        Todas las marcas
-      </button>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMarcaSeleccionada('todas')}
+                    className={
+                      'rounded-full border px-3 py-1 text-sm ' +
+                      (marcaSeleccionada === 'todas'
+                        ? 'border-emerald-700 bg-emerald-700 text-white'
+                        : 'border-slate-300 bg-white text-slate-900')
+                    }
+                  >
+                    Todas las marcas
+                  </button>
 
-      {marcas.map((marca) => {
-        const activa = marcaSeleccionada === marca.id;
+                  {marcas.map((marca) => {
+                    const activa = marcaSeleccionada === marca.id;
 
-        return (
-          <button
-            key={marca.id}
-            type="button"
-            onClick={() => setMarcaSeleccionada(marca.id)}
-            className={
-              'rounded-full border px-3 py-1 text-sm ' +
-              (activa
-                ? 'border-emerald-700 bg-emerald-700 text-white'
-                : 'border-slate-300 bg-white text-slate-900')
-            }
-          >
-            {marca.nombre}
-          </button>
-        );
-      })}
-    </div>
-  </div>
-) : null}
+                    return (
+                      <button
+                        key={marca.id}
+                        type="button"
+                        onClick={() => setMarcaSeleccionada(marca.id)}
+                        className={
+                          'rounded-full border px-3 py-1 text-sm ' +
+                          (activa
+                            ? 'border-emerald-700 bg-emerald-700 text-white'
+                            : 'border-slate-300 bg-white text-slate-900')
+                        }
+                      >
+                        {marca.nombre}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
 
             <section className="space-y-3">
               <h2 className="text-lg font-semibold text-slate-900">
@@ -595,95 +697,108 @@ const helperText =
                 </p>
               )}
 
-              {categoriaSeleccionada != null && productosFiltrados.length === 0 && (
-                <p className="text-sm text-slate-600">
-                  No hay productos disponibles en esta categoría.
-                </p>
-              )}
+              {categoriaSeleccionada != null &&
+                productosFiltrados.length === 0 && (
+                  <p className="text-sm text-slate-600">
+                    No hay productos disponibles en esta categoría.
+                  </p>
+                )}
 
-              {categoriaSeleccionada != null && productosFiltrados.length > 0 && (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {productosFiltrados.map((p) => {
-  const agotado = isProductoAgotado(p);
-  const marcaNombre = getMarcaNombre(p);
-  const itemEnCarrito = carrito.find((item) => item.producto.id === p.id);                    const maxCantidad = getMaxCantidadCarrito(p);
-                    const llegoAlMaximo =
-                      itemEnCarrito != null && itemEnCarrito.cantidad >= maxCantidad;
-                    const stockMessage = getStockMessage(p);
+              {categoriaSeleccionada != null &&
+                productosFiltrados.length > 0 && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {productosFiltrados.map((p) => {
+                      const agotado = isProductoAgotado(p);
+                      const marcaNombre = getMarcaNombre(p);
+                      const itemEnCarrito = carrito.find(
+                        (item) => item.producto.id === p.id
+                      );
+                      const maxCantidad = getMaxCantidadCarrito(p);
+                      const llegoAlMaximo =
+                        itemEnCarrito != null &&
+                        itemEnCarrito.cantidad >= maxCantidad;
+                      const stockMessage = getStockMessage(p);
 
-                    return (
-                      <article
-                        key={p.id}
-                        className="overflow-hidden rounded-3xl border bg-white shadow-sm"
-                      >
-                        <div className="flex gap-3 p-4">
-                          <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-2xl bg-slate-100">
-                            {p.imagen_url ? (
-                              <img
-                                src={p.imagen_url}
-                                alt={p.nombre}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-slate-400">
-                                Sin imagen
+                      return (
+                        <article
+                          key={p.id}
+                          className="overflow-hidden rounded-3xl border bg-white shadow-sm"
+                        >
+                          <div className="flex gap-3 p-4">
+                            <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-2xl bg-slate-100">
+                              {p.imagen_url ? (
+                                <img
+                                  src={p.imagen_url}
+                                  alt={p.nombre}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-slate-400">
+                                  Sin imagen
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex flex-1 flex-col justify-between">
+                              <div>
+                                <h3 className="font-semibold text-slate-900">
+                                  {p.nombre}
+                                </h3>
+
+                                {mostrarFiltroMarcas && marcaNombre ? (
+                                  <p className="mt-1 text-xs font-semibold text-emerald-700">
+                                    {marcaNombre}
+                                  </p>
+                                ) : null}
+
+                                {p.descripcion ? (
+                                  <p className="mt-1 text-sm text-slate-600">
+                                    {p.descripcion}
+                                  </p>
+                                ) : null}
+
+                                {stockMessage ? (
+                                  <p
+                                    className={`mt-2 text-xs font-medium ${
+                                      agotado
+                                        ? 'text-rose-700'
+                                        : 'text-slate-500'
+                                    }`}
+                                  >
+                                    {stockMessage}
+                                  </p>
+                                ) : null}
                               </div>
-                            )}
-                          </div>
 
-                          <div className="flex flex-1 flex-col justify-between">
-                            <div>
-                              <h3 className="font-semibold text-slate-900">
-                                {p.nombre}
-                              </h3>
-
-                              {mostrarFiltroMarcas && marcaNombre ? (
-  <p className="mt-1 text-xs font-semibold text-emerald-700">
-    {marcaNombre}
-  </p>
-) : null}
-                              {p.descripcion ? (
-                                <p className="mt-1 text-sm text-slate-600">
-                                  {p.descripcion}
+                              <div className="mt-3 flex items-center justify-between gap-3">
+                                <p className="font-bold text-slate-900">
+                                  {formatMoney(p.precio)}
                                 </p>
-                              ) : null}
 
-                              {stockMessage ? (
-                                <p
-                                  className={`mt-2 text-xs font-medium ${
-                                    agotado ? 'text-rose-700' : 'text-slate-500'
+                                <button
+                                  type="button"
+                                  onClick={() => agregarAlCarrito(p)}
+                                  disabled={agotado || llegoAlMaximo}
+                                  className={`rounded-xl px-3 py-2 text-sm font-semibold ${
+                                    agotado || llegoAlMaximo
+                                      ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                                      : 'bg-amber-500 text-white hover:bg-amber-600'
                                   }`}
                                 >
-                                  {stockMessage}
-                                </p>
-                              ) : null}
-                            </div>
-
-                            <div className="mt-3 flex items-center justify-between gap-3">
-                              <p className="font-bold text-slate-900">
-                                {formatMoney(p.precio)}
-                              </p>
-
-                              <button
-                                type="button"
-                                onClick={() => agregarAlCarrito(p)}
-                                disabled={agotado || llegoAlMaximo}
-                                className={`rounded-xl px-3 py-2 text-sm font-semibold ${
-                                  agotado || llegoAlMaximo
-                                    ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                                    : 'bg-amber-500 text-white hover:bg-amber-600'
-                                }`}
-                              >
-                                {agotado ? 'Agotado' : llegoAlMaximo ? 'Máximo' : 'Agregar'}
-                              </button>
+                                  {agotado
+                                    ? 'Agotado'
+                                    : llegoAlMaximo
+                                    ? 'Máximo'
+                                    : 'Agregar'}
+                                </button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
             </section>
           </section>
 
@@ -724,7 +839,10 @@ const helperText =
                             <button
                               type="button"
                               onClick={() =>
-                                cambiarCantidad(item.producto.id, item.cantidad - 1)
+                                cambiarCantidad(
+                                  item.producto.id,
+                                  item.cantidad - 1
+                                )
                               }
                               className="h-8 w-8 rounded-full border bg-slate-100 text-slate-700"
                             >
@@ -748,7 +866,10 @@ const helperText =
                             <button
                               type="button"
                               onClick={() =>
-                                cambiarCantidad(item.producto.id, item.cantidad + 1)
+                                cambiarCantidad(
+                                  item.producto.id,
+                                  item.cantidad + 1
+                                )
                               }
                               disabled={item.cantidad >= maxCantidad}
                               className="h-8 w-8 rounded-full border bg-amber-100 text-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -768,7 +889,8 @@ const helperText =
                         />
 
                         <p className="mt-2 text-right text-sm text-slate-700">
-                          Subtotal: {formatMoney(item.producto.precio * item.cantidad)}
+                          Subtotal:{' '}
+                          {formatMoney(item.producto.precio * item.cantidad)}
                         </p>
                       </div>
                     );
