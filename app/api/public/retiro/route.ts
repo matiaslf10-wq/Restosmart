@@ -58,30 +58,49 @@ function normalizeBusinessMode(value: unknown): 'restaurant' | 'takeaway' {
 
 export async function GET() {
   try {
-    const [restaurant, configResult, pedidosResult] = await Promise.all([
-      getRestaurantContext().catch(() => null),
-      supabaseAdmin
+    const restaurant = await getRestaurantContext().catch(() => null);
+
+    let configQuery = supabaseAdmin
+      .from('configuracion_local')
+      .select('nombre_local, business_mode')
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (restaurant?.id != null) {
+      configQuery = supabaseAdmin
         .from('configuracion_local')
         .select('nombre_local, business_mode')
+        .eq('restaurant_id', restaurant.id)
         .order('id', { ascending: true })
         .limit(1)
-        .maybeSingle(),
-      supabaseAdmin
-        .from('pedidos')
-        .select(
-          `
-            id,
-            codigo_publico,
-            creado_en,
-            estado,
-            origen,
-            tipo_servicio,
-            cliente_nombre
-          `
-        )
-        .in('estado', ['pendiente', 'en_preparacion', 'listo'])
-        .order('creado_en', { ascending: false })
-        .limit(60),
+        .maybeSingle();
+    }
+
+    let pedidosQuery = supabaseAdmin
+      .from('pedidos')
+      .select(
+        `
+          id,
+          codigo_publico,
+          creado_en,
+          estado,
+          origen,
+          tipo_servicio,
+          cliente_nombre
+        `
+      )
+      .in('estado', ['pendiente', 'en_preparacion', 'listo'])
+      .order('creado_en', { ascending: false })
+      .limit(60);
+
+    if (restaurant?.id != null) {
+      pedidosQuery = pedidosQuery.eq('restaurant_id', restaurant.id);
+    }
+
+    const [configResult, pedidosResult] = await Promise.all([
+      configQuery,
+      pedidosQuery,
     ]);
 
     if (configResult.error) {
@@ -155,7 +174,8 @@ export async function GET() {
 
     return NextResponse.json(
       {
-        error: 'Ocurrió un error inesperado al cargar la pantalla pública de retiro.',
+        error:
+          'Ocurrió un error inesperado al cargar la pantalla pública de retiro.',
       },
       { status: 500 }
     );
