@@ -70,9 +70,11 @@ function extractRequestedTenantContext(
   const restaurantRecord = asRecord(sessionRecord?.restaurant);
 
   const tenantSlug = pickFirstString(
-    request.nextUrl.searchParams.get('tenant'),
-    request.nextUrl.searchParams.get('tenantSlug'),
-    request.nextUrl.searchParams.get('slug'),
+  request.nextUrl.searchParams.get('restaurant'),
+  request.nextUrl.searchParams.get('restaurantSlug'),
+  request.nextUrl.searchParams.get('tenant'),
+  request.nextUrl.searchParams.get('tenantSlug'),
+  request.nextUrl.searchParams.get('slug'),
     request.headers.get('x-tenant-id'),
     request.headers.get('x-tenant-slug'),
     request.cookies.get('tenant')?.value,
@@ -187,9 +189,57 @@ async function resolveMarcaIdForProduct(
   return data.id as string;
 }
 
+function shouldFilterProductsByTenant(req: NextRequest) {
+  return !!pickFirstString(
+    req.nextUrl.searchParams.get('restaurant'),
+    req.nextUrl.searchParams.get('restaurantSlug'),
+    req.nextUrl.searchParams.get('tenant'),
+    req.nextUrl.searchParams.get('tenantSlug'),
+    req.nextUrl.searchParams.get('slug'),
+    req.nextUrl.searchParams.get('restaurantId'),
+    req.nextUrl.searchParams.get('restaurant_id'),
+    req.headers.get('x-tenant-id'),
+    req.headers.get('x-tenant-slug'),
+    req.headers.get('x-restaurant-id')
+  );
+}
+
+async function getMarcaIdsForTenant(tenantId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('marcas')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('activa', true);
+
+  if (error) {
+    console.error('Error leyendo marcas del tenant:', error);
+    throw new Error('No se pudieron leer las marcas del local.');
+  }
+
+  return ((data ?? []) as Array<{ id: string | null }>)
+    .map((row) => row.id)
+    .filter((id): id is string => !!id);
+}
+
 export async function GET(req: NextRequest) {
   try {
-    const soloDisponibles = req.nextUrl.searchParams.get('soloDisponibles') === '1';
+    const soloDisponibles =
+      req.nextUrl.searchParams.get('soloDisponibles') === '1';
+
+    const filterByTenant = shouldFilterProductsByTenant(req);
+    const access = filterByTenant
+      ? await resolveAccessForRequest(req, null)
+      : null;
+
+    let marcaIds: string[] | null = null;
+
+    if (filterByTenant && access?.tenantId) {
+      marcaIds = await getMarcaIdsForTenant(access.tenantId);
+
+      if (marcaIds.length === 0) {
+        return NextResponse.json([]);
+      }
+    }
 
     let query = supabaseAdmin
       .from('productos')
@@ -199,6 +249,10 @@ export async function GET(req: NextRequest) {
 
     if (soloDisponibles) {
       query = query.eq('disponible', true);
+    }
+
+    if (marcaIds) {
+      query = query.in('marca_id', marcaIds);
     }
 
     const { data, error } = await query;

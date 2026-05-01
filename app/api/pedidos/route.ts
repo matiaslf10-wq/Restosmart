@@ -142,6 +142,45 @@ function normalizeOptionalText(value: unknown) {
   return text.length ? text : null;
 }
 
+function pickFirstString(...values: unknown[]) {
+  for (const value of values) {
+    const text = normalizeOptionalText(value);
+    if (text) return text;
+  }
+
+  return null;
+}
+
+async function getRestaurantBySlug(slug: string) {
+  const { data, error } = await supabaseAdmin
+    .from('restaurants')
+    .select('id, slug, plan')
+    .eq('slug', slug)
+    .maybeSingle();
+
+  if (error) {
+    console.error(`No se pudo leer restaurant por slug "${slug}":`, error);
+    return null;
+  }
+
+  return (data ?? null) as RestaurantContext | null;
+}
+
+async function getRestaurantById(id: string) {
+  const { data, error } = await supabaseAdmin
+    .from('restaurants')
+    .select('id, slug, plan')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) {
+    console.error(`No se pudo leer restaurant por id "${id}":`, error);
+    return null;
+  }
+
+  return (data ?? null) as RestaurantContext | null;
+}
+
 function normalizePrepTarget(value: unknown): PrepTarget {
   return String(value ?? '').trim().toLowerCase() === 'cocina'
     ? 'cocina'
@@ -427,7 +466,37 @@ async function applyStockAdjustments(params: {
   return appliedAdjustments;
 }
 
-async function resolveRestaurantContext() {
+async function resolveRestaurantContextForRequest(request?: NextRequest) {
+  const requestedRestaurantSlug = request
+    ? pickFirstString(
+        request.nextUrl.searchParams.get('restaurant'),
+        request.nextUrl.searchParams.get('restaurantSlug'),
+        request.nextUrl.searchParams.get('tenant'),
+        request.nextUrl.searchParams.get('tenantSlug'),
+        request.nextUrl.searchParams.get('slug'),
+        request.headers.get('x-tenant-id'),
+        request.headers.get('x-tenant-slug')
+      )
+    : null;
+
+  const requestedRestaurantId = request
+    ? pickFirstString(
+        request.nextUrl.searchParams.get('restaurantId'),
+        request.nextUrl.searchParams.get('restaurant_id'),
+        request.headers.get('x-restaurant-id')
+      )
+    : null;
+
+  if (requestedRestaurantId) {
+    const byId = await getRestaurantById(requestedRestaurantId);
+    if (byId?.id) return byId;
+  }
+
+  if (requestedRestaurantSlug) {
+    const bySlug = await getRestaurantBySlug(requestedRestaurantSlug);
+    if (bySlug?.id) return bySlug;
+  }
+
   const ctx = await getRestaurantContext().catch(() => null);
 
   if (ctx?.id) {
@@ -462,7 +531,27 @@ async function resolveRestaurantContext() {
   return null;
 }
 
-async function resolveBusinessMode(_restaurant: RestaurantContext | null) {
+async function resolveBusinessMode(restaurant: RestaurantContext | null) {
+  if (restaurant?.id != null) {
+    const byRestaurant = await supabaseAdmin
+      .from('configuracion_local')
+      .select('business_mode')
+      .eq('restaurant_id', restaurant.id)
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (byRestaurant.error) {
+      console.error(
+        'POST /api/pedidos - no se pudo leer business_mode por restaurant_id:',
+        byRestaurant.error
+      );
+    } else if (byRestaurant.data) {
+      const config = byRestaurant.data as LocalConfigRow;
+      return normalizeBusinessMode(config?.business_mode);
+    }
+  }
+
   const result = await supabaseAdmin
     .from('configuracion_local')
     .select('business_mode')
@@ -599,9 +688,9 @@ function extractTakeawayDataFromItems(items: PedidoItemInput[]) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const ctx = await resolveRestaurantContext();
+    const ctx = await resolveRestaurantContextForRequest(request);
 const businessMode = await resolveBusinessMode(ctx);
 
 let pedidosQuery = supabaseAdmin
@@ -648,7 +737,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as Partial<CreatePedidoBody>;
 
-    const restaurant = await resolveRestaurantContext();
+    const restaurant = await resolveRestaurantContextForRequest(request);;
 const plan = normalizePlan(restaurant?.plan);
 const businessMode = await resolveBusinessMode(restaurant);
     const stockControlEnabled = planHasStockControl(plan);
