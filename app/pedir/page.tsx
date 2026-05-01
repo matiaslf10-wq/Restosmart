@@ -114,75 +114,33 @@ const [marcaSeleccionada, setMarcaSeleccionada] = useState<string>('todas');
   const isTakeawayMode = businessMode === 'takeaway';
   const isRestaurantMode = businessMode === 'restaurant';
 
-  const cargarConfig = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('configuracion_local')
-      .select('nombre_local, direccion, horario_atencion, business_mode')
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      console.warn('No se pudo cargar configuracion_local en /pedir:', error);
-      return;
-    }
-
-    setLocalConfig((data as LocalPublicConfig | null) ?? null);
-  }, []);
-
   const cargarProductos = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('productos')
-      .select(
-  'id, nombre, descripcion, precio, categoria, imagen_url, disponible, control_stock, stock_actual, permitir_sin_stock, marca_id'
-)
-      .eq('disponible', true)
-      .order('categoria', { ascending: true })
-      .order('nombre', { ascending: true });
+  const res = await fetch('/api/productos?soloDisponibles=1', {
+    method: 'GET',
+    cache: 'no-store',
+  });
 
-    if (error) {
-      throw new Error('No se pudieron cargar los productos.');
-    }
+  const body = await res.json().catch(() => null);
 
-    const listaProductos = (data as Producto[]) ?? [];
-    setProductos(listaProductos);
-
-    const cats = Array.from(
-      new Set(
-        listaProductos
-          .map((p) => p.categoria)
-          .filter((c): c is string => !!c && c.trim() !== '')
-      )
-    ).sort((a, b) => a.localeCompare(b));
-
-    setCategorias(cats);
-    setCategoriaSeleccionada((prev) =>
-      prev && cats.includes(prev) ? prev : (cats[0] ?? null)
-    );
-  }, []);
-
-  const cargarMarcas = useCallback(async () => {
-  const { data, error } = await supabase
-    .from('marcas')
-    .select('id, nombre, descripcion, logo_url, color_hex, activa, orden')
-    .eq('activa', true)
-    .order('orden', { ascending: true })
-    .order('nombre', { ascending: true });
-
-  if (error) {
-    console.warn('No se pudieron cargar marcas en /pedir:', error);
-    setMarcas([]);
-    setMarcaSeleccionada('todas');
-    return;
+  if (!res.ok) {
+    throw new Error(body?.error || 'No se pudieron cargar los productos.');
   }
 
-  const listaMarcas = (data as Marca[]) ?? [];
-  setMarcas(listaMarcas);
+  const listaProductos = (body ?? []) as Producto[];
+  setProductos(listaProductos);
 
-  setMarcaSeleccionada((prev) => {
-    if (prev === 'todas') return prev;
-    return listaMarcas.some((marca) => marca.id === prev) ? prev : 'todas';
-  });
+  const cats = Array.from(
+    new Set(
+      listaProductos
+        .map((p) => p.categoria)
+        .filter((c): c is string => !!c && c.trim() !== '')
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  setCategorias(cats);
+  setCategoriaSeleccionada((prev) =>
+    prev && cats.includes(prev) ? prev : cats[0] ?? null
+  );
 }, []);
 
   useEffect(() => {
