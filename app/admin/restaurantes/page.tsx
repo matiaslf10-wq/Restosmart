@@ -4,15 +4,12 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import {
   formatBusinessModeLabel,
-  formatPlanLabel,
   type BusinessMode,
-  type PlanCode,
 } from '@/lib/plans';
 
 type RestaurantItem = {
   id: string;
   slug: string;
-  plan: PlanCode;
   nombre_local: string;
   direccion: string;
   telefono: string;
@@ -31,7 +28,6 @@ type RestaurantForm = {
   celular: string;
   email: string;
   horario_atencion: string;
-  plan: PlanCode;
   business_mode: BusinessMode;
   multi_brand: boolean;
 };
@@ -44,7 +40,6 @@ const EMPTY_FORM: RestaurantForm = {
   celular: '',
   email: '',
   horario_atencion: '',
-  plan: 'intelligence',
   business_mode: 'takeaway',
   multi_brand: true,
 };
@@ -183,24 +178,23 @@ export default function AdminRestaurantesPage() {
   }
 
   function cargarPresetDemo(
-    nombre_local: string,
-    slug: string,
-    direccion: string,
-    horario_atencion: string
-  ) {
-    setForm({
-      nombre_local,
-      slug,
-      direccion,
-      telefono: '',
-      celular: '',
-      email: '',
-      horario_atencion,
-      plan: 'intelligence',
-      business_mode: 'takeaway',
-      multi_brand: true,
-    });
-  }
+  nombre_local: string,
+  slug: string,
+  direccion: string,
+  horario_atencion: string
+) {
+  setForm({
+    nombre_local,
+    slug,
+    direccion,
+    telefono: '',
+    celular: '',
+    email: '',
+    horario_atencion,
+    business_mode: 'takeaway',
+    multi_brand: true,
+  });
+}
 
   return (
     <div className="space-y-6 p-6">
@@ -265,8 +259,8 @@ export default function AdminRestaurantesPage() {
           <div>
             <h2 className="text-lg font-semibold">Crear restaurante</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Para la demo, creá tres sucursales take away con plan Intelligence
-              y Multimarca activo.
+              Para la demo, creá tres sucursales take away dentro del tenant actual,
+con Multimarca activo.
             </p>
           </div>
 
@@ -401,21 +395,10 @@ export default function AdminRestaurantesPage() {
                 placeholder="contacto@restosmart.com"
               />
             </label>
-
-            <label className="grid gap-2">
-              <span className="text-sm font-medium">Plan</span>
-              <select
-                value={form.plan}
-                onChange={(e) =>
-                  updateForm('plan', e.target.value as PlanCode)
-                }
-                className="rounded-xl border px-3 py-2"
-              >
-                <option value="esencial">Esencial</option>
-                <option value="pro">Pro</option>
-                <option value="intelligence">Intelligence</option>
-              </select>
-            </label>
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+  El plan se define a nivel tenant/grupo. Los restaurantes heredan las
+  funcionalidades y límites del tenant actual.
+</div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -519,8 +502,8 @@ export default function AdminRestaurantesPage() {
                 </div>
 
                 <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700">
-                  {formatPlanLabel(item.plan)}
-                </span>
+  Sucursal
+</span>
               </div>
 
               <div className="mt-4 space-y-2 text-sm text-slate-700">

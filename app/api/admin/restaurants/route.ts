@@ -194,10 +194,9 @@ const addons = (addonsResult.data ?? []) as TenantAddonRow[];
       const config = configByRestaurantId.get(String(restaurant.id)) ?? null;
 
       return {
-        id: String(restaurant.id),
-        slug,
-        plan: normalizePlan(restaurant.plan),
-        nombre_local: config?.nombre_local ?? '',
+  id: String(restaurant.id),
+  slug,
+  nombre_local: config?.nombre_local ?? '',
         direccion: config?.direccion ?? '',
         telefono: config?.telefono ?? '',
         celular: config?.celular ?? '',
@@ -235,9 +234,9 @@ export async function POST(req: NextRequest) {
 
     const nombreLocal = normalizeNonEmptyString(body?.nombre_local);
     const slug = normalizeSlug(body?.slug ?? nombreLocal);
-    const plan = normalizePlan(body?.plan) as PlanCode;
-    const businessMode = normalizeBusinessMode(body?.business_mode) as BusinessMode;
-    const multiBrand = normalizeBoolean(body?.multi_brand, false);
+    const technicalPlanFallback = 'intelligence' as PlanCode;
+const businessMode = normalizeBusinessMode(body?.business_mode) as BusinessMode;
+const multiBrand = normalizeBoolean(body?.multi_brand, false);
 
     if (!nombreLocal) {
       return NextResponse.json(
@@ -269,13 +268,13 @@ export async function POST(req: NextRequest) {
     }
 
     const { data: restaurant, error: restaurantError } = await supabaseAdmin
-      .from('restaurants')
-      .insert({
-        slug,
-        plan,
-      })
-      .select('id, slug, plan')
-      .single();
+  .from('restaurants')
+  .insert({
+    slug,
+    plan: technicalPlanFallback,
+  })
+  .select('id, slug, plan')
+  .single();
 
     if (restaurantError || !restaurant?.id) {
       throw restaurantError ?? new Error('No se pudo crear el restaurante.');
@@ -308,10 +307,9 @@ export async function POST(req: NextRequest) {
       {
         ok: true,
         restaurant: {
-          id: String(restaurant.id),
-          slug,
-          plan,
-          nombre_local: nombreLocal,
+  id: String(restaurant.id),
+  slug,
+  nombre_local: nombreLocal,
           direccion: normalizeNonEmptyString(body?.direccion) ?? '',
           telefono: normalizeNonEmptyString(body?.telefono) ?? '',
           celular: normalizeNonEmptyString(body?.celular) ?? '',
