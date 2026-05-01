@@ -59,6 +59,28 @@ function normalizeBoolean(value: unknown, fallback = false) {
   return fallback;
 }
 
+function getUnknownErrorMessage(error: unknown) {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof error.message === 'string'
+  ) {
+    return error.message;
+  }
+
+  if (
+    error &&
+    typeof error === 'object' &&
+    'details' in error &&
+    typeof error.details === 'string'
+  ) {
+    return error.details;
+  }
+
+  return String(error);
+}
+
 async function getMultiBrandEnabledByTenant(slug: string) {
   const { data, error } = await supabaseAdmin
     .from('tenant_addons')
@@ -187,11 +209,15 @@ const addons = (addonsResult.data ?? []) as TenantAddonRow[];
     });
 
     return NextResponse.json({ items });
-  } catch (error) {
+    } catch (error) {
+    const message = getUnknownErrorMessage(error);
+
     console.error('GET /api/admin/restaurants', error);
 
     return NextResponse.json(
-      { error: 'No se pudieron cargar los restaurantes.' },
+      {
+        error: `No se pudieron cargar los restaurantes. Detalle: ${message}`,
+      },
       { status: 500 }
     );
   }
