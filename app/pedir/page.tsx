@@ -467,33 +467,8 @@ const helperText =
               </div>
             )}
 
-            <div className="mt-4 flex flex-wrap gap-3">
-              <Link
-                href="/retiro"
-                className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
-              >
-                Ver pantalla de retiro
-              </Link>
-
-              {isRestaurantMode ? (
-                <Link
-                  href="/inicio"
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Volver al flujo principal
-                </Link>
-              ) : null}
-            </div>
           </div>
         </header>
-
-        {isRestaurantMode ? (
-          <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Este negocio está configurado como <strong>{actualBusinessModeLabel}</strong>.
-            La operación principal del salón sigue identificándose por <strong>mesa</strong>.
-            Esta pantalla queda habilitada como flujo opcional de <strong>retiro por persona</strong>.
-          </div>
-        ) : null}
 
         {mensaje ? (
           <div className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
