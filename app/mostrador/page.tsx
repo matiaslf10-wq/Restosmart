@@ -96,6 +96,9 @@ type AdminSessionPayload = {
   adminId?: string;
   plan?: PlanCode;
   business_mode?: BusinessMode;
+  addons?: {
+    multi_brand?: boolean;
+  };
   capabilities?: {
     waiter_mode?: boolean;
     multi_brand?: boolean;
@@ -588,9 +591,10 @@ function MostradorPageContent() {
     async function verifyAccess() {
       try {
         const res = await fetch('/api/admin/session', {
-          method: 'GET',
-          cache: 'no-store',
-        });
+  method: 'GET',
+  cache: 'no-store',
+  credentials: 'include',
+});
 
         if (!res.ok) {
           router.replace('/admin/login');
@@ -609,12 +613,14 @@ function MostradorPageContent() {
 
         setCurrentPlan((session?.plan ?? 'esencial') as PlanCode);
 setCanUseWaiterMode(!!session?.capabilities?.waiter_mode);
-setCanUseMultiBrand(!!session?.capabilities?.multi_brand);
+setCanUseMultiBrand(
+  !!session?.capabilities?.multi_brand || !!session?.addons?.multi_brand
+);
 setBusinessMode(
-          normalizeBusinessMode(
-            session?.business_mode ?? session?.restaurant?.business_mode
-          )
-        );
+  normalizeBusinessMode(
+    session?.business_mode ?? session?.restaurant?.business_mode
+  )
+);
       } catch (err) {
         console.error('No se pudo verificar acceso a mostrador', err);
         if (!active) return;
@@ -687,6 +693,7 @@ const marcasPromise = canUseMultiBrand
   ? fetch('/api/admin/marcas', {
       method: 'GET',
       cache: 'no-store',
+      credentials: 'include',
     })
   : Promise.resolve(null);
 
