@@ -1,4 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAdminAuth } from '@/lib/adminAuth';
+import {
+  getFallbackAdminAccess,
+  resolveAdminAccess,
+  type AdminAccessResolutionOptions,
+  type AdminAccessSnapshot,
+} from '@/lib/adminAccess';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 const PRODUCTO_SELECT = `
@@ -19,6 +26,16 @@ type Params = {
   params: Promise<{ id: string }>;
 };
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function normalizeNonEmptyString(value: unknown): string | null {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
 function normalizeBoolean(value: unknown, fallback = false) {
   if (typeof value === 'boolean') return value;
 
@@ -37,35 +54,182 @@ function normalizeNumber(value: unknown, fallback = 0) {
 }
 
 function normalizeNullableString(value: unknown) {
-  const text = String(value ?? '').trim();
-  return text.length > 0 ? text : null;
+  return normalizeNonEmptyString(value);
 }
 
-export async function PUT(req: Request, { params }: Params) {
+function pickFirstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = normalizeNonEmptyString(value);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
+function extractRequestedTenantContext(
+  request: NextRequest,
+  session: unknown
+): AdminAccessResolutionOptions {
+  const sessionRecord = asRecord(session);
+  const restaurantRecord = asRecord(sessionRecord?.restaurant);
+
+  const tenantSlug = pickFirstString(
+    request.nextUrl.searchParams.get('tenant'),
+    request.nextUrl.searchParams.get('tenantSlug'),
+    request.nextUrl.searchParams.get('slug'),
+    request.headers.get('x-tenant-id'),
+    request.headers.get('x-tenant-slug'),
+    request.cookies.get('tenant')?.value,
+    request.cookies.get('tenant_slug')?.value,
+    restaurantRecord?.slug,
+    sessionRecord?.tenantId,
+    sessionRecord?.tenant_id,
+    sessionRecord?.slug
+  );
+
+  const restaurantId = pickFirstString(
+    request.nextUrl.searchParams.get('restaurantId'),
+    request.nextUrl.searchParams.get('restaurant_id'),
+    request.headers.get('x-restaurant-id'),
+    request.cookies.get('restaurant_id')?.value,
+    restaurantRecord?.id,
+    sessionRecord?.restaurantId,
+    sessionRecord?.restaurant_id
+  );
+
+  return {
+    tenantSlug,
+    restaurantId,
+  };
+}
+
+async function resolveAccessForRequest(
+  request: NextRequest,
+  session: unknown
+): Promise<AdminAccessSnapshot> {
+  const requestedContext = extractRequestedTenantContext(request, session);
+
+  try {
+    return await resolveAdminAccess(requestedContext);
+  } catch (error) {
+    console.error('Producto access resolution error:', error);
+    return getFallbackAdminAccess();
+  }
+}
+
+function canUseMultiBrand(access: AdminAccessSnapshot) {
+  const accessRecord = asRecord(access);
+  const addonsRecord = asRecord(accessRecord?.addons);
+
+  return (
+    !!access.capabilities?.multi_brand ||
+    addonsRecord?.multi_brand === true
+  );
+}
+
+function canUseStockControl(access: AdminAccessSnapshot) {
+  const accessRecord = asRecord(access);
+  const capabilitiesRecord = asRecord(accessRecord?.capabilities);
+
+  return (
+    capabilitiesRecord?.stock_control === true ||
+    access.plan === 'pro' ||
+    access.plan === 'intelligence'
+  );
+}
+
+async function getDefaultMarcaId(access: AdminAccessSnapshot) {
+  const { data, error } = await supabaseAdmin
+    .from('marcas')
+    .select('id')
+    .eq('tenant_id', access.tenantId)
+    .eq('activa', true)
+    .order('orden', { ascending: true })
+    .order('creado_en', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error leyendo marca principal:', error);
+    return null;
+  }
+
+  return typeof data?.id === 'string' ? data.id : null;
+}
+
+async function resolveMarcaIdForProduct(
+  requestedMarcaId: unknown,
+  access: AdminAccessSnapshot
+) {
+  if (!canUseMultiBrand(access)) {
+    return null;
+  }
+
+  const marcaId = normalizeNullableString(requestedMarcaId);
+
+  if (!marcaId) {
+    return await getDefaultMarcaId(access);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('marcas')
+    .select('id')
+    .eq('id', marcaId)
+    .eq('tenant_id', access.tenantId)
+    .eq('activa', true)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error validando marca de producto:', error);
+    throw new Error('No se pudo validar la marca del producto.');
+  }
+
+  if (!data?.id) {
+    throw new Error('La marca seleccionada no existe o no pertenece a este local.');
+  }
+
+  return data.id as string;
+}
+
+export async function PUT(req: NextRequest, { params }: Params) {
+  const auth = requireAdminAuth(req);
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  const access = await resolveAccessForRequest(req, auth.session);
+
   try {
     const { id } = await params;
     const body = await req.json();
 
-    const control_stock = normalizeBoolean(body?.control_stock, false);
+    const stockControlEnabled = canUseStockControl(access);
+    const control_stock =
+      stockControlEnabled && normalizeBoolean(body?.control_stock, false);
+
     const stock_actual = control_stock
       ? Math.max(0, Math.trunc(normalizeNumber(body?.stock_actual, 0)))
       : 0;
+
     const permitir_sin_stock = control_stock
       ? normalizeBoolean(body?.permitir_sin_stock, false)
       : true;
 
+    const marca_id = await resolveMarcaIdForProduct(body?.marca_id, access);
+
     const payload = {
-  nombre: String(body?.nombre ?? '').trim(),
-  descripcion: body?.descripcion ? String(body.descripcion).trim() : null,
-  precio: normalizeNumber(body?.precio, 0),
-  categoria: body?.categoria ? String(body.categoria).trim() : null,
-  marca_id: normalizeNullableString(body?.marca_id),
-  disponible: normalizeBoolean(body?.disponible, true),
-  imagen_url: body?.imagen_url ? String(body.imagen_url).trim() : null,
-  control_stock,
-  stock_actual,
-  permitir_sin_stock,
-};
+      nombre: String(body?.nombre ?? '').trim(),
+      descripcion: body?.descripcion ? String(body.descripcion).trim() : null,
+      precio: normalizeNumber(body?.precio, 0),
+      categoria: body?.categoria ? String(body.categoria).trim() : null,
+      marca_id,
+      disponible: normalizeBoolean(body?.disponible, true),
+      imagen_url: body?.imagen_url ? String(body.imagen_url).trim() : null,
+      control_stock,
+      stock_actual,
+      permitir_sin_stock,
+    };
 
     if (!payload.nombre) {
       return NextResponse.json(
@@ -95,20 +259,33 @@ export async function PUT(req: Request, { params }: Params) {
           { status: 404 }
         );
       }
+
       throw error;
     }
 
     return NextResponse.json(data);
   } catch (error) {
     console.error('Error actualizando producto:', error);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'No se pudo actualizar el producto.';
+
     return NextResponse.json(
-      { error: 'No se pudo actualizar el producto.' },
+      { error: message || 'No se pudo actualizar el producto.' },
       { status: 500 }
     );
   }
 }
 
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(req: NextRequest, { params }: Params) {
+  const auth = requireAdminAuth(req);
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
     const { id } = await params;
 
@@ -126,6 +303,7 @@ export async function DELETE(_req: Request, { params }: Params) {
           { status: 404 }
         );
       }
+
       throw error;
     }
 
