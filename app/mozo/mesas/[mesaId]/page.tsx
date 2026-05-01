@@ -647,7 +647,7 @@ setBusinessMode(resolvedMode);
                               {formatMoney((item.producto?.precio ?? 0) * item.cantidad)}
                             </p>
 
-                            {item.prepTarget === 'mostrador' && normalizeText(p.estado) !== 'listo' ? (
+                            {item.prepTarget === 'mostrador' && normalizeText(pedido.estado) !== 'listo' ? (
                               <button
                                 type="button"
                                 onClick={() => {
