@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { formatPlanLabel, type PlanCode } from '@/lib/plans';
+import {
+  formatPlanLabel,
+  normalizeBusinessMode,
+  type BusinessMode,
+  type PlanCode,
+} from '@/lib/plans';
 
 type KitchenPrepState = 'pendiente' | 'en_preparacion' | 'listo';
 type PrepTarget = 'mostrador' | 'cocina';
@@ -162,10 +167,12 @@ export default function MozoMesaPage() {
   const params = useParams();
   const router = useRouter();
   const mesaId = Number((params as { mesaId?: string }).mesaId);
+  const mesaIdValido = Number.isFinite(mesaId) && mesaId > 0;
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
+  const [businessMode, setBusinessMode] = useState<BusinessMode>('restaurant');
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -179,7 +186,7 @@ export default function MozoMesaPage() {
   );
 
   const cargarPedidos = useCallback(async () => {
-    if (!mesaId) return;
+    if (!mesaIdValido) return;
 
     setCargando(true);
     setMensaje(null);
@@ -247,9 +254,10 @@ export default function MozoMesaPage() {
     async function verifyAccess() {
       try {
         const res = await fetch('/api/admin/session', {
-          method: 'GET',
-          cache: 'no-store',
-        });
+  method: 'GET',
+  cache: 'no-store',
+  credentials: 'include',
+});
 
         if (!res.ok) {
           router.replace('/admin/login');
@@ -262,10 +270,14 @@ export default function MozoMesaPage() {
         if (!active) return;
 
         const plan = (session?.plan ?? 'esencial') as PlanCode;
-        const enabled = !!session?.capabilities?.waiter_mode;
+const enabled = !!session?.capabilities?.waiter_mode;
+const resolvedMode = normalizeBusinessMode(
+  session?.business_mode ?? session?.restaurant?.business_mode
+);
 
-        setCurrentPlan(plan);
-        setCanUseWaiterMode(enabled);
+setCurrentPlan(plan);
+setCanUseWaiterMode(enabled);
+setBusinessMode(resolvedMode);
       } catch (error) {
         console.error('No se pudo verificar acceso a mozo/mesa', error);
         if (!active) return;
@@ -285,7 +297,7 @@ export default function MozoMesaPage() {
   }, [router]);
 
   useEffect(() => {
-    if (!canUseWaiterMode || !mesaId) return;
+    if (!canUseWaiterMode || businessMode !== 'restaurant' || !mesaIdValido) return;
 
     void cargarPedidos();
 
@@ -294,7 +306,7 @@ export default function MozoMesaPage() {
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [canUseWaiterMode, mesaId, cargarPedidos]);
+}, [canUseWaiterMode, businessMode, mesaIdValido, mesaId, cargarPedidos]);
 
   const subtotalPedido = (pedido: Pedido) =>
     pedido.items.reduce((acc, item) => {
@@ -400,6 +412,45 @@ export default function MozoMesaPage() {
     );
   }
 
+  if (businessMode === 'takeaway') {
+  return (
+    <main className="min-h-screen bg-slate-100 px-4 py-6">
+      <div className="max-w-4xl mx-auto">
+        <div className="rounded-3xl border border-amber-200 bg-white p-8 shadow-sm">
+          <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
+            No aplica en modo Take Away
+          </span>
+
+          <h1 className="mt-4 text-3xl font-bold text-slate-900">
+            Vista de mozo por mesa
+          </h1>
+
+          <p className="mt-3 text-slate-600 leading-relaxed">
+            Este negocio está configurado en <strong>modo take away</strong>.
+            Por eso la vista de mozo por mesa no se usa en esta operación.
+          </p>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              onClick={() => router.push('/admin/configuracion')}
+              className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Ir a Configuración
+            </button>
+
+            <button
+              onClick={() => router.push('/inicio')}
+              className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Volver a inicio
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
   if (!canUseWaiterMode) {
     return (
       <main className="min-h-screen bg-slate-100 px-4 py-6">
@@ -439,7 +490,7 @@ export default function MozoMesaPage() {
     );
   }
 
-  if (!mesaId) {
+  if (!mesaIdValido) {
     return (
       <main className="min-h-screen flex items-center justify-center">
         <p>Falta el número de mesa en la URL.</p>

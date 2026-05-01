@@ -228,9 +228,10 @@ export default function MesasMozoPage() {
     async function verifyAccess() {
       try {
         const res = await fetch('/api/admin/session', {
-          method: 'GET',
-          cache: 'no-store',
-        });
+  method: 'GET',
+  cache: 'no-store',
+  credentials: 'include',
+});
 
         if (!res.ok) {
           router.replace('/admin/login');
