@@ -298,6 +298,7 @@ function validateStockAvailability(
   productsMap: Map<number, ProductoStockRow>
 ) {
   const missingProducts: number[] = [];
+  const unavailableProducts: string[] = [];
   const insufficientProducts: Array<{
     nombre: string;
     solicitado: number;
@@ -309,6 +310,11 @@ function validateStockAvailability(
 
     if (!product) {
       missingProducts.push(requested.producto_id);
+      continue;
+    }
+
+    if (product.disponible === false) {
+      unavailableProducts.push(product.nombre);
       continue;
     }
 
@@ -327,6 +333,7 @@ function validateStockAvailability(
 
   return {
     missingProducts,
+    unavailableProducts,
     insufficientProducts,
   };
 }
@@ -456,27 +463,68 @@ async function resolveRestaurantContext() {
 }
 
 async function resolveBusinessMode(restaurant: RestaurantContext | null) {
-  let query = supabaseAdmin
-    .from('configuracion_local')
-    .select('business_mode');
-
   if (restaurant?.id != null) {
-    query = query.eq('restaurant_id', restaurant.id);
-  } else if (restaurant?.slug) {
-    query = query.eq('tenant_id', restaurant.slug);
+    const byRestaurant = await supabaseAdmin
+      .from('configuracion_local')
+      .select('business_mode')
+      .eq('restaurant_id', restaurant.id)
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (byRestaurant.error) {
+      console.error(
+        'POST /api/pedidos - no se pudo leer business_mode por restaurant_id:',
+        byRestaurant.error
+      );
+      return 'restaurant' as BusinessMode;
+    }
+
+    if (byRestaurant.data) {
+      const config = byRestaurant.data as LocalConfigRow;
+      return normalizeBusinessMode(config?.business_mode);
+    }
   }
 
-  const result = await query.order('id', { ascending: true }).limit(1).maybeSingle();
+  if (restaurant?.slug) {
+    const byTenant = await supabaseAdmin
+      .from('configuracion_local')
+      .select('business_mode')
+      .eq('tenant_id', restaurant.slug)
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
-  if (result.error) {
+    if (byTenant.error) {
+      console.error(
+        'POST /api/pedidos - no se pudo leer business_mode por tenant_id:',
+        byTenant.error
+      );
+      return 'restaurant' as BusinessMode;
+    }
+
+    if (byTenant.data) {
+      const config = byTenant.data as LocalConfigRow;
+      return normalizeBusinessMode(config?.business_mode);
+    }
+  }
+
+  const fallback = await supabaseAdmin
+    .from('configuracion_local')
+    .select('business_mode')
+    .order('id', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (fallback.error) {
     console.error(
-      'POST /api/pedidos - no se pudo leer business_mode:',
-      result.error
+      'POST /api/pedidos - no se pudo leer business_mode fallback:',
+      fallback.error
     );
     return 'restaurant' as BusinessMode;
   }
 
-  const config = (result.data ?? null) as LocalConfigRow | null;
+  const config = (fallback.data ?? null) as LocalConfigRow | null;
   return normalizeBusinessMode(config?.business_mode);
 }
 
@@ -738,10 +786,8 @@ const businessMode = await resolveBusinessMode(restaurant);
     const productsMap = await loadProductsForStock(productoIds);
 const brandMetaMap = await loadBrandMetaForProducts(productsMap);
 
-const { missingProducts, insufficientProducts } = validateStockAvailability(
-  requestedProducts,
-  productsMap
-);
+const { missingProducts, unavailableProducts, insufficientProducts } =
+  validateStockAvailability(requestedProducts, productsMap);
 
 if (missingProducts.length > 0) {
   return NextResponse.json(
@@ -749,6 +795,15 @@ if (missingProducts.length > 0) {
       error: `No se encontraron algunos productos del pedido: ${missingProducts.join(', ')}.`,
     },
     { status: 400 }
+  );
+}
+
+if (unavailableProducts.length > 0) {
+  return NextResponse.json(
+    {
+      error: `Hay productos que ya no están disponibles: ${unavailableProducts.join(', ')}.`,
+    },
+    { status: 409 }
   );
 }
 
