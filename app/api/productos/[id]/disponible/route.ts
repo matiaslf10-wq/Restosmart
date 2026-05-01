@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAdminAuth } from '@/lib/adminAuth';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
@@ -14,7 +15,8 @@ const PRODUCTO_SELECT = `
   imagen_url,
   control_stock,
   stock_actual,
-  permitir_sin_stock
+  permitir_sin_stock,
+  marca_id
 `;
 
 type Params = {
@@ -33,7 +35,13 @@ function normalizeBoolean(value: unknown) {
   return false;
 }
 
-export async function PUT(req: Request, { params }: Params) {
+export async function PUT(req: NextRequest, { params }: Params) {
+  const auth = requireAdminAuth(req);
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
     const { id } = await params;
     const productoId = Number(id);
@@ -56,7 +64,11 @@ export async function PUT(req: Request, { params }: Params) {
       .maybeSingle();
 
     if (error) {
-      console.error('PUT /api/productos/[id]/disponible - Supabase error:', error);
+      console.error(
+        'PUT /api/productos/[id]/disponible - Supabase error:',
+        error
+      );
+
       return NextResponse.json(
         { error: error.message || 'No se pudo actualizar la disponibilidad.' },
         { status: 500 }
@@ -73,6 +85,7 @@ export async function PUT(req: Request, { params }: Params) {
     return NextResponse.json(data);
   } catch (error) {
     console.error('Error actualizando disponibilidad:', error);
+
     return NextResponse.json(
       { error: 'No se pudo actualizar la disponibilidad.' },
       { status: 500 }
