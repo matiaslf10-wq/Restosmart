@@ -385,6 +385,13 @@ export default function AdminHome() {
           </Link>
 
           <Link
+  href="/admin/restaurantes"
+  className="rounded-lg border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-sm font-medium text-fuchsia-800 hover:bg-fuchsia-100"
+>
+  Restaurantes
+</Link>
+
+          <Link
             href="/cocina"
             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
@@ -481,12 +488,7 @@ export default function AdminHome() {
         </p>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
-          <Link
-  href="/admin/restaurantes"
-  className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
->
-  Restaurantes
-</Link>
+          
           <Link
             href="/admin/productos"
             className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-100"
@@ -561,6 +563,7 @@ export default function AdminHome() {
             >
               Ir a inicio
             </Link>
+            
           )}
         </div>
       </section>
