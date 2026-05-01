@@ -1,8 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { formatBusinessModeLabel, type BusinessMode } from '@/lib/plans';
+import type { BusinessMode } from '@/lib/plans';
 import { supabase } from '@/lib/supabaseClient';
 
 type Producto = {
@@ -110,9 +109,7 @@ const [marcaSeleccionada, setMarcaSeleccionada] = useState<string>('todas');
   const [error, setError] = useState<string | null>(null);
 
   const businessMode = normalizeBusinessModeForPublic(localConfig?.business_mode);
-  const actualBusinessModeLabel = formatBusinessModeLabel(businessMode);
   const isTakeawayMode = businessMode === 'takeaway';
-  const isRestaurantMode = businessMode === 'restaurant';
 
   const cargarProductos = useCallback(async () => {
   const res = await fetch('/api/productos?soloDisponibles=1', {
@@ -222,7 +219,7 @@ const [marcaSeleccionada, setMarcaSeleccionada] = useState<string>('todas');
       setError(
         err instanceof Error
           ? err.message
-          : 'No se pudo cargar la pantalla de retiro.'
+          : 'No se pudo cargar el menú.'
       );
     } finally {
       if (activo) {
@@ -423,23 +420,19 @@ const productosFiltrados = useMemo(() => {
   const localDireccion = localConfig?.direccion?.trim() || '';
   const localHorario = localConfig?.horario_atencion?.trim() || '';
 
-  const heroBadge = isTakeawayMode ? 'TAKE AWAY' : 'RETIRO OPCIONAL';
-  const heroTitle = isTakeawayMode
-    ? 'Hacé tu pedido para retirar'
-    : 'Pedido de retiro por mostrador';
-  const heroDescription = isTakeawayMode
-    ? 'Este local está operando en modo take away. Tu identificación principal es tu nombre, no una mesa.'
-    : 'Este local está configurado como restaurante. Esta pantalla sigue disponible para pedidos de retiro, pero el flujo principal del salón sigue pasando por mesa.';
-  const sideTitle = isTakeawayMode ? 'Tu pedido' : 'Tu pedido de retiro';
-  const menuTitle = isTakeawayMode ? 'Menú para retiro' : 'Menú para retiro opcional';
-  const helperText = isTakeawayMode
-    ? 'El pedido se envía con lógica de take away y tu nombre queda guardado como referencia principal.'
-    : 'Aunque el local esté en modo restaurante, este pedido se crea como take away y tu nombre queda guardado como referencia principal para el retiro.';
+  const heroBadge = isTakeawayMode ? 'TAKE AWAY' : 'PEDIDO ONLINE';
+const heroTitle = 'Hacé tu pedido para retirar';
+const heroDescription =
+  'Elegí tus productos, indicá tu nombre y confirmá el pedido. Te avisaremos cuando esté listo para retirar por el mostrador.';
 
+const sideTitle = 'Tu pedido';
+const menuTitle = 'Menú';
+const helperText =
+  'Tu pedido queda registrado con tu nombre para que puedan identificarlo al momento del retiro.';
   if (cargando) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-        <p className="text-slate-700">Cargando retiro...</p>
+        <p className="text-slate-700">Cargando menú...</p>
       </main>
     );
   }
@@ -450,30 +443,10 @@ const productosFiltrados = useMemo(() => {
         <header className="rounded-3xl border bg-white p-6 shadow-sm">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                  isTakeawayMode
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-blue-100 text-blue-800'
-                }`}
-              >
-                {heroBadge}
-              </span>
-
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                Modo configurado: {actualBusinessModeLabel}
-              </span>
-
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                  isTakeawayMode
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : 'bg-amber-100 text-amber-800'
-                }`}
-              >
-                Identificación principal: persona
-              </span>
-            </div>
+  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+    {heroBadge}
+  </span>
+</div>
 
             <h1 className="mt-3 text-3xl font-bold text-slate-900">
               {localNombre}
