@@ -81,9 +81,10 @@ export default function AdminRestaurantesPage() {
   const [items, setItems] = useState<RestaurantItem[]>([]);
   const [form, setForm] = useState<RestaurantForm>(EMPTY_FORM);
   const [cargando, setCargando] = useState(true);
-  const [guardando, setGuardando] = useState(false);
-  const [mensaje, setMensaje] = useState('');
-  const [error, setError] = useState('');
+const [guardando, setGuardando] = useState(false);
+const [eliminandoId, setEliminandoId] = useState<string | null>(null);
+const [mensaje, setMensaje] = useState('');
+const [error, setError] = useState('');
 
   const demoCount = useMemo(
     () => items.filter((item) => item.slug.startsWith('demo-')).length,
@@ -177,6 +178,47 @@ export default function AdminRestaurantesPage() {
       setGuardando(false);
     }
   }
+
+  async function eliminarRestaurante(item: RestaurantItem) {
+  const confirmar = window.confirm(
+    `¿Eliminar el restaurante "${item.nombre_local || item.slug}"?\n\nSolo se puede eliminar si no tiene pedidos asociados.`
+  );
+
+  if (!confirmar) return;
+
+  try {
+    setEliminandoId(item.id);
+    setMensaje('');
+    setError('');
+
+    const res = await fetch(
+      `/api/admin/restaurants?restaurantId=${encodeURIComponent(item.id)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+
+    const raw = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(
+        getApiErrorMessage(raw, 'No se pudo eliminar el restaurante.')
+      );
+    }
+
+    setMensaje(`Restaurante "${item.nombre_local || item.slug}" eliminado correctamente.`);
+    await cargarRestaurantes();
+  } catch (err) {
+    console.error(err);
+    setError(
+      err instanceof Error
+        ? err.message
+        : 'No se pudo eliminar el restaurante.'
+    );
+  } finally {
+    setEliminandoId(null);
+  }
+}
 
   function cargarPresetDemo(
   nombre_local: string,
@@ -571,6 +613,17 @@ con Multimarca activo.
                 >
                   Probar QR público
                 </Link>
+
+                <button
+  type="button"
+  onClick={() => {
+    void eliminarRestaurante(item);
+  }}
+  disabled={eliminandoId === item.id}
+  className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-center text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+>
+  {eliminandoId === item.id ? 'Eliminando...' : 'Eliminar restaurante'}
+</button>
               </div>
             </article>
           ))}

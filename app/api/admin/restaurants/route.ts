@@ -331,3 +331,105 @@ const multiBrand = normalizeBoolean(body?.multi_brand, false);
     );
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  const auth = requireAdminAuth(req);
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  try {
+    const restaurantId = normalizeNonEmptyString(
+      req.nextUrl.searchParams.get('restaurantId') ??
+        req.nextUrl.searchParams.get('restaurant_id') ??
+        req.nextUrl.searchParams.get('id')
+    );
+
+    const restaurantSlug = normalizeSlug(
+      req.nextUrl.searchParams.get('slug') ??
+        req.nextUrl.searchParams.get('restaurant')
+    );
+
+    if (!restaurantId && !restaurantSlug) {
+      return NextResponse.json(
+        { error: 'Falta indicar el restaurante a eliminar.' },
+        { status: 400 }
+      );
+    }
+
+    let restaurantQuery = supabaseAdmin
+      .from('restaurants')
+      .select('id, slug')
+      .limit(1);
+
+    if (restaurantId) {
+      restaurantQuery = restaurantQuery.eq('id', restaurantId);
+    } else {
+      restaurantQuery = restaurantQuery.eq('slug', restaurantSlug);
+    }
+
+    const { data: restaurant, error: restaurantError } =
+      await restaurantQuery.maybeSingle();
+
+    if (restaurantError) throw restaurantError;
+
+    if (!restaurant?.id) {
+      return NextResponse.json(
+        { error: 'Restaurante no encontrado.' },
+        { status: 404 }
+      );
+    }
+
+    const { count: pedidosCount, error: pedidosError } = await supabaseAdmin
+      .from('pedidos')
+      .select('id', { count: 'exact', head: true })
+      .eq('restaurant_id', restaurant.id);
+
+    if (pedidosError) throw pedidosError;
+
+    if ((pedidosCount ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'No se puede eliminar este restaurante porque ya tiene pedidos asociados. Para conservar el historial, más adelante conviene archivarlo o desactivarlo.',
+        },
+        { status: 409 }
+      );
+    }
+
+    await supabaseAdmin
+      .from('configuracion_local')
+      .delete()
+      .eq('restaurant_id', restaurant.id);
+
+    await supabaseAdmin
+      .from('tenant_addons')
+      .delete()
+      .eq('tenant_id', restaurant.slug);
+
+    const { error: deleteError } = await supabaseAdmin
+      .from('restaurants')
+      .delete()
+      .eq('id', restaurant.id);
+
+    if (deleteError) throw deleteError;
+
+    return NextResponse.json({
+      ok: true,
+      id: String(restaurant.id),
+      slug: restaurant.slug,
+    });
+  } catch (error) {
+    const message = getUnknownErrorMessage(error);
+
+    console.error('DELETE /api/admin/restaurants', error);
+
+    return NextResponse.json(
+      {
+        error: `No se pudo eliminar el restaurante. Detalle: ${message}`,
+      },
+      { status: 500 }
+    );
+  }
+}
