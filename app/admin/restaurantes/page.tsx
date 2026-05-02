@@ -451,8 +451,8 @@ con Multimarca activo.
               onChange={(e) => updateForm('multi_brand', e.target.checked)}
             />
             <span className="text-sm font-medium text-fuchsia-900">
-              Activar Multimarca para este restaurante
-            </span>
+  Activar Multimarca para este tenant/grupo
+</span>
           </label>
 
           <div className="flex flex-wrap gap-3">
@@ -552,11 +552,11 @@ con Multimarca activo.
                 </Link>
 
                 <Link
-                  href={buildTenantHref('/admin/marcas', item.slug)}
-                  className="rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-center text-sm font-semibold text-fuchsia-800 hover:bg-fuchsia-100"
-                >
-                  Cargar marcas
-                </Link>
+  href="/admin/marcas"
+  className="rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-center text-sm font-semibold text-fuchsia-800 hover:bg-fuchsia-100"
+>
+  Gestionar marcas del tenant
+</Link>
 
                 <Link
                   href={buildTenantHref('/admin/productos', item.slug)}

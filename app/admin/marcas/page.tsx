@@ -409,9 +409,9 @@ if (!nombre) {
             Plan actual: <strong>{formatPlanLabel(plan)}</strong>
           </p>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
-            Administrá las marcas internas del local. En modo restaurante, las marcas
-            quedan ocultas para clientes, cocina y mozo; solo aparecen como distintivo
-            discreto en mostrador y como herramienta de gestión en Admin.
+            Administrá las marcas internas del tenant o grupo gastronómico. Las marcas
+pueden usarse en uno o varios restaurantes del grupo y sirven para organizar
+productos, operación y lectura comercial.
           </p>
         </div>
 
