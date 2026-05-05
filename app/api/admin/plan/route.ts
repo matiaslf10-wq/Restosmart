@@ -35,6 +35,110 @@ function isPlanCode(value: unknown): value is PlanCode {
   return value === 'esencial' || value === 'pro' || value === 'intelligence';
 }
 
+function getRestaurantLimitForPlan(plan: PlanCode) {
+  if (plan === 'intelligence') return null;
+  if (plan === 'pro') return 3;
+  return 1;
+}
+
+function getActiveBrandLimitForPlan(plan: PlanCode) {
+  if (plan === 'intelligence') return null;
+  if (plan === 'pro') return 3;
+  return 1;
+}
+
+async function resolveOwnerTenantId(access: Awaited<ReturnType<typeof resolveAdminAccess>>) {
+  if (!access.restaurant?.id) {
+    return access.tenantId;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('restaurants')
+    .select('id, slug, owner_tenant_id')
+    .eq('id', access.restaurant.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error('No se pudo resolver owner_tenant_id:', error);
+    return access.tenantId;
+  }
+
+  return (
+    normalizeNonEmptyString(data?.owner_tenant_id) ??
+    normalizeNonEmptyString(data?.slug) ??
+    access.tenantId
+  );
+}
+
+async function countActiveRestaurants(ownerTenantId: string) {
+  const { count, error } = await supabaseAdmin
+    .from('restaurants')
+    .select('id', { count: 'exact', head: true })
+    .eq('owner_tenant_id', ownerTenantId)
+    .eq('estado', 'activo');
+
+  if (error) throw error;
+
+  return count ?? 0;
+}
+
+async function countActiveBrands(ownerTenantId: string) {
+  const { count, error } = await supabaseAdmin
+    .from('marcas')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', ownerTenantId)
+    .eq('activa', true);
+
+  if (error) throw error;
+
+  return count ?? 0;
+}
+
+async function validateTenantPlanChange(params: {
+  ownerTenantId: string;
+  requestedPlan: PlanCode;
+}) {
+  const { ownerTenantId, requestedPlan } = params;
+
+  const restaurantLimit = getRestaurantLimitForPlan(requestedPlan);
+  const brandLimit = getActiveBrandLimitForPlan(requestedPlan);
+
+  const [activeRestaurants, activeBrands] = await Promise.all([
+    countActiveRestaurants(ownerTenantId),
+    countActiveBrands(ownerTenantId),
+  ]);
+
+  if (restaurantLimit !== null && activeRestaurants > restaurantLimit) {
+    return {
+      ok: false as const,
+      status: 409,
+      error:
+        requestedPlan === 'pro'
+          ? `No se puede cambiar a Pro: este tenant tiene ${activeRestaurants} restaurantes activos y Pro permite hasta 3. Cerrá restaurantes hasta quedar en 3 activos.`
+          : `No se puede cambiar a Esencial: este tenant tiene ${activeRestaurants} restaurantes activos y Esencial permite solo 1.`,
+    };
+  }
+
+  if (brandLimit !== null && activeBrands > brandLimit) {
+    return {
+      ok: false as const,
+      status: 409,
+      error:
+        requestedPlan === 'pro'
+          ? `No se puede cambiar a Pro: este tenant tiene ${activeBrands} marcas activas y Pro permite hasta 3. Desactivá marcas hasta quedar en 3 activas.`
+          : `No se puede cambiar a Esencial: este tenant tiene ${activeBrands} marcas activas y Esencial permite solo 1.`,
+    };
+  }
+
+  return {
+    ok: true as const,
+    activeRestaurants,
+    activeBrands,
+    restaurantLimit,
+    brandLimit,
+  };
+}
+
 function extractRequestedTenantContext(request: NextRequest, session: unknown) {
   const sessionRecord = asRecord(session);
   const restaurantRecord = asRecord(sessionRecord?.restaurant);
@@ -149,35 +253,62 @@ export async function PUT(request: NextRequest) {
 
   if (!access.restaurant?.id) {
     return NextResponse.json(
-      { error: 'No se encontró un restaurante válido para actualizar el plan.' },
+      { error: 'No se encontró un tenant válido para actualizar el plan.' },
       { status: 404 }
     );
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('restaurants')
-    .update({ plan: requestedPlan })
-    .eq('id', access.restaurant.id)
-    .select('id, slug, plan')
-    .maybeSingle();
+  try {
+    const ownerTenantId = await resolveOwnerTenantId(access);
 
-  if (error) {
-    console.error('PUT /api/admin/plan update error:', error);
+    const validation = await validateTenantPlanChange({
+      ownerTenantId,
+      requestedPlan,
+    });
+
+    if (!validation.ok) {
+      return NextResponse.json(
+        { error: validation.error },
+        { status: validation.status }
+      );
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('restaurants')
+      .update({ plan: requestedPlan })
+      .or(`owner_tenant_id.eq.${ownerTenantId},id.eq.${access.restaurant.id}`)
+      .select('id, slug, plan, owner_tenant_id, estado');
+
+    if (error) {
+      console.error('PUT /api/admin/plan update error:', error);
+      return NextResponse.json(
+        { error: 'No se pudo actualizar el plan del tenant.' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      tenantId: ownerTenantId,
+      plan: requestedPlan,
+      updated_restaurants: data?.length ?? 0,
+      limits: {
+        active_restaurants: validation.activeRestaurants,
+        active_brands: validation.activeBrands,
+        restaurant_limit: validation.restaurantLimit,
+        brand_limit: validation.brandLimit,
+      },
+      restaurant: {
+        ...access.restaurant,
+        plan: requestedPlan,
+      },
+    });
+  } catch (error) {
+    console.error('PUT /api/admin/plan validation/update error:', error);
+
     return NextResponse.json(
-      { error: 'No se pudo actualizar el plan del restaurante.' },
+      { error: 'No se pudo actualizar el plan del tenant.' },
       { status: 500 }
     );
   }
-
-  return NextResponse.json({
-    ok: true,
-    plan: requestedPlan,
-    restaurant: data
-      ? {
-          id: String(data.id),
-          slug: String(data.slug ?? '').trim() || access.tenantId,
-          plan: normalizePlan(data.plan),
-        }
-      : access.restaurant,
-  });
 }

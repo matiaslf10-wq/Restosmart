@@ -144,22 +144,19 @@ const PLAN_CARDS: Array<{
     shortLabel: 'Esencial',
     title: 'Venta y operación base',
     description:
-      'Menú digital, QR, cocina, operaciones básicas y configuración general para empezar a vender y ordenar el local.',
-  },
+  'Menú digital, QR, cocina, operaciones básicas y configuración general para empezar a vender. Incluye 1 restaurante activo.',  },
   {
     code: 'pro',
     shortLabel: 'Pro',
     title: 'Control operativo del local',
     description:
-      'Suma gestión operativa ampliada, más control del flujo diario y modo mozo para negocios con salón.',
-  },
+  'Suma gestión operativa ampliada, más control del flujo diario y modo mozo para negocios con salón. Incluye hasta 3 restaurantes activos y hasta 3 marcas activas.',  },
   {
     code: 'intelligence',
     shortLabel: 'Intelligence',
     title: 'Optimización con datos',
     description:
-      'Incluye todo Pro y desbloquea analytics avanzados, KPIs e insights ejecutivos para tomar mejores decisiones.',
-  },
+  'Incluye todo Pro y desbloquea analytics avanzados, KPIs e insights ejecutivos. Restaurantes y marcas activas ilimitadas.',  },
 ];
 
 function getApiErrorMessage(value: unknown, fallback: string) {
@@ -359,18 +356,18 @@ const analyticsEnabled = !!capabilities.analytics;
     localForm.business_mode === 'takeaway' ? 'QR PRINCIPAL' : 'QR OPCIONAL';
 
   const planHelperText = useMemo(() => {
-    if (selectedPlan === 'esencial') {
-      return 'Esencial cubre la base comercial y operativa del local.';
-    }
+  if (selectedPlan === 'esencial') {
+    return 'Esencial cubre la base comercial y operativa del tenant. Permite 1 restaurante activo. Si el tenant tiene más restaurantes activos, primero hay que cerrarlos.';
+  }
 
-    if (selectedPlan === 'pro') {
-      return localForm.business_mode === 'restaurant'
-        ? 'Pro agrega gestión operativa ampliada y habilita modo mozo para restaurante.'
-        : 'Pro agrega gestión operativa ampliada para ordenar mejor el flujo diario, aunque el modo mozo no aplique en take away.';
-    }
+  if (selectedPlan === 'pro') {
+    return localForm.business_mode === 'restaurant'
+      ? 'Pro agrega gestión operativa ampliada y habilita modo mozo para restaurante. Permite hasta 3 restaurantes activos y hasta 3 marcas activas.'
+      : 'Pro agrega gestión operativa ampliada para ordenar mejor el flujo diario. Permite hasta 3 restaurantes activos y hasta 3 marcas activas.';
+  }
 
-    return 'Intelligence incluye todo Pro y suma analytics avanzados para lectura ejecutiva del negocio.';
-  }, [localForm.business_mode, selectedPlan]);
+  return 'Intelligence incluye todo Pro y suma analytics avanzados para lectura ejecutiva. Permite restaurantes activos y marcas activas ilimitadas.';
+}, [localForm.business_mode, selectedPlan]);
 
 async function cargarAddons() {
   setCargandoAddons(true);
@@ -872,9 +869,9 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
           <div>
             <h2 className="text-lg font-medium">Plan y funcionalidades</h2>
             <p className="mt-1 text-sm text-neutral-600">
-              El cambio se aplica sobre este tenant y actualiza automáticamente
-              lo que queda habilitado en el sistema.
-            </p>
+  El cambio se aplica sobre todo el tenant/grupo. Los restaurantes activos,
+  las marcas activas, analytics y add-ons se validan a nivel tenant.
+</p>
           </div>
 
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -927,7 +924,8 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
   Los add-ons se gestionan debajo de los planes. No forman parte del plan base:
-  se activan por local según contratación o configuración interna.
+  se activan por tenant o por local según corresponda. Multimarca se valida a
+  nivel tenant; WhatsApp Delivery se mantiene como add-on separado.
 </div>
 
         <div className="mt-4 flex flex-wrap gap-3">
@@ -944,8 +942,9 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
 
           {planChanged ? (
             <span className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Vas a pasar de {planLabel} a {formatPlanLabel(selectedPlan)}.
-            </span>
+  Vas a pasar el tenant de {planLabel} a {formatPlanLabel(selectedPlan)}.
+  Si el nuevo plan excede restaurantes o marcas activas, el sistema va a bloquear el cambio.
+</span>
           ) : (
             <span className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               No hay cambios pendientes en el plan.
