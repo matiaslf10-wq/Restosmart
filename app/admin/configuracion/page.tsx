@@ -286,14 +286,62 @@ function getAddonCard(item: AddonItem, plan: PlanCode): AddonCard {
   };
 }
 
+function normalizeNonEmptyText(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
+function getInitialRequestedTenant() {
+  if (typeof window === 'undefined') return null;
+
+  const params = new URLSearchParams(window.location.search);
+
+  return normalizeNonEmptyText(
+    params.get('tenant') ??
+      params.get('tenantSlug') ??
+      params.get('slug') ??
+      params.get('restaurant')
+  );
+}
+
 export default function AdminConfiguracionPage() {
   const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
+  const [requestedTenant] = useState<string | null>(() =>
+  getInitialRequestedTenant()
+);
+
+function buildTenantApiUrl(path: string) {
+  if (!requestedTenant) return path;
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}tenant=${encodeURIComponent(requestedTenant)}`;
+}
+
+function buildTenantAdminHref(path: string) {
+  if (!requestedTenant) return path;
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}tenant=${encodeURIComponent(requestedTenant)}`;
+}
+
+function buildPublicPedirHref() {
+  if (!requestedTenant) return '/pedir';
+
+  return `/pedir?restaurant=${encodeURIComponent(requestedTenant)}`;
+}
+
+function buildPublicRetiroHref() {
+  if (!requestedTenant) return '/retiro';
+
+  return `/retiro?restaurant=${encodeURIComponent(requestedTenant)}`;
+}
   const [localForm, setLocalForm] = useState<LocalConfig>(DEFAULT_LOCAL);
   const [deliveryForm, setDeliveryForm] = useState<DeliveryConfig>(DEFAULT_DELIVERY);
   const [addonItems, setAddonItems] = useState<AddonItem[]>([]);
 const [cargandoAddons, setCargandoAddons] = useState(false);
 const [actualizandoAddonKey, setActualizandoAddonKey] =
   useState<AddonKey | null>(null);
+  
   const [selectedPlan, setSelectedPlan] = useState<PlanCode>('esencial');
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -313,7 +361,10 @@ const multiBrandAddonEnabled =
 
 const analyticsEnabled = !!capabilities.analytics;
   const tenantLabel =
-    sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
+  requestedTenant ||
+  sessionData?.restaurant?.slug ||
+  sessionData?.tenantId ||
+  'default';
   const businessModeLabel = formatBusinessModeLabel(localForm.business_mode);
   const planChanged = selectedPlan !== plan;
 
@@ -373,7 +424,7 @@ async function cargarAddons() {
   setCargandoAddons(true);
 
   try {
-    const res = await fetch('/api/admin/addons', {
+    const sessionRes = await fetch(buildTenantApiUrl('/api/admin/session'), {
       method: 'GET',
       cache: 'no-store',
     });
@@ -430,7 +481,7 @@ async function cargarAddons() {
     setMensaje('');
     setError('');
 
-    const res = await fetch('/api/admin/addons', {
+    const res = await fetch(buildTenantApiUrl('/api/admin/addons'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -474,13 +525,10 @@ async function cargarAddons() {
         setError('');
         setMensaje('');
 
-        const sessionRes = await fetch(
-          `/api/admin/session?tenant=${encodeURIComponent(tenantLabel)}`,
-          {
-            method: 'GET',
-            cache: 'no-store',
-          }
-        );
+        const sessionRes = await fetch(buildTenantApiUrl('/api/admin/session'), {
+  method: 'GET',
+  cache: 'no-store',
+});
 
         const sessionJson = await sessionRes.json().catch(() => null);
 
@@ -499,7 +547,7 @@ async function cargarAddons() {
         setSessionData(session);
         setSelectedPlan((session?.plan ?? 'esencial') as PlanCode);
 
-        const localRes = await fetch('/api/admin/local-config', {
+        const localRes = await fetch(buildTenantApiUrl('/api/admin/local-config'), {
           method: 'GET',
           cache: 'no-store',
         });
@@ -544,7 +592,7 @@ async function cargarAddons() {
         await cargarAddons();
 
         if (session?.addons?.whatsapp_delivery) {
-          const deliveryRes = await fetch('/api/admin/delivery-config', {
+          const deliveryRes = await fetch(buildTenantApiUrl('/api/admin/delivery-config'), {
             method: 'GET',
             cache: 'no-store',
           });
@@ -608,7 +656,7 @@ async function cargarAddons() {
     return () => {
       activo = false;
     };
-  }, [tenantLabel]);
+  }, [requestedTenant]);
 
   function updateLocal<K extends keyof LocalConfig>(
     key: K,
@@ -642,16 +690,14 @@ async function cargarAddons() {
       setMensaje('');
       setError('');
 
-      const res = await fetch(
-        `/api/admin/plan?tenant=${encodeURIComponent(tenantLabel)}`,
-        {
+      const res = await fetch(buildTenantApiUrl('/api/admin/plan'), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            plan: selectedPlan,
-            tenantSlug: tenantLabel,
-            restaurantId: sessionData?.restaurant?.id ?? null,
-          }),
+  plan: selectedPlan,
+  tenantSlug: tenantLabel,
+  restaurantId: sessionData?.restaurant?.id ?? null,
+}),
         }
       );
 
@@ -688,7 +734,7 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
       setMensaje('');
       setError('');
 
-      const localRes = await fetch('/api/admin/local-config', {
+      const localRes = await fetch(buildTenantApiUrl('/api/admin/local-config'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(localForm),
@@ -728,7 +774,7 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
       }
 
       if (deliveryAddonEnabled) {
-        const deliveryRes = await fetch('/api/admin/delivery-config', {
+        const deliveryRes = await fetch(buildTenantApiUrl('/api/admin/delivery-config'), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(deliveryForm),
@@ -800,13 +846,18 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Configuración del local</h1>
-        <p className="mt-1 text-sm text-neutral-600">
-          Acá definís la ficha del negocio, su modo de operación, las integraciones
-          y, si está activo, el add-on de WhatsApp Delivery.
-        </p>
-      </div>
+      {requestedTenant ? (
+  <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+    Estás editando la configuración de la sucursal{' '}
+    <strong>{requestedTenant}</strong>. Los datos que guardes acá se aplican a
+    este restaurante, no a todo el tenant.
+  </div>
+) : (
+  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+    Estás editando la configuración del local actual. Para editar una sucursal
+    específica, entrá desde <strong>Restaurantes / sucursales</strong>.
+  </div>
+)}
 
       <section className="grid gap-4 md:grid-cols-6">
   <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -1380,14 +1431,14 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
 
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
-                  href="/pedir"
+                  href={buildPublicPedirHref()}
                   className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
                 >
                   Abrir take away
                 </Link>
 
                 <Link
-                  href="/retiro"
+                  href={buildPublicRetiroHref()}
                   className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
                 >
                   Abrir pantalla de retiro
@@ -1426,7 +1477,7 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
             <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
               <TakeAwayQrCard
                 localName={localForm.nombre_local || 'RestoSmart'}
-                routePath="/pedir"
+                routePath={buildPublicPedirHref()}
                 title={takeawayQrTitle}
                 description={takeawayQrDescription}
                 badgeLabel={takeawayQrBadge}
@@ -1461,14 +1512,14 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
 
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Link
-                    href="/pedir"
+                    href={buildPublicPedirHref()}
                     className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
                   >
                     Abrir /pedir
                   </Link>
 
                   <Link
-                    href="/retiro"
+                    href={buildPublicRetiroHref()}
                     className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
                   >
                     Abrir /retiro
