@@ -317,13 +317,6 @@ function buildTenantApiUrl(path: string) {
   return `${path}${separator}tenant=${encodeURIComponent(requestedTenant)}`;
 }
 
-function buildTenantAdminHref(path: string) {
-  if (!requestedTenant) return path;
-
-  const separator = path.includes('?') ? '&' : '?';
-  return `${path}${separator}tenant=${encodeURIComponent(requestedTenant)}`;
-}
-
 function buildPublicPedirHref() {
   if (!requestedTenant) return '/pedir';
 
@@ -424,7 +417,7 @@ async function cargarAddons() {
   setCargandoAddons(true);
 
   try {
-    const sessionRes = await fetch(buildTenantApiUrl('/api/admin/session'), {
+    const res = await fetch(buildTenantApiUrl('/api/admin/addons'), {
       method: 'GET',
       cache: 'no-store',
     });
@@ -449,7 +442,7 @@ async function cargarAddons() {
 }
 
   async function reloadSession() {
-  const sessionRes = await fetch('/api/admin/session', {
+  const sessionRes = await fetch(buildTenantApiUrl('/api/admin/session'), {
     method: 'GET',
     cache: 'no-store',
     credentials: 'include',
