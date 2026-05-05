@@ -507,37 +507,29 @@ export async function DELETE(req: NextRequest) {
       });
     }
 
-    const { count: pedidosCount, error: pedidosError } = await supabaseAdmin
-      .from('pedidos')
-      .select('id', { count: 'exact', head: true })
-      .eq('restaurant_id', restaurant.id);
+    const cerradoEn = new Date().toISOString();
 
-    if (pedidosError) throw pedidosError;
+const { error: closeError } = await supabaseAdmin
+  .from('restaurants')
+  .update({
+    estado: 'cerrado',
+    cerrado_en: cerradoEn,
+    cerrado_motivo: 'Cerrado desde administración',
+  })
+  .eq('id', restaurant.id)
+  .eq('owner_tenant_id', ownerTenantId);
 
-    if ((pedidosCount ?? 0) > 0) {
-      const cerradoEn = new Date().toISOString();
+if (closeError) throw closeError;
 
-      const { error: closeError } = await supabaseAdmin
-        .from('restaurants')
-        .update({
-          estado: 'cerrado',
-          cerrado_en: cerradoEn,
-          cerrado_motivo: 'Cerrado desde administración',
-        })
-        .eq('id', restaurant.id)
-        .eq('owner_tenant_id', ownerTenantId);
-
-      if (closeError) throw closeError;
-
-      return NextResponse.json({
-        ok: true,
-        mode: 'closed',
-        id: String(restaurant.id),
-        slug: restaurant.slug,
-        cerrado_en: cerradoEn,
-        message:
-          'El restaurante tenía historial operativo. Fue cerrado y archivado para conservar pedidos, ventas y métricas.',
-      });
+return NextResponse.json({
+  ok: true,
+  mode: 'closed',
+  id: String(restaurant.id),
+  slug: restaurant.slug,
+  cerrado_en: cerradoEn,
+  message:
+    'El restaurante fue cerrado y archivado. Conserva su configuración e historial, no recibe nuevos pedidos y no cuenta como restaurante activo.',
+});
     }
 
     await supabaseAdmin

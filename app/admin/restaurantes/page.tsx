@@ -204,7 +204,7 @@ const closedCount = useMemo(
 
   async function cerrarOEliminarRestaurante(item: RestaurantItem) {
   const confirmar = window.confirm(
-    `¿Cerrar el restaurante "${item.nombre_local || item.slug}"?\n\nSi no tiene pedidos, se eliminará definitivamente. Si ya tiene historial operativo, quedará cerrado y archivado.`
+    `¿Cerrar el restaurante "${item.nombre_local || item.slug}"?\n\nEl local dejará de recibir pedidos, conservará su historial y no contará como restaurante activo.`
   );
 
   if (!confirmar) return;
@@ -679,7 +679,7 @@ con Multimarca activo.
     >
       {eliminandoId === item.id
         ? 'Procesando...'
-        : 'Cerrar / eliminar restaurante'}
+        : 'Cerrar restaurante'}
     </button>
   </>
 ) : (
