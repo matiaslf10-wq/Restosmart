@@ -509,49 +509,26 @@ export async function DELETE(req: NextRequest) {
 
     const cerradoEn = new Date().toISOString();
 
-const { error: closeError } = await supabaseAdmin
-  .from('restaurants')
-  .update({
-    estado: 'cerrado',
-    cerrado_en: cerradoEn,
-    cerrado_motivo: 'Cerrado desde administración',
-  })
-  .eq('id', restaurant.id)
-  .eq('owner_tenant_id', ownerTenantId);
-
-if (closeError) throw closeError;
-
-return NextResponse.json({
-  ok: true,
-  mode: 'closed',
-  id: String(restaurant.id),
-  slug: restaurant.slug,
-  cerrado_en: cerradoEn,
-  message:
-    'El restaurante fue cerrado y archivado. Conserva su configuración e historial, no recibe nuevos pedidos y no cuenta como restaurante activo.',
-});
-    }
-
-    await supabaseAdmin
-      .from('configuracion_local')
-      .delete()
-      .eq('restaurant_id', restaurant.id);
-
-    const { error: deleteError } = await supabaseAdmin
+    const { error: closeError } = await supabaseAdmin
       .from('restaurants')
-      .delete()
+      .update({
+        estado: 'cerrado',
+        cerrado_en: cerradoEn,
+        cerrado_motivo: 'Cerrado desde administración',
+      })
       .eq('id', restaurant.id)
       .eq('owner_tenant_id', ownerTenantId);
 
-    if (deleteError) throw deleteError;
+    if (closeError) throw closeError;
 
     return NextResponse.json({
       ok: true,
-      mode: 'deleted',
+      mode: 'closed',
       id: String(restaurant.id),
       slug: restaurant.slug,
+      cerrado_en: cerradoEn,
       message:
-        'El restaurante no tenía historial operativo y fue eliminado definitivamente.',
+        'El restaurante fue cerrado y archivado. Conserva su configuración e historial, no recibe nuevos pedidos y no cuenta como restaurante activo.',
     });
   } catch (error) {
     const message = getUnknownErrorMessage(error);
