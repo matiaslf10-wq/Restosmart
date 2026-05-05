@@ -8,10 +8,13 @@ export const dynamic = 'force-dynamic';
 const SIN_MESA_ID = 0;
 const STOCK_CONFLICT_PREFIX = 'STOCK_CONFLICT:';
 
+type RestaurantStatus = 'activo' | 'pausado' | 'cerrado';
+
 type RestaurantContext = {
   id: string | number;
   slug: string;
   plan?: string | null;
+  estado?: RestaurantStatus | string | null;
 };
 
 type BusinessMode = 'restaurant' | 'takeaway';
@@ -96,6 +99,12 @@ function normalizeBusinessMode(value: unknown): BusinessMode {
     : 'restaurant';
 }
 
+function isRestaurantClosedForOrdering(value: unknown) {
+  const estado = String(value ?? '').trim().toLowerCase();
+
+  return estado === 'cerrado' || estado === 'pausado';
+}
+
 function normalizeTipoServicio(
   value: unknown,
   fallback: TipoServicio = 'mesa'
@@ -154,7 +163,7 @@ function pickFirstString(...values: unknown[]) {
 async function getRestaurantBySlug(slug: string) {
   const { data, error } = await supabaseAdmin
     .from('restaurants')
-    .select('id, slug, plan')
+    .select('id, slug, plan, estado')
     .eq('slug', slug)
     .maybeSingle();
 
@@ -169,7 +178,7 @@ async function getRestaurantBySlug(slug: string) {
 async function getRestaurantById(id: string) {
   const { data, error } = await supabaseAdmin
     .from('restaurants')
-    .select('id, slug, plan')
+    .select('id, slug, plan, estado')
     .eq('id', id)
     .maybeSingle();
 
@@ -508,7 +517,7 @@ async function resolveRestaurantContextForRequest(request?: NextRequest) {
   if (defaultTenantId) {
     const bySlug = await supabaseAdmin
       .from('restaurants')
-      .select('id, slug, plan')
+      .select('id, slug, plan, estado')
       .eq('slug', defaultTenantId)
       .maybeSingle();
 
@@ -519,7 +528,7 @@ async function resolveRestaurantContextForRequest(request?: NextRequest) {
 
   const fallback = await supabaseAdmin
     .from('restaurants')
-    .select('id, slug, plan')
+    .select('id, slug, plan, estado')
     .order('id', { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -712,12 +721,13 @@ const { data, error } = await pedidosQuery;
     return NextResponse.json({
       pedidos: data ?? [],
       restaurant: ctx
-        ? {
-            id: ctx.id,
-            slug: ctx.slug,
-            plan: normalizePlan(ctx.plan),
-          }
-        : null,
+  ? {
+      id: ctx.id,
+      slug: ctx.slug,
+      plan: normalizePlan(ctx.plan),
+      estado: ctx.estado ?? 'activo',
+    }
+  : null,
       meta: {
         business_mode: businessMode,
         default_identity: businessMode === 'takeaway' ? 'persona' : 'mesa',
@@ -737,7 +747,15 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as Partial<CreatePedidoBody>;
 
-    const restaurant = await resolveRestaurantContextForRequest(request);;
+    const restaurant = await resolveRestaurantContextForRequest(request);
+
+if (restaurant && isRestaurantClosedForOrdering(restaurant.estado)) {
+  return NextResponse.json(
+    { error: 'Este restaurante está cerrado y no recibe nuevos pedidos.' },
+    { status: 409 }
+  );
+}
+
 const plan = normalizePlan(restaurant?.plan);
 const businessMode = await resolveBusinessMode(restaurant);
     const stockControlEnabled = planHasStockControl(plan);

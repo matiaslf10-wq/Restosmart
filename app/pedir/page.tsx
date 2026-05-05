@@ -29,10 +29,13 @@ type Marca = {
   orden: number | null;
 };
 
+type RestaurantStatus = 'activo' | 'pausado' | 'cerrado';
+
 type RestaurantPublicContext = {
   id: string | number;
   slug: string;
   plan?: string | null;
+  estado?: RestaurantStatus | string | null;
 };
 
 type ItemCarrito = {
@@ -73,6 +76,12 @@ function normalizeBusinessModeForPublic(value: unknown): BusinessMode {
 function normalizePublicSlug(value: unknown) {
   const text = String(value ?? '').trim();
   return text.length > 0 ? text : null;
+}
+
+function isRestaurantClosedForOrdering(value: unknown) {
+  const estado = String(value ?? '').trim().toLowerCase();
+
+  return estado === 'cerrado' || estado === 'pausado';
 }
 
 function getStockDisponible(producto: Producto) {
@@ -219,10 +228,10 @@ function PedirPageContent() {
 
         if (restaurantSlug) {
           const { data, error: restaurantError } = await supabase
-            .from('restaurants')
-            .select('id, slug, plan')
-            .eq('slug', restaurantSlug)
-            .maybeSingle();
+  .from('restaurants')
+  .select('id, slug, plan, estado')
+  .eq('slug', restaurantSlug)
+  .maybeSingle();
 
           if (restaurantError) {
             console.warn(
@@ -236,6 +245,12 @@ function PedirPageContent() {
               'No encontramos el local asociado a este QR. Revisá que el enlace sea correcto.'
             );
           }
+
+          if (isRestaurantClosedForOrdering(data.estado)) {
+  throw new Error(
+    'Este local ya no está recibiendo pedidos desde este QR.'
+  );
+}
 
           restaurantContext = data as RestaurantPublicContext;
         }
