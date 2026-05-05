@@ -311,14 +311,18 @@ export async function POST(req: NextRequest) {
     return auth.response;
   }
 
+  const access = await resolveAccessForRequest(req, auth.session);
+  const ownerTenantId = access.tenantId;
+  const restaurantLimit = getRestaurantLimitForPlan(access.plan);
+
   try {
     const body = await req.json().catch(() => null);
 
     const nombreLocal = normalizeNonEmptyString(body?.nombre_local);
     const slug = normalizeSlug(body?.slug ?? nombreLocal);
     const technicalPlanFallback = access.plan as PlanCode;
-const businessMode = normalizeBusinessMode(body?.business_mode) as BusinessMode;
-const multiBrand = normalizeBoolean(body?.multi_brand, false);
+    const businessMode = normalizeBusinessMode(body?.business_mode) as BusinessMode;
+    const multiBrand = normalizeBoolean(body?.multi_brand, false);
 
     if (!nombreLocal) {
       return NextResponse.json(
@@ -335,28 +339,28 @@ const multiBrand = normalizeBoolean(body?.multi_brand, false);
     }
 
     if (restaurantLimit !== null) {
-  const { count, error: countError } = await supabaseAdmin
-    .from('restaurants')
-    .select('id', { count: 'exact', head: true })
-    .eq('owner_tenant_id', ownerTenantId)
-    .eq('estado', 'activo');
+      const { count, error: countError } = await supabaseAdmin
+        .from('restaurants')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_tenant_id', ownerTenantId)
+        .eq('estado', 'activo');
 
-  if (countError) throw countError;
+      if (countError) throw countError;
 
-  const activeRestaurants = count ?? 0;
+      const activeRestaurants = count ?? 0;
 
-  if (activeRestaurants >= restaurantLimit) {
-    return NextResponse.json(
-      {
-        error:
-          access.plan === 'pro'
-            ? 'El plan Pro permite hasta 3 restaurantes activos. Para agregar más, cerrá una sucursal o pasá el tenant a Intelligence.'
-            : 'El plan Esencial permite solo 1 restaurante activo. Para agregar más, pasá el tenant a Pro o Intelligence.',
-      },
-      { status: 403 }
-    );
-  }
-}
+      if (activeRestaurants >= restaurantLimit) {
+        return NextResponse.json(
+          {
+            error:
+              access.plan === 'pro'
+                ? 'El plan Pro permite hasta 3 restaurantes activos. Para agregar más, cerrá una sucursal o pasá el tenant a Intelligence.'
+                : 'El plan Esencial permite solo 1 restaurante activo. Para agregar más, pasá el tenant a Pro o Intelligence.',
+          },
+          { status: 403 }
+        );
+      }
+    }
 
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('restaurants')
@@ -374,15 +378,15 @@ const multiBrand = normalizeBoolean(body?.multi_brand, false);
     }
 
     const { data: restaurant, error: restaurantError } = await supabaseAdmin
-  .from('restaurants')
-  .insert({
-  slug,
-  plan: technicalPlanFallback,
-  owner_tenant_id: ownerTenantId,
-  estado: 'activo',
-})
-  .select('id, slug, plan')
-  .single();
+      .from('restaurants')
+      .insert({
+        slug,
+        plan: technicalPlanFallback,
+        owner_tenant_id: ownerTenantId,
+        estado: 'activo',
+      })
+      .select('id, slug, plan')
+      .single();
 
     if (restaurantError || !restaurant?.id) {
       throw restaurantError ?? new Error('No se pudo crear el restaurante.');
@@ -415,9 +419,9 @@ const multiBrand = normalizeBoolean(body?.multi_brand, false);
       {
         ok: true,
         restaurant: {
-  id: String(restaurant.id),
-  slug,
-  nombre_local: nombreLocal,
+          id: String(restaurant.id),
+          slug,
+          nombre_local: nombreLocal,
           direccion: normalizeNonEmptyString(body?.direccion) ?? '',
           telefono: normalizeNonEmptyString(body?.telefono) ?? '',
           celular: normalizeNonEmptyString(body?.celular) ?? '',
@@ -425,7 +429,7 @@ const multiBrand = normalizeBoolean(body?.multi_brand, false);
           horario_atencion:
             normalizeNonEmptyString(body?.horario_atencion) ?? '',
           business_mode: businessMode,
-          multi_brand: await getMultiBrandEnabledByTenant(slug),
+          multi_brand: await getMultiBrandEnabledByTenant(ownerTenantId),
           estado: 'activo',
         },
       },
@@ -565,42 +569,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json(
       {
         error: `No se pudo cerrar el restaurante. Detalle: ${message}`,
-      },
-      { status: 500 }
-    );
-  }
-}
-
-    await supabaseAdmin
-      .from('configuracion_local')
-      .delete()
-      .eq('restaurant_id', restaurant.id);
-
-    await supabaseAdmin
-      .from('tenant_addons')
-      .delete()
-      .eq('tenant_id', restaurant.slug);
-
-    const { error: deleteError } = await supabaseAdmin
-      .from('restaurants')
-      .delete()
-      .eq('id', restaurant.id);
-
-    if (deleteError) throw deleteError;
-
-    return NextResponse.json({
-      ok: true,
-      id: String(restaurant.id),
-      slug: restaurant.slug,
-    });
-  } catch (error) {
-    const message = getUnknownErrorMessage(error);
-
-    console.error('DELETE /api/admin/restaurants', error);
-
-    return NextResponse.json(
-      {
-        error: `No se pudo eliminar el restaurante. Detalle: ${message}`,
       },
       { status: 500 }
     );
