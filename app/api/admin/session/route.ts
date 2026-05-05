@@ -150,36 +150,6 @@ async function tryReadBusinessModeByRestaurantId(restaurantId: string | null) {
   }
 }
 
-async function tryReadBusinessModeBySlug(tenantSlug: string | null) {
-  if (!tenantSlug) return null;
-
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('configuracion_local')
-      .select('business_mode')
-      .eq('slug', tenantSlug)
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      console.error(
-        'GET /api/admin/session business_mode by slug read error:',
-        error
-      );
-      return null;
-    }
-
-    return normalizeBusinessMode((data as BusinessModeRow | null)?.business_mode);
-  } catch (error) {
-    console.error(
-      'GET /api/admin/session business_mode by slug unexpected error:',
-      error
-    );
-    return null;
-  }
-}
-
 async function readFallbackBusinessMode() {
   try {
     const { data, error } = await supabaseAdmin
@@ -190,7 +160,10 @@ async function readFallbackBusinessMode() {
       .maybeSingle();
 
     if (error) {
-      console.error('GET /api/admin/session business_mode fallback read error:', error);
+      console.error(
+        'GET /api/admin/session business_mode fallback read error:',
+        error
+      );
       return normalizeBusinessMode(undefined);
     }
 
@@ -204,16 +177,14 @@ async function readFallbackBusinessMode() {
   }
 }
 
-async function resolveBusinessModeContext(
-  options: AdminAccessResolutionOptions
-): Promise<BusinessMode> {
+async function resolveBusinessModeContext(params: {
+  restaurantId?: string | null;
+}): Promise<BusinessMode> {
   const byRestaurantId = await tryReadBusinessModeByRestaurantId(
-    options.restaurantId ?? null
+    params.restaurantId ?? null
   );
-  if (byRestaurantId) return byRestaurantId;
 
-  const bySlug = await tryReadBusinessModeBySlug(options.tenantSlug ?? null);
-  if (bySlug) return bySlug;
+  if (byRestaurantId) return byRestaurantId;
 
   return await readFallbackBusinessMode();
 }
@@ -236,11 +207,10 @@ export async function GET(request: NextRequest) {
   }
 
   const businessMode = await resolveBusinessModeContext({
-    tenantSlug: access.restaurant?.slug ?? requestedContext.tenantSlug ?? null,
     restaurantId: access.restaurant?.id ?? requestedContext.restaurantId ?? null,
   });
 
-    const publicOrdering = getPublicOrderingMeta(businessMode);
+  const publicOrdering = getPublicOrderingMeta(businessMode);
   const features = getFeaturesForContext(access.plan, businessMode);
 
   const capabilities = {

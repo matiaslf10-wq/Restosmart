@@ -2,15 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
-  normalizeBusinessMode,
-  type BusinessMode,
-} from '@/lib/plans';
+  getFallbackAdminAccess,
+  resolveAdminAccess,
+  type AdminAccessResolutionOptions,
+} from '@/lib/adminAccess';
+import { normalizeBusinessMode, type BusinessMode } from '@/lib/plans';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type LocalConfigRow = {
   id?: number;
+  restaurant_id?: string | number | null;
   nombre_local?: string | null;
   direccion?: string | null;
   telefono?: string | null;
@@ -48,10 +51,82 @@ function getBusinessModeMeta(businessMode: BusinessMode) {
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function normalizeNonEmptyString(value: unknown): string | null {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
+function pickFirstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = normalizeNonEmptyString(value);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
+function extractRequestedTenantContext(
+  request: NextRequest,
+  session: unknown
+): AdminAccessResolutionOptions {
+  const sessionRecord = asRecord(session);
+  const restaurantRecord = asRecord(sessionRecord?.restaurant);
+
+  const tenantSlug = pickFirstString(
+    request.nextUrl.searchParams.get('tenant'),
+    request.nextUrl.searchParams.get('tenantSlug'),
+    request.nextUrl.searchParams.get('slug'),
+    request.headers.get('x-tenant-id'),
+    request.headers.get('x-tenant-slug'),
+    request.cookies.get('tenant')?.value,
+    request.cookies.get('tenant_slug')?.value,
+    restaurantRecord?.slug,
+    sessionRecord?.tenantId,
+    sessionRecord?.tenant_id,
+    sessionRecord?.slug
+  );
+
+  const restaurantId = pickFirstString(
+    request.nextUrl.searchParams.get('restaurantId'),
+    request.nextUrl.searchParams.get('restaurant_id'),
+    request.headers.get('x-restaurant-id'),
+    request.cookies.get('restaurant_id')?.value,
+    restaurantRecord?.id,
+    sessionRecord?.restaurantId,
+    sessionRecord?.restaurant_id
+  );
+
+  return {
+    tenantSlug,
+    restaurantId,
+  };
+}
+
+async function resolveAccessForRequest(request: NextRequest, session: unknown) {
+  const requestedContext = extractRequestedTenantContext(request, session);
+
+  try {
+    return await resolveAdminAccess(requestedContext);
+  } catch (error) {
+    console.error('Local config access resolution error:', error);
+    return getFallbackAdminAccess();
+  }
+}
+
 function normalizeRow(row?: LocalConfigRow | null) {
   const businessMode = normalizeBusinessMode(row?.business_mode);
 
   return {
+    id: row?.id ?? null,
+    restaurant_id: row?.restaurant_id ?? null,
     nombre_local: row?.nombre_local ?? '',
     direccion: row?.direccion ?? '',
     telefono: row?.telefono ?? '',
@@ -65,13 +140,8 @@ function normalizeRow(row?: LocalConfigRow | null) {
   };
 }
 
-export async function GET(request: NextRequest) {
-  const auth = requireAdminAuth(request);
-  if (!auth.ok) {
-    return auth.response;
-  }
-
-  try {
+async function readLocalConfigByRestaurantId(restaurantId: string | null) {
+  if (!restaurantId) {
     const { data, error } = await supabaseAdmin
       .from('configuracion_local')
       .select('*')
@@ -79,24 +149,51 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .maybeSingle();
 
-    if (error) {
-      return NextResponse.json(
-        {
-          error: `No se pudo leer la configuración del local: ${error.message}`,
-        },
-        { status: 500 }
-      );
-    }
+    if (error) throw error;
 
-    return NextResponse.json(normalizeRow(data as LocalConfigRow | null), {
+    return (data as LocalConfigRow | null) ?? null;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('configuracion_local')
+    .select('*')
+    .eq('restaurant_id', restaurantId)
+    .order('id', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return (data as LocalConfigRow | null) ?? null;
+}
+
+export async function GET(request: NextRequest) {
+  const auth = requireAdminAuth(request);
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  try {
+    const access = await resolveAccessForRequest(request, auth.session);
+    const restaurantId = access.restaurant?.id ?? null;
+
+    const data = await readLocalConfigByRestaurantId(restaurantId);
+
+    return NextResponse.json(normalizeRow(data), {
       status: 200,
     });
   } catch (error) {
     console.error('GET /api/admin/local-config', error);
 
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Ocurrió un error inesperado al leer la configuración del local.';
+
     return NextResponse.json(
       {
-        error: 'Ocurrió un error inesperado al leer la configuración del local.',
+        error: `No se pudo leer la configuración del local: ${message}`,
       },
       { status: 500 }
     );
@@ -105,14 +202,18 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   const auth = requireAdminAuth(request);
+
   if (!auth.ok) {
     return auth.response;
   }
 
   try {
+    const access = await resolveAccessForRequest(request, auth.session);
+    const restaurantId = access.restaurant?.id ?? null;
     const body = await request.json();
 
     const payload = {
+      restaurant_id: restaurantId,
       nombre_local: String(body?.nombre_local ?? '').trim() || null,
       direccion: String(body?.direccion ?? '').trim() || null,
       telefono: String(body?.telefono ?? '').trim() || null,
@@ -124,30 +225,15 @@ export async function PUT(request: NextRequest) {
       google_analytics_property_id:
         String(body?.google_analytics_property_id ?? '').trim() || null,
       business_mode: normalizeBusinessMode(body?.business_mode),
-      updated_at: new Date().toISOString(),
     };
 
-    const current = await supabaseAdmin
-      .from('configuracion_local')
-      .select('id')
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+    const current = await readLocalConfigByRestaurantId(restaurantId);
 
-    if (current.error) {
-      return NextResponse.json(
-        {
-          error: `No se pudo verificar la configuración actual del local: ${current.error.message}`,
-        },
-        { status: 500 }
-      );
-    }
-
-    if (current.data?.id) {
+    if (current?.id) {
       const { data, error } = await supabaseAdmin
         .from('configuracion_local')
         .update(payload)
-        .eq('id', current.data.id)
+        .eq('id', current.id)
         .select('*')
         .single();
 
@@ -171,10 +257,7 @@ export async function PUT(request: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from('configuracion_local')
-      .insert({
-        ...payload,
-        created_at: new Date().toISOString(),
-      })
+      .insert(payload)
       .select('*')
       .single();
 
@@ -197,10 +280,14 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('PUT /api/admin/local-config', error);
 
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Ocurrió un error inesperado al guardar la configuración del local.';
+
     return NextResponse.json(
       {
-        error:
-          'Ocurrió un error inesperado al guardar la configuración del local.',
+        error: `No se pudo guardar la configuración del local: ${message}`,
       },
       { status: 500 }
     );
