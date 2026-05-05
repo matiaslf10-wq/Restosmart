@@ -13,10 +13,14 @@ import {
 
 const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID?.trim() || 'default';
 
+type RestaurantStatus = 'activo' | 'pausado' | 'cerrado';
+
 type RestaurantRow = {
   id: string | number;
   slug: string | null;
   plan: string | null;
+  owner_tenant_id?: string | null;
+  estado?: RestaurantStatus | string | null;
 };
 
 type WhatsAppConnectionRow = {
@@ -36,6 +40,8 @@ export type AdminAccessSnapshot = {
     id: string;
     slug: string;
     plan: PlanCode;
+    owner_tenant_id?: string | null;
+    estado?: RestaurantStatus | string | null;
   } | null;
   addons: Record<AddonKey, boolean>;
   features: FeatureKey[];
@@ -50,6 +56,25 @@ export type AdminAccessResolutionOptions = {
 function normalizeNonEmptyString(value: unknown): string | null {
   const text = String(value ?? '').trim();
   return text.length > 0 ? text : null;
+}
+
+function getTenantIdFromRestaurant(
+  restaurant: RestaurantRow | null,
+  requestedTenantSlug?: string | null
+) {
+  return (
+    normalizeNonEmptyString(restaurant?.owner_tenant_id) ??
+    normalizeNonEmptyString(restaurant?.slug) ??
+    normalizeNonEmptyString(requestedTenantSlug) ??
+    DEFAULT_TENANT_ID
+  );
+}
+
+function getDefaultAddons(): Record<AddonKey, boolean> {
+  return {
+    whatsapp_delivery: false,
+    multi_brand: false,
+  };
 }
 
 export function getFallbackAdminAccess(): AdminAccessSnapshot {
@@ -69,7 +94,7 @@ export function getFallbackAdminAccess(): AdminAccessSnapshot {
 async function getRestaurantBySlug(slug: string) {
   const result = await supabaseAdmin
     .from('restaurants')
-    .select('id, slug, plan')
+    .select('id, slug, plan, owner_tenant_id, estado')
     .eq('slug', slug)
     .maybeSingle();
 
@@ -85,7 +110,7 @@ async function getRestaurantBySlug(slug: string) {
 async function getRestaurantById(restaurantId: string) {
   const result = await supabaseAdmin
     .from('restaurants')
-    .select('id, slug, plan')
+    .select('id, slug, plan, owner_tenant_id, estado')
     .eq('id', restaurantId)
     .maybeSingle();
 
@@ -102,7 +127,7 @@ async function getRestaurantById(restaurantId: string) {
 async function getFirstRestaurant() {
   const result = await supabaseAdmin
     .from('restaurants')
-    .select('id, slug, plan')
+    .select('id, slug, plan, owner_tenant_id, estado')
     .order('id', { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -140,6 +165,17 @@ async function resolveRestaurant(
   return await getFirstRestaurant();
 }
 
+async function resolveTenantPlan(params: {
+  tenantId: string;
+  fallbackRestaurant: RestaurantRow | null;
+}) {
+  const { tenantId, fallbackRestaurant } = params;
+
+  const owner = await getRestaurantBySlug(tenantId).catch(() => null);
+
+  return normalizePlan(owner?.plan ?? fallbackRestaurant?.plan);
+}
+
 async function getWhatsAppConnectionByTenantId(tenantId: string) {
   const result = await supabaseAdmin
     .from('whatsapp_connections')
@@ -156,13 +192,6 @@ async function getWhatsAppConnectionByTenantId(tenantId: string) {
   }
 
   return (result.data as WhatsAppConnectionRow | null) ?? null;
-}
-
-function getDefaultAddons(): Record<AddonKey, boolean> {
-  return {
-    whatsapp_delivery: false,
-    multi_brand: false,
-  };
 }
 
 async function getTenantAddonsByTenantId(tenantId: string) {
@@ -197,22 +226,23 @@ export async function resolveAdminAccess(
   options: AdminAccessResolutionOptions = {}
 ): Promise<AdminAccessSnapshot> {
   const restaurant = await resolveRestaurant(options);
-  const plan = normalizePlan(restaurant?.plan);
-
   const requestedTenantSlug = normalizeNonEmptyString(options.tenantSlug);
-  const tenantId =
-    restaurant?.slug?.trim() || requestedTenantSlug || DEFAULT_TENANT_ID;
+  const tenantId = getTenantIdFromRestaurant(restaurant, requestedTenantSlug);
+  const plan = await resolveTenantPlan({
+    tenantId,
+    fallbackRestaurant: restaurant,
+  });
 
   const [connection, tenantAddons] = await Promise.all([
-  getWhatsAppConnectionByTenantId(tenantId),
-  getTenantAddonsByTenantId(tenantId),
-]);
+    getWhatsAppConnectionByTenantId(tenantId),
+    getTenantAddonsByTenantId(tenantId),
+  ]);
 
-const addons: Record<AddonKey, boolean> = {
-  ...tenantAddons,
-  whatsapp_delivery:
-    tenantAddons.whatsapp_delivery || !!connection?.add_on_enabled,
-};
+  const addons: Record<AddonKey, boolean> = {
+    ...tenantAddons,
+    whatsapp_delivery:
+      tenantAddons.whatsapp_delivery || !!connection?.add_on_enabled,
+  };
 
   return {
     tenantId,
@@ -222,6 +252,8 @@ const addons: Record<AddonKey, boolean> = {
           id: String(restaurant.id),
           slug: restaurant.slug?.trim() || tenantId,
           plan,
+          owner_tenant_id: restaurant.owner_tenant_id ?? tenantId,
+          estado: restaurant.estado ?? 'activo',
         }
       : null,
     addons,
