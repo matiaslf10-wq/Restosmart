@@ -8,6 +8,8 @@ import {
   type BusinessMode,
 } from '@/lib/plans';
 
+type RestaurantStatus = 'activo' | 'pausado' | 'cerrado';
+
 type RestaurantItem = {
   id: string;
   slug: string;
@@ -19,6 +21,9 @@ type RestaurantItem = {
   horario_atencion: string;
   business_mode: BusinessMode;
   multi_brand: boolean;
+  estado: RestaurantStatus;
+  cerrado_en?: string | null;
+  cerrado_motivo?: string | null;
 };
 
 type RestaurantForm = {
@@ -77,6 +82,19 @@ function buildPublicOrderHref(slug: string) {
   return `/pedir?restaurant=${encodeURIComponent(slug)}`;
 }
 
+function formatDateTimeAR(value: string | null | undefined) {
+  if (!value) return null;
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat('es-AR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date);
+}
+
 export default function AdminRestaurantesPage() {
   const [items, setItems] = useState<RestaurantItem[]>([]);
   const [form, setForm] = useState<RestaurantForm>(EMPTY_FORM);
@@ -86,10 +104,15 @@ const [eliminandoId, setEliminandoId] = useState<string | null>(null);
 const [mensaje, setMensaje] = useState('');
 const [error, setError] = useState('');
 
-  const demoCount = useMemo(
-    () => items.filter((item) => item.slug.startsWith('demo-')).length,
-    [items]
-  );
+  const activeCount = useMemo(
+  () => items.filter((item) => item.estado === 'activo').length,
+  [items]
+);
+
+const closedCount = useMemo(
+  () => items.filter((item) => item.estado === 'cerrado').length,
+  [items]
+);
 
   async function cargarRestaurantes() {
     try {
@@ -179,9 +202,9 @@ const [error, setError] = useState('');
     }
   }
 
-  async function eliminarRestaurante(item: RestaurantItem) {
+  async function cerrarOEliminarRestaurante(item: RestaurantItem) {
   const confirmar = window.confirm(
-    `¿Eliminar el restaurante "${item.nombre_local || item.slug}"?\n\nSolo se puede eliminar si no tiene pedidos asociados.`
+    `¿Cerrar el restaurante "${item.nombre_local || item.slug}"?\n\nSi no tiene pedidos, se eliminará definitivamente. Si ya tiene historial operativo, quedará cerrado y archivado.`
   );
 
   if (!confirmar) return;
@@ -202,18 +225,22 @@ const [error, setError] = useState('');
 
     if (!res.ok) {
       throw new Error(
-        getApiErrorMessage(raw, 'No se pudo eliminar el restaurante.')
+        getApiErrorMessage(raw, 'No se pudo cerrar el restaurante.')
       );
     }
 
-    setMensaje(`Restaurante "${item.nombre_local || item.slug}" eliminado correctamente.`);
+    setMensaje(
+      raw?.message ||
+        `Restaurante "${item.nombre_local || item.slug}" actualizado correctamente.`
+    );
+
     await cargarRestaurantes();
   } catch (err) {
     console.error(err);
     setError(
       err instanceof Error
         ? err.message
-        : 'No se pudo eliminar el restaurante.'
+        : 'No se pudo cerrar el restaurante.'
     );
   } finally {
     setEliminandoId(null);
@@ -269,21 +296,21 @@ const [error, setError] = useState('');
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-sm text-slate-500">Restaurantes cargados</p>
-          <p className="mt-1 text-3xl font-bold">{items.length}</p>
-        </div>
+  <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <p className="text-sm text-slate-500">Restaurantes totales</p>
+    <p className="mt-1 text-3xl font-bold">{items.length}</p>
+  </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-sm text-slate-500">Locales demo</p>
-          <p className="mt-1 text-3xl font-bold">{demoCount}</p>
-        </div>
+  <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <p className="text-sm text-slate-500">Restaurantes activos</p>
+    <p className="mt-1 text-3xl font-bold">{activeCount}</p>
+  </div>
 
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-sm text-slate-500">Objetivo demo</p>
-          <p className="mt-1 text-3xl font-bold">3</p>
-        </div>
-      </section>
+  <div className="rounded-2xl border bg-white p-4 shadow-sm">
+    <p className="text-sm text-slate-500">Restaurantes cerrados</p>
+    <p className="mt-1 text-3xl font-bold">{closedCount}</p>
+  </div>
+</section>
 
       {mensaje ? (
         <div className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
@@ -531,8 +558,12 @@ con Multimarca activo.
         ) : null}
 
         <div className="mt-4 grid gap-4 xl:grid-cols-3">
-          {items.map((item) => (
-            <article
+          {items.map((item) => {
+  const estaCerrado = item.estado === 'cerrado';
+  const cerradoEn = formatDateTimeAR(item.cerrado_en);
+
+  return (
+    <article
               key={item.id}
               className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
             >
@@ -544,8 +575,14 @@ con Multimarca activo.
                   <p className="mt-1 text-sm text-slate-600">{item.slug}</p>
                 </div>
 
-                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700">
-  Sucursal
+                <span
+  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+    estaCerrado
+      ? 'bg-rose-100 text-rose-800'
+      : 'bg-emerald-100 text-emerald-800'
+  }`}
+>
+  {estaCerrado ? 'Cerrado' : 'Activo'}
 </span>
               </div>
 
@@ -573,60 +610,96 @@ con Multimarca activo.
                     {item.horario_atencion}
                   </p>
                 ) : null}
+
+                {estaCerrado ? (
+  <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+    <p className="font-semibold">Restaurante cerrado</p>
+    {cerradoEn ? <p className="mt-1">Fecha de cierre: {cerradoEn}</p> : null}
+    {item.cerrado_motivo ? (
+      <p className="mt-1">Motivo: {item.cerrado_motivo}</p>
+    ) : null}
+  </div>
+) : null}
               </div>
 
-              <div className="mt-4">
-  <TakeAwayQrCard
-    localName={item.nombre_local || item.slug}
-    routePath={buildPublicOrderHref(item.slug)}
-    title="QR público del restaurante"
-    description="Escaneando este QR, el cliente entra al menú público de esta sucursal para hacer un pedido de retiro."
-    badgeLabel="QR TAKE AWAY"
-  />
-</div>
+              {!estaCerrado ? (
+  <div className="mt-4">
+    <TakeAwayQrCard
+      localName={item.nombre_local || item.slug}
+      routePath={buildPublicOrderHref(item.slug)}
+      title="QR público del restaurante"
+      description="Escaneando este QR, el cliente entra al menú público de esta sucursal para hacer un pedido de retiro."
+      badgeLabel="QR TAKE AWAY"
+    />
+  </div>
+) : (
+  <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+    Este restaurante está cerrado. El QR público queda fuera de uso para nuevos pedidos.
+  </div>
+)}
 
               <div className="mt-4 grid gap-2">
-                <Link
-                  href={buildTenantHref('/admin/configuracion', item.slug)}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-center text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                >
-                  Configurar local
-                </Link>
+                {!estaCerrado ? (
+  <>
+    <Link
+      href={buildTenantHref('/admin/configuracion', item.slug)}
+      className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-center text-sm font-semibold text-slate-700 hover:bg-slate-100"
+    >
+      Configurar local
+    </Link>
 
-                <Link
-  href="/admin/marcas"
-  className="rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-center text-sm font-semibold text-fuchsia-800 hover:bg-fuchsia-100"
->
-  Gestionar marcas del tenant
-</Link>
+    <Link
+      href="/admin/marcas"
+      className="rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-center text-sm font-semibold text-fuchsia-800 hover:bg-fuchsia-100"
+    >
+      Gestionar marcas del tenant
+    </Link>
 
-                <Link
-                  href={buildTenantHref('/admin/productos', item.slug)}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-center text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                >
-                  Cargar productos
-                </Link>
+    <Link
+      href={buildTenantHref('/admin/productos', item.slug)}
+      className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-center text-sm font-semibold text-slate-700 hover:bg-slate-100"
+    >
+      Cargar productos
+    </Link>
 
-                <Link
-                  href={buildPublicOrderHref(item.slug)}
-                  className="rounded-xl bg-amber-500 px-4 py-2 text-center text-sm font-semibold text-white hover:bg-amber-600"
-                >
-                  Probar QR público
-                </Link>
+    <Link
+      href={buildPublicOrderHref(item.slug)}
+      className="rounded-xl bg-amber-500 px-4 py-2 text-center text-sm font-semibold text-white hover:bg-amber-600"
+    >
+      Probar QR público
+    </Link>
 
-                <button
-  type="button"
-  onClick={() => {
-    void eliminarRestaurante(item);
-  }}
-  disabled={eliminandoId === item.id}
-  className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-center text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
->
-  {eliminandoId === item.id ? 'Eliminando...' : 'Eliminar restaurante'}
-</button>
+    <button
+      type="button"
+      onClick={() => {
+        void cerrarOEliminarRestaurante(item);
+      }}
+      disabled={eliminandoId === item.id}
+      className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-center text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+    >
+      {eliminandoId === item.id
+        ? 'Procesando...'
+        : 'Cerrar / eliminar restaurante'}
+    </button>
+  </>
+) : (
+  <>
+    <Link
+      href="/admin/analytics"
+      className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-center text-sm font-semibold text-slate-700 hover:bg-slate-100"
+    >
+      Ver historial en analytics
+    </Link>
+
+    <span className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-center text-sm font-semibold text-rose-700">
+      Restaurante cerrado
+    </span>
+  </>
+)}
               </div>
             </article>
-          ))}
+  );
+})}
         </div>
       </section>
     </div>
