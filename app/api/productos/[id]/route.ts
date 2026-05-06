@@ -8,6 +8,9 @@ import {
 } from '@/lib/adminAccess';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 const PRODUCTO_SELECT = `
   id,
   nombre,
@@ -24,6 +27,11 @@ const PRODUCTO_SELECT = `
 
 type Params = {
   params: Promise<{ id: string }>;
+};
+
+type ProductoOwnershipRow = {
+  id: number;
+  marca_id: string | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -74,6 +82,8 @@ function extractRequestedTenantContext(
   const restaurantRecord = asRecord(sessionRecord?.restaurant);
 
   const tenantSlug = pickFirstString(
+    request.nextUrl.searchParams.get('restaurant'),
+    request.nextUrl.searchParams.get('restaurantSlug'),
     request.nextUrl.searchParams.get('tenant'),
     request.nextUrl.searchParams.get('tenantSlug'),
     request.nextUrl.searchParams.get('slug'),
@@ -191,6 +201,64 @@ async function resolveMarcaIdForProduct(
   return data.id as string;
 }
 
+async function validateProductBelongsToAccess(
+  productoId: number,
+  access: AdminAccessSnapshot
+) {
+  const { data: producto, error: productoError } = await supabaseAdmin
+    .from('productos')
+    .select('id, marca_id')
+    .eq('id', productoId)
+    .maybeSingle();
+
+  if (productoError) {
+    throw productoError;
+  }
+
+  if (!producto?.id) {
+    return NextResponse.json(
+      { error: 'Producto no encontrado.' },
+      { status: 404 }
+    );
+  }
+
+  if (!canUseMultiBrand(access)) {
+    return null;
+  }
+
+  const productoRow = producto as ProductoOwnershipRow;
+
+  if (!productoRow.marca_id) {
+    return NextResponse.json(
+      {
+        error:
+          'Este producto no tiene marca asignada y no se puede validar contra el tenant actual.',
+      },
+      { status: 409 }
+    );
+  }
+
+  const { data: marca, error: marcaError } = await supabaseAdmin
+    .from('marcas')
+    .select('id')
+    .eq('id', productoRow.marca_id)
+    .eq('tenant_id', access.tenantId)
+    .maybeSingle();
+
+  if (marcaError) {
+    throw marcaError;
+  }
+
+  if (!marca?.id) {
+    return NextResponse.json(
+      { error: 'Producto no encontrado para este tenant.' },
+      { status: 404 }
+    );
+  }
+
+  return null;
+}
+
 export async function PUT(req: NextRequest, { params }: Params) {
   const auth = requireAdminAuth(req);
 
@@ -202,6 +270,18 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params;
+    const productoId = Number(id);
+
+    if (!Number.isFinite(productoId) || productoId <= 0) {
+      return NextResponse.json(
+        { error: 'ID de producto inválido.' },
+        { status: 400 }
+      );
+    }
+
+    const accessError = await validateProductBelongsToAccess(productoId, access);
+    if (accessError) return accessError;
+
     const body = await req.json();
 
     const stockControlEnabled = canUseStockControl(access);
@@ -248,19 +328,17 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const { data, error } = await supabaseAdmin
       .from('productos')
       .update(payload)
-      .eq('id', id)
+      .eq('id', productoId)
       .select(PRODUCTO_SELECT)
-      .single();
+      .maybeSingle();
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Producto no encontrado.' },
-          { status: 404 }
-        );
-      }
+    if (error) throw error;
 
-      throw error;
+    if (!data) {
+      return NextResponse.json(
+        { error: 'Producto no encontrado.' },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json(data);
@@ -286,25 +364,36 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     return auth.response;
   }
 
+  const access = await resolveAccessForRequest(req, auth.session);
+
   try {
     const { id } = await params;
+    const productoId = Number(id);
+
+    if (!Number.isFinite(productoId) || productoId <= 0) {
+      return NextResponse.json(
+        { error: 'ID de producto inválido.' },
+        { status: 400 }
+      );
+    }
+
+    const accessError = await validateProductBelongsToAccess(productoId, access);
+    if (accessError) return accessError;
 
     const { data, error } = await supabaseAdmin
       .from('productos')
       .delete()
-      .eq('id', id)
+      .eq('id', productoId)
       .select('id')
-      .single();
+      .maybeSingle();
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Producto no encontrado.' },
-          { status: 404 }
-        );
-      }
+    if (error) throw error;
 
-      throw error;
+    if (!data) {
+      return NextResponse.json(
+        { error: 'Producto no encontrado.' },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json({ ok: true, id: data.id });
