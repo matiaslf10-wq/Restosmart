@@ -40,6 +40,17 @@ type ProductRestaurantRow = {
   producto_id: number | string | null;
   restaurant_id: number | string | null;
   visible_en_menu: boolean | null;
+  control_stock: boolean | null;
+  stock_actual: number | string | null;
+  permitir_sin_stock: boolean | null;
+};
+
+type ProductRestaurantConfig = {
+  restaurant_id: string;
+  visible_en_menu: boolean;
+  control_stock: boolean;
+  stock_actual: number;
+  permitir_sin_stock: boolean;
 };
 
 type RestaurantRow = {
@@ -90,6 +101,36 @@ function normalizeIdList(value: unknown): string[] {
         .filter((item): item is string => !!item)
     )
   );
+}
+
+function normalizeStockQuantity(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.trunc(num));
+}
+
+function normalizeRestaurantConfigs(value: unknown): ProductRestaurantConfig[] {
+  if (!Array.isArray(value)) return [];
+
+  const byRestaurantId = new Map<string, ProductRestaurantConfig>();
+
+  for (const item of value) {
+    const record = asRecord(item);
+    if (!record) continue;
+
+    const restaurantId = normalizeNonEmptyString(record.restaurant_id);
+    if (!restaurantId) continue;
+
+    byRestaurantId.set(restaurantId, {
+      restaurant_id: restaurantId,
+      visible_en_menu: normalizeBoolean(record.visible_en_menu, true),
+      control_stock: normalizeBoolean(record.control_stock, false),
+      stock_actual: normalizeStockQuantity(record.stock_actual),
+      permitir_sin_stock: normalizeBoolean(record.permitir_sin_stock, true),
+    });
+  }
+
+  return Array.from(byRestaurantId.values());
 }
 
 function pickFirstString(...values: unknown[]): string | null {
@@ -267,7 +308,9 @@ async function enrichProductsWithRestaurantIds(products: ProductoRow[]) {
 
   const { data, error } = await supabaseAdmin
     .from('producto_restaurantes')
-    .select('producto_id, restaurant_id, visible_en_menu')
+    .select(
+      'producto_id, restaurant_id, visible_en_menu, control_stock, stock_actual, permitir_sin_stock'
+    )
     .in('producto_id', productIds);
 
   if (error) {
@@ -276,27 +319,43 @@ async function enrichProductsWithRestaurantIds(products: ProductoRow[]) {
     return products.map((product) => ({
       ...product,
       restaurant_ids: [],
+      restaurant_configs: [],
     }));
   }
 
-  const restaurantIdsByProductId = new Map<number, string[]>();
+  const configsByProductId = new Map<number, ProductRestaurantConfig[]>();
 
   for (const row of (data ?? []) as ProductRestaurantRow[]) {
-    if (row.visible_en_menu === false) continue;
     if (row.producto_id === null || row.producto_id === undefined) continue;
     if (row.restaurant_id === null || row.restaurant_id === undefined) continue;
 
     const productId = Number(row.producto_id);
-    const current = restaurantIdsByProductId.get(productId) ?? [];
+    const restaurantId = String(row.restaurant_id);
 
-    current.push(String(row.restaurant_id));
-    restaurantIdsByProductId.set(productId, current);
+    const current = configsByProductId.get(productId) ?? [];
+
+    current.push({
+      restaurant_id: restaurantId,
+      visible_en_menu: row.visible_en_menu !== false,
+      control_stock: row.control_stock === true,
+      stock_actual: normalizeStockQuantity(row.stock_actual),
+      permitir_sin_stock: row.permitir_sin_stock !== false,
+    });
+
+    configsByProductId.set(productId, current);
   }
 
-  return products.map((product) => ({
-    ...product,
-    restaurant_ids: restaurantIdsByProductId.get(Number(product.id)) ?? [],
-  }));
+  return products.map((product) => {
+    const configs = configsByProductId.get(Number(product.id)) ?? [];
+
+    return {
+      ...product,
+      restaurant_ids: configs
+        .filter((config) => config.visible_en_menu)
+        .map((config) => config.restaurant_id),
+      restaurant_configs: configs,
+    };
+  });
 }
 
 async function getActiveRestaurantsForTenant(access: AdminAccessSnapshot) {
@@ -343,14 +402,27 @@ async function validateRestaurantIdsForTenant(
 async function syncProductRestaurants(params: {
   productId: number;
   restaurantIds: string[];
+  restaurantConfigs?: ProductRestaurantConfig[];
   access: AdminAccessSnapshot;
+  controlStock: boolean;
+  permitirSinStock: boolean;
 }) {
-  const { productId, restaurantIds, access } = params;
-
-  const validRestaurantIds = await validateRestaurantIdsForTenant(
+  const {
+    productId,
     restaurantIds,
-    access
-  );
+    restaurantConfigs = [],
+    access,
+    controlStock,
+    permitirSinStock,
+  } = params;
+
+  const hasRestaurantConfigs = restaurantConfigs.length > 0;
+
+  const idsToValidate = hasRestaurantConfigs
+    ? restaurantConfigs.map((config) => config.restaurant_id)
+    : restaurantIds;
+
+  await validateRestaurantIdsForTenant(idsToValidate, access);
 
   const activeRestaurants = await getActiveRestaurantsForTenant(access);
   const activeRestaurantIds = activeRestaurants.map((restaurant) =>
@@ -363,17 +435,46 @@ async function syncProductRestaurants(params: {
       .delete()
       .eq('producto_id', productId);
 
-    return [];
+    return {
+      restaurantIds: [],
+      restaurantConfigs: [],
+    };
   }
 
-  const selectedIds = new Set(validRestaurantIds);
+  const configsByRestaurantId = new Map(
+    restaurantConfigs.map((config) => [config.restaurant_id, config])
+  );
 
-  const rows = activeRestaurantIds.map((restaurantId) => ({
-    producto_id: productId,
-    restaurant_id: restaurantId,
-    visible_en_menu: selectedIds.has(restaurantId),
-    actualizado_en: new Date().toISOString(),
-  }));
+  const selectedIds = new Set(
+    hasRestaurantConfigs
+      ? restaurantConfigs
+          .filter((config) => config.visible_en_menu)
+          .map((config) => config.restaurant_id)
+      : restaurantIds
+  );
+
+  const now = new Date().toISOString();
+
+  const rows = activeRestaurantIds.map((restaurantId) => {
+    const config = configsByRestaurantId.get(restaurantId);
+    const visible = selectedIds.has(restaurantId);
+    const rowControlStock = visible && (config?.control_stock ?? controlStock);
+
+    return {
+      producto_id: productId,
+      restaurant_id: restaurantId,
+      visible_en_menu: visible,
+      control_stock: rowControlStock,
+      stock_actual:
+        visible && rowControlStock
+          ? normalizeStockQuantity(config?.stock_actual ?? 0)
+          : 0,
+      permitir_sin_stock: rowControlStock
+        ? config?.permitir_sin_stock ?? permitirSinStock
+        : true,
+      actualizado_en: now,
+    };
+  });
 
   const { error } = await supabaseAdmin
     .from('producto_restaurantes')
@@ -386,7 +487,20 @@ async function syncProductRestaurants(params: {
     throw new Error('No se pudo guardar en qué sucursales aparece el producto.');
   }
 
-  return validRestaurantIds;
+  const syncedConfigs = rows.map((row) => ({
+    restaurant_id: String(row.restaurant_id),
+    visible_en_menu: row.visible_en_menu,
+    control_stock: row.control_stock,
+    stock_actual: row.stock_actual,
+    permitir_sin_stock: row.permitir_sin_stock,
+  }));
+
+  return {
+    restaurantIds: syncedConfigs
+      .filter((config) => config.visible_en_menu)
+      .map((config) => config.restaurant_id),
+    restaurantConfigs: syncedConfigs,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -503,23 +617,49 @@ export async function POST(req: NextRequest) {
       );
     }
 
+        const restaurantConfigsWasProvided =
+      Array.isArray(body?.restaurant_configs) ||
+      Array.isArray(body?.restaurantConfigs);
+
+    const requestedRestaurantConfigs = normalizeRestaurantConfigs(
+      Array.isArray(body?.restaurant_configs)
+        ? body.restaurant_configs
+        : body?.restaurantConfigs
+    );
+
     const restaurantIdsWasProvided =
-  Array.isArray(body?.restaurant_ids) || Array.isArray(body?.restaurantIds);
+      restaurantConfigsWasProvided ||
+      Array.isArray(body?.restaurant_ids) ||
+      Array.isArray(body?.restaurantIds);
 
-const rawRestaurantIds = Array.isArray(body?.restaurant_ids)
-  ? body.restaurant_ids
-  : body?.restaurantIds;
+    const rawRestaurantIds = Array.isArray(body?.restaurant_ids)
+      ? body.restaurant_ids
+      : body?.restaurantIds;
 
-const requestedRestaurantIds = normalizeIdList(rawRestaurantIds);
+    const requestedRestaurantIds = restaurantConfigsWasProvided
+      ? requestedRestaurantConfigs
+          .filter((config) => config.visible_en_menu)
+          .map((config) => config.restaurant_id)
+      : normalizeIdList(rawRestaurantIds);
 
-const activeRestaurants = await getActiveRestaurantsForTenant(access);
-const defaultRestaurantIds = activeRestaurants.map((restaurant) =>
-  String(restaurant.id)
-);
+    const activeRestaurants = await getActiveRestaurantsForTenant(access);
+    const defaultRestaurantIds = activeRestaurants.map((restaurant) =>
+      String(restaurant.id)
+    );
 
-const restaurantIdsToUse = restaurantIdsWasProvided
-  ? requestedRestaurantIds
-  : defaultRestaurantIds;
+    const restaurantIdsToUse = restaurantIdsWasProvided
+      ? requestedRestaurantIds
+      : defaultRestaurantIds;
+
+    const restaurantConfigsToUse = restaurantConfigsWasProvided
+      ? requestedRestaurantConfigs
+      : restaurantIdsToUse.map((restaurantId) => ({
+          restaurant_id: restaurantId,
+          visible_en_menu: true,
+          control_stock,
+          stock_actual: control_stock ? stock_actual : 0,
+          permitir_sin_stock,
+        }));
 
     const { data, error } = await supabaseAdmin
       .from('productos')
@@ -531,16 +671,20 @@ const restaurantIdsToUse = restaurantIdsWasProvided
 
     const product = data as ProductoRow;
 
-    const restaurantIds = await syncProductRestaurants({
+        const restaurantSync = await syncProductRestaurants({
       productId: Number(product.id),
       restaurantIds: restaurantIdsToUse,
+      restaurantConfigs: restaurantConfigsToUse,
       access,
+      controlStock: control_stock,
+      permitirSinStock: permitir_sin_stock,
     });
 
     return NextResponse.json(
       {
         ...product,
-        restaurant_ids: restaurantIds,
+        restaurant_ids: restaurantSync.restaurantIds,
+        restaurant_configs: restaurantSync.restaurantConfigs,
       },
       { status: 201 }
     );

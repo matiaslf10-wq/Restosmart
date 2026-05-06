@@ -32,6 +32,14 @@ type RestaurantItem = {
   estado?: 'activo' | 'pausado' | 'cerrado';
 };
 
+type ProductRestaurantConfig = {
+  restaurant_id: string;
+  visible_en_menu: boolean;
+  control_stock: boolean;
+  stock_actual: number;
+  permitir_sin_stock: boolean;
+};
+
 type Producto = {
   id: number;
   nombre: string;
@@ -45,6 +53,7 @@ type Producto = {
   permitir_sin_stock?: boolean | null;
   marca_id?: string | null;
   restaurant_ids?: string[];
+  restaurant_configs?: ProductRestaurantConfig[];
 };
 
 type ProductoImagen = {
@@ -75,6 +84,7 @@ type FormProducto = {
   stock_actual: string;
   permitir_sin_stock: boolean;
   restaurant_ids: string[];
+  restaurant_stock: Record<string, string>;
 };
 
 type AdminSessionPayload = {
@@ -130,6 +140,30 @@ function normalizeStockInput(value: string) {
   return cleaned;
 }
 
+function getProductTotalStock(producto: Producto) {
+  const configs = producto.restaurant_configs ?? [];
+
+  if (configs.length === 0) {
+    return Number(producto.stock_actual ?? 0);
+  }
+
+  return configs
+    .filter((config) => config.visible_en_menu)
+    .reduce((total, config) => total + Number(config.stock_actual ?? 0), 0);
+}
+
+function getProductAllowsWithoutStock(producto: Producto) {
+  const configs = producto.restaurant_configs ?? [];
+
+  if (configs.length === 0) {
+    return !!producto.permitir_sin_stock;
+  }
+
+  return configs.some(
+    (config) => config.visible_en_menu && config.permitir_sin_stock
+  );
+}
+
 function getStockLabel(producto: Producto) {
   if (!producto.control_stock) {
     return {
@@ -138,10 +172,11 @@ function getStockLabel(producto: Producto) {
     };
   }
 
-  const stock = Number(producto.stock_actual ?? 0);
+  const stock = getProductTotalStock(producto);
+  const permitirSinStock = getProductAllowsWithoutStock(producto);
 
   if (stock <= 0) {
-    return producto.permitir_sin_stock
+    return permitirSinStock
       ? {
           text: 'Stock 0 · vende igual',
           className: 'bg-amber-100 text-amber-800',
@@ -153,7 +188,7 @@ function getStockLabel(producto: Producto) {
   }
 
   return {
-    text: `Stock: ${stock}`,
+    text: `Stock sucursales: ${stock}`,
     className: 'bg-sky-100 text-sky-800',
   };
 }
@@ -209,19 +244,20 @@ export default function AdminProductosPage() {
   const [busqueda, setBusqueda] = useState('');
   const [filtroMarca, setFiltroMarca] = useState<string>('todas');
 
-  const [form, setForm] = useState<FormProducto>({
-  id: null,
-  nombre: '',
-  descripcion: '',
-  precio: '',
-  categoria: '',
-  marca_id: '',
-  disponible: true,
-  control_stock: false,
-  stock_actual: '',
-  permitir_sin_stock: false,
-  restaurant_ids: [],
-});
+    const [form, setForm] = useState<FormProducto>({
+    id: null,
+    nombre: '',
+    descripcion: '',
+    precio: '',
+    categoria: '',
+    marca_id: '',
+    disponible: true,
+    control_stock: false,
+    stock_actual: '',
+    permitir_sin_stock: false,
+    restaurant_ids: [],
+    restaurant_stock: {},
+  });
 
   const [modoEdicion, setModoEdicion] = useState(false);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
@@ -450,26 +486,27 @@ useEffect(() => {
     setCargandoImagenes(false);
   };
 
-  const resetForm = () => {
-  setForm({
-    id: null,
-    nombre: '',
-    descripcion: '',
-    precio: '',
-    categoria: categorias[0]?.nombre ?? '',
-    marca_id: marcas[0]?.id ?? '',
-    disponible: true,
-    control_stock: false,
-    stock_actual: '',
-    permitir_sin_stock: false,
-    restaurant_ids: restaurantes.map((restaurant) => String(restaurant.id)),
-  });
-  setModoEdicion(false);
-  setProductoEditando(null);
-  setImagenesExistentes([]);
-  setImagenesPendientes([]);
-  setCargandoImagenes(false);
-};
+    const resetForm = () => {
+    setForm({
+      id: null,
+      nombre: '',
+      descripcion: '',
+      precio: '',
+      categoria: categorias[0]?.nombre ?? '',
+      marca_id: marcas[0]?.id ?? '',
+      disponible: true,
+      control_stock: false,
+      stock_actual: '',
+      permitir_sin_stock: false,
+      restaurant_ids: restaurantes.map((restaurant) => String(restaurant.id)),
+      restaurant_stock: {},
+    });
+    setModoEdicion(false);
+    setProductoEditando(null);
+    setImagenesExistentes([]);
+    setImagenesPendientes([]);
+    setCargandoImagenes(false);
+  };
 
   const onChangeForm = (
   field: keyof FormProducto,
@@ -498,45 +535,82 @@ useEffect(() => {
     });
   };
 
-  const toggleRestaurantInForm = (restaurantId: string, checked: boolean) => {
-  setForm((prev) => {
-    const current = new Set(prev.restaurant_ids);
+    const toggleRestaurantInForm = (restaurantId: string, checked: boolean) => {
+    setForm((prev) => {
+      const current = new Set(prev.restaurant_ids);
+      const restaurantStock = { ...prev.restaurant_stock };
 
-    if (checked) {
-      current.add(restaurantId);
-    } else {
-      current.delete(restaurantId);
+      if (checked) {
+        current.add(restaurantId);
+
+        if (restaurantStock[restaurantId] === undefined) {
+          restaurantStock[restaurantId] = '0';
+        }
+      } else {
+        current.delete(restaurantId);
+      }
+
+      return {
+        ...prev,
+        restaurant_ids: Array.from(current),
+        restaurant_stock: restaurantStock,
+      };
+    });
+  };
+
+  const onChangeRestaurantStock = (restaurantId: string, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      restaurant_stock: {
+        ...prev.restaurant_stock,
+        [restaurantId]: normalizeStockInput(value),
+      },
+    }));
+  };
+
+    const comenzarEdicion = async (p: Producto) => {
+    setModoEdicion(true);
+    setProductoEditando(p);
+
+    const restaurantIds = p.restaurant_ids ?? [];
+    const restaurantStock = restaurantIds.reduce<Record<string, string>>(
+      (acc, restaurantId) => {
+        acc[String(restaurantId)] =
+          p.stock_actual !== null && p.stock_actual !== undefined
+            ? String(p.stock_actual)
+            : '0';
+        return acc;
+      },
+      {}
+    );
+
+    for (const config of p.restaurant_configs ?? []) {
+      restaurantStock[String(config.restaurant_id)] = String(
+        config.stock_actual ?? 0
+      );
     }
 
-    return {
-      ...prev,
-      restaurant_ids: Array.from(current),
-    };
-  });
-};
+    setForm({
+      id: p.id,
+      nombre: p.nombre,
+      descripcion: p.descripcion ?? '',
+      precio: String(p.precio),
+      categoria: p.categoria ?? categorias[0]?.nombre ?? '',
+      marca_id: p.marca_id ?? marcas[0]?.id ?? '',
+      disponible: !!p.disponible,
+      control_stock: !!p.control_stock,
+      stock_actual:
+        p.stock_actual !== null && p.stock_actual !== undefined
+          ? String(p.stock_actual)
+          : '',
+      permitir_sin_stock: !!p.permitir_sin_stock,
+      restaurant_ids: restaurantIds,
+      restaurant_stock: restaurantStock,
+    });
 
-  const comenzarEdicion = async (p: Producto) => {
-  setModoEdicion(true);
-  setProductoEditando(p);
-  setForm({
-  id: p.id,
-  nombre: p.nombre,
-  descripcion: p.descripcion ?? '',
-  precio: String(p.precio),
-  categoria: p.categoria ?? categorias[0]?.nombre ?? '',
-  marca_id: p.marca_id ?? marcas[0]?.id ?? '',
-  disponible: !!p.disponible,
-  control_stock: !!p.control_stock,
-  stock_actual:
-    p.stock_actual !== null && p.stock_actual !== undefined
-      ? String(p.stock_actual)
-      : '',
-  permitir_sin_stock: !!p.permitir_sin_stock,
-  restaurant_ids: p.restaurant_ids ?? [],
-});
-  setImagenesPendientes([]);
-  await cargarImagenesProducto(p.id);
-};
+    setImagenesPendientes([]);
+    await cargarImagenesProducto(p.id);
+  };
 
   const seleccionarPortadaExistente = (id: number) => {
     setImagenesExistentes((prev) =>
@@ -1318,7 +1392,8 @@ const getMarcaNombre = (producto: Producto) => {
       Sucursales donde aparece
     </h3>
     <p className="mt-1 text-xs text-blue-900">
-      Marcá en qué menús públicos va a mostrarse este producto.
+      Marcá en qué menús públicos va a mostrarse este producto. Si controlás
+      stock, cargá el stock propio de cada sucursal.
     </p>
   </div>
 
@@ -1331,23 +1406,44 @@ const getMarcaNombre = (producto: Producto) => {
       {restaurantes.map((restaurant) => {
         const restaurantId = String(restaurant.id);
         const checked = form.restaurant_ids.includes(restaurantId);
+        const stockValue = form.restaurant_stock[restaurantId] ?? '';
 
         return (
-          <label
+          <div
             key={restaurant.id}
-            className="flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm text-blue-950"
+            className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm text-blue-950 space-y-2"
           >
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={(e) =>
-                toggleRestaurantInForm(restaurantId, e.target.checked)
-              }
-            />
-            <span>
-              {restaurant.nombre_local || restaurant.slug || `Sucursal ${restaurant.id}`}
-            </span>
-          </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) =>
+                  toggleRestaurantInForm(restaurantId, e.target.checked)
+                }
+              />
+              <span>
+                {restaurant.nombre_local ||
+                  restaurant.slug ||
+                  `Sucursal ${restaurant.id}`}
+              </span>
+            </label>
+
+            {stockControlEnabled && form.control_stock && checked ? (
+              <div className="flex items-center gap-2 pl-6">
+                <span className="text-xs text-blue-900">Stock:</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={stockValue}
+                  onChange={(e) =>
+                    onChangeRestaurantStock(restaurantId, e.target.value)
+                  }
+                  className="w-24 rounded-lg border border-blue-200 px-2 py-1 text-xs"
+                  placeholder="0"
+                />
+              </div>
+            ) : null}
+          </div>
         );
       })}
     </div>
@@ -1384,19 +1480,25 @@ const getMarcaNombre = (producto: Producto) => {
 
 {form.control_stock ? (
   <div className="mt-3 space-y-2">
-    <label className="block text-xs font-medium text-slate-700">
-      Stock actual
-    </label>
-    <input
-      type="number"
-      min={0}
-      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-      value={form.stock_actual}
-      onChange={(e) => onChangeForm('stock_actual', e.target.value)}
-      placeholder="Ej: 15"
-    />
-
     <div className="flex items-center gap-2">
+      <input
+        id="permitir_sin_stock"
+        type="checkbox"
+        checked={form.permitir_sin_stock}
+        onChange={(e) =>
+          onChangeForm('permitir_sin_stock', e.target.checked)
+        }
+      />
+      <label htmlFor="permitir_sin_stock" className="text-xs text-slate-700">
+        Permitir vender aunque se quede sin stock
+      </label>
+    </div>
+
+    <p className="text-xs text-slate-500">
+      El stock se carga por sucursal en el bloque anterior.
+    </p>
+  </div>
+) : null}
       <input
         id="permitir_sin_stock"
         type="checkbox"
