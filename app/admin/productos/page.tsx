@@ -151,7 +151,37 @@ function getStockLabel(producto: Producto) {
 
 const FALLBACK_CATEGORY_NAME = 'Otros';
 
+function normalizeNonEmptyText(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
+function getInitialRequestedTenant() {
+  if (typeof window === 'undefined') return null;
+
+  const params = new URLSearchParams(window.location.search);
+
+  return normalizeNonEmptyText(
+    params.get('tenant') ??
+      params.get('tenantSlug') ??
+      params.get('slug') ??
+      params.get('restaurant') ??
+      params.get('restaurantSlug')
+  );
+}
+
 export default function AdminProductosPage() {
+  const [requestedTenant] = useState<string | null>(() =>
+    getInitialRequestedTenant()
+  );
+
+  function buildTenantApiUrl(path: string) {
+    if (!requestedTenant) return path;
+
+    const separator = path.includes('?') ? '&' : '?';
+    return `${path}${separator}tenant=${encodeURIComponent(requestedTenant)}`;
+  }
+
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [marcas, setMarcas] = useState<Marca[]>([]);
@@ -198,7 +228,7 @@ export default function AdminProductosPage() {
 
   const cargarSession = async () => {
   try {
-    const res = await fetch('/api/admin/session', {
+    const res = await fetch(buildTenantApiUrl('/api/admin/session'), {
       method: 'GET',
       cache: 'no-store',
       credentials: 'include',
@@ -244,7 +274,9 @@ export default function AdminProductosPage() {
 
   const cargarProductos = async () => {
   try {
-    const res = await fetch('/api/productos', { cache: 'no-store' });
+    const res = await fetch(buildTenantApiUrl('/api/productos'), {
+  cache: 'no-store',
+});
     const raw = await res.json().catch(() => null);
 
     if (!res.ok) {
@@ -265,7 +297,9 @@ export default function AdminProductosPage() {
 
 const cargarCategorias = async () => {
   try {
-    const res = await fetch('/api/categorias', { cache: 'no-store' });
+    const res = await fetch(buildTenantApiUrl('/api/categorias'), {
+  cache: 'no-store',
+});
 
     if (!res.ok) {
       throw new Error('No se pudieron cargar las categorías.');
@@ -291,7 +325,7 @@ const cargarCategorias = async () => {
 
 const cargarMarcas = async () => {
   try {
-    const res = await fetch('/api/admin/marcas', {
+    const res = await fetch(buildTenantApiUrl('/api/admin/marcas'), {
       method: 'GET',
       cache: 'no-store',
     });
@@ -493,7 +527,7 @@ useEffect(() => {
     setMensaje(null);
 
     try {
-      const res = await fetch('/api/categorias', {
+      const res = await fetch(buildTenantApiUrl('/api/categorias'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nombre }),
@@ -539,7 +573,7 @@ useEffect(() => {
     setMensaje(null);
 
     try {
-      const res = await fetch(`/api/categorias/${id}`, {
+      const res = await fetch(buildTenantApiUrl(`/api/categorias/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nombre }),
@@ -594,7 +628,7 @@ useEffect(() => {
     setMensaje(null);
 
     try {
-      const res = await fetch(`/api/categorias/${cat.id}`, {
+      const res = await fetch(buildTenantApiUrl(`/api/categorias/${cat.id}`), {
         method: 'DELETE',
       });
 
@@ -774,7 +808,7 @@ const payload = {
       let productoId: number;
 
       if (modoEdicion && form.id) {
-        const res = await fetch(`/api/productos/${form.id}`, {
+        const res = await fetch(buildTenantApiUrl(`/api/productos/${form.id}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -788,7 +822,7 @@ const payload = {
 
         productoId = form.id;
       } else {
-        const res = await fetch('/api/productos', {
+        const res = await fetch(buildTenantApiUrl('/api/productos'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -817,7 +851,11 @@ const payload = {
       const uploaded = await subirImagenes(productoId);
       await sincronizarPortada(productoId, existingNormalized, uploaded);
 
-      await Promise.all([cargarProductos(), cargarCategorias(), cargarMarcas()]);
+      await Promise.all([
+  cargarProductos(),
+  cargarCategorias(),
+  multiBrandEnabled ? cargarMarcas() : Promise.resolve(),
+]);
 
       setMensaje(
         modoEdicion
@@ -866,7 +904,7 @@ const payload = {
 
       await supabase.from('producto_imagenes').delete().eq('producto_id', id);
 
-      const res = await fetch(`/api/productos/${id}`, {
+      const res = await fetch(buildTenantApiUrl(`/api/productos/${id}`), {
         method: 'DELETE',
       });
 
@@ -889,7 +927,7 @@ const payload = {
   setMensaje(null);
 
   try {
-    const res = await fetch(`/api/productos/${p.id}/disponible`, {
+    const res = await fetch(buildTenantApiUrl(`/api/productos/${p.id}/disponible`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ disponible: nuevoEstado }),
@@ -944,7 +982,18 @@ const getMarcaNombre = (producto: Producto) => {
 }, [productos, filtroCategoria, filtroMarca, busqueda, multiBrandEnabled]);
 
   return (
-    <div className="space-y-6">
+  <div className="space-y-6">
+    {requestedTenant ? (
+      <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+        Estás administrando productos para la sucursal{' '}
+        <strong>{requestedTenant}</strong>.
+      </div>
+    ) : (
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+        Estás administrando productos del local actual. Para cargar productos de
+        una sucursal específica, entrá desde Restaurantes / sucursales.
+      </div>
+    )}
       <section className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Menú / Productos</h1>
