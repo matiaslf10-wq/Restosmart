@@ -936,136 +936,164 @@ useEffect(() => {
   };
 
   const guardarProducto = async () => {
-    setGuardando(true);
-    setMensaje(null);
+  setGuardando(true);
+  setMensaje(null);
 
-    const precioNumber = parseFloat(form.precio.replace(',', '.'));
+  const precioNumber = parseFloat(form.precio.replace(',', '.'));
 
-    if (isNaN(precioNumber)) {
-      setMensaje('El precio debe ser un número válido.');
-      setGuardando(false);
-      return;
+  if (isNaN(precioNumber)) {
+    setMensaje('El precio debe ser un número válido.');
+    setGuardando(false);
+    return;
+  }
+
+  const controlStockFinal = stockControlEnabled && form.control_stock;
+  const selectedRestaurantIds = form.restaurant_ids;
+
+  const restaurantConfigs = restaurantes.map((restaurant) => {
+    const restaurantId = String(restaurant.id);
+    const visible = selectedRestaurantIds.includes(restaurantId);
+
+    const rawStock = form.restaurant_stock[restaurantId];
+    const stockText = String(rawStock ?? '').trim();
+    const stockNumber = stockText === '' ? NaN : Number(stockText);
+
+    return {
+      restaurant_id: restaurantId,
+      visible_en_menu: visible,
+      control_stock: visible && controlStockFinal,
+      stock_actual:
+        visible && controlStockFinal && Number.isFinite(stockNumber)
+          ? Math.max(0, Math.trunc(stockNumber))
+          : 0,
+      permitir_sin_stock:
+        visible && controlStockFinal ? form.permitir_sin_stock : true,
+    };
+  });
+
+  if (controlStockFinal) {
+    for (const config of restaurantConfigs) {
+      if (!config.visible_en_menu) continue;
+
+      const rawStock = form.restaurant_stock[config.restaurant_id];
+      const stockText = String(rawStock ?? '').trim();
+      const stockNumber = stockText === '' ? NaN : Number(stockText);
+
+      if (!Number.isInteger(stockNumber) || stockNumber < 0) {
+        setMensaje(
+          'Cargá un stock válido para cada sucursal seleccionada. No puede quedar vacío.'
+        );
+        setGuardando(false);
+        return;
+      }
     }
+  }
 
-    const controlStock = !!form.control_stock;
-    const stockActualRaw = form.stock_actual.trim() === '' ? '0' : form.stock_actual.trim();
-    const stockActual = Number(stockActualRaw);
+  const stockActualNumber = controlStockFinal
+    ? restaurantConfigs
+        .filter((config) => config.visible_en_menu)
+        .reduce((total, config) => total + config.stock_actual, 0)
+    : 0;
 
-    if (controlStock && (!Number.isInteger(stockActual) || stockActual < 0)) {
-      setMensaje('El stock actual debe ser un número entero mayor o igual a 0.');
-      setGuardando(false);
-      return;
-    }
+  const payload = {
+    nombre: form.nombre.trim(),
+    descripcion: form.descripcion.trim() || null,
+    precio: precioNumber,
+    categoria: form.categoria || null,
+    marca_id: multiBrandEnabled ? form.marca_id || marcas[0]?.id || null : null,
+    disponible: form.disponible,
+    imagen_url: productoEditando?.imagen_url ?? null,
+    control_stock: controlStockFinal,
+    stock_actual: stockActualNumber,
+    permitir_sin_stock: controlStockFinal ? form.permitir_sin_stock : true,
+    restaurant_ids: selectedRestaurantIds,
+    restaurant_configs: restaurantConfigs,
+  };
 
-    const stockActualNumber =
-  form.stock_actual.trim() === '' ? 0 : Number(form.stock_actual);
+  if (!payload.nombre) {
+    setMensaje('El nombre es obligatorio.');
+    setGuardando(false);
+    return;
+  }
 
-if (!Number.isFinite(stockActualNumber) || stockActualNumber < 0) {
-  setMensaje('El stock actual debe ser un número válido mayor o igual a 0.');
-  setGuardando(false);
-  return;
-}
+  if (!payload.categoria) {
+    setMensaje('La categoría es obligatoria.');
+    setGuardando(false);
+    return;
+  }
 
-const controlStockFinal = stockControlEnabled && form.control_stock;
+  try {
+    let productoId: number;
 
-const payload = {
-  nombre: form.nombre.trim(),
-  descripcion: form.descripcion.trim() || null,
-  precio: precioNumber,
-  categoria: form.categoria || null,
-  marca_id: multiBrandEnabled ? form.marca_id || marcas[0]?.id || null : null,
-  disponible: form.disponible,
-  imagen_url: productoEditando?.imagen_url ?? null,
-  control_stock: controlStockFinal,
-  stock_actual: controlStockFinal ? stockActualNumber : 0,
-  permitir_sin_stock: controlStockFinal ? form.permitir_sin_stock : true,
-  restaurant_ids: form.restaurant_ids,
-};
+    if (modoEdicion && form.id) {
+      const res = await fetch(buildTenantApiUrl(`/api/productos/${form.id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    if (!payload.nombre) {
-      setMensaje('El nombre es obligatorio.');
-      setGuardando(false);
-      return;
-    }
+      const body = await res.json().catch(() => null);
 
-    if (!payload.categoria) {
-      setMensaje('La categoría es obligatoria.');
-      setGuardando(false);
-      return;
-    }
-
-    try {
-      let productoId: number;
-
-      if (modoEdicion && form.id) {
-        const res = await fetch(buildTenantApiUrl(`/api/productos/${form.id}`), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        const body = await res.json().catch(() => null);
-
-        if (!res.ok) {
-          throw new Error(body?.error || 'No se pudo actualizar el producto.');
-        }
-
-        productoId = form.id;
-      } else {
-        const res = await fetch(buildTenantApiUrl('/api/productos'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...payload,
-            imagen_url: null,
-          }),
-        });
-
-        const body = await res.json().catch(() => null);
-
-        if (!res.ok) {
-          throw new Error(body?.error || 'No se pudo crear el producto.');
-        }
-
-        const data = body as Producto;
-        productoId = data.id;
+      if (!res.ok) {
+        throw new Error(body?.error || 'No se pudo actualizar el producto.');
       }
 
-      const normalized = ensureOneCover(imagenesExistentes, imagenesPendientes);
-      const existingNormalized = normalized.existing;
-      const pendingNormalized = normalized.pending;
+      productoId = form.id;
+    } else {
+      const res = await fetch(buildTenantApiUrl('/api/productos'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...payload,
+          imagen_url: null,
+        }),
+      });
 
-      setImagenesExistentes(existingNormalized);
-      setImagenesPendientes(pendingNormalized);
+      const body = await res.json().catch(() => null);
 
-      const uploaded = await subirImagenes(productoId);
-      await sincronizarPortada(productoId, existingNormalized, uploaded);
+      if (!res.ok) {
+        throw new Error(body?.error || 'No se pudo crear el producto.');
+      }
 
-      await Promise.all([
-  cargarProductos(),
-  cargarCategorias(),
-  multiBrandEnabled ? cargarMarcas() : Promise.resolve(),
-]);
-
-      setMensaje(
-        modoEdicion
-          ? 'Producto actualizado correctamente.'
-          : 'Producto creado correctamente.'
-      );
-
-      resetForm();
-    } catch (error: any) {
-      console.error('Error guardando producto:', error);
-      setMensaje(
-        error?.message ||
-          (modoEdicion
-            ? 'No se pudo actualizar el producto.'
-            : 'No se pudo crear el producto.')
-      );
-    } finally {
-      setGuardando(false);
+      const data = body as Producto;
+      productoId = data.id;
     }
-  };
+
+    const normalized = ensureOneCover(imagenesExistentes, imagenesPendientes);
+    const existingNormalized = normalized.existing;
+    const pendingNormalized = normalized.pending;
+
+    setImagenesExistentes(existingNormalized);
+    setImagenesPendientes(pendingNormalized);
+
+    const uploaded = await subirImagenes(productoId);
+    await sincronizarPortada(productoId, existingNormalized, uploaded);
+
+    await Promise.all([
+      cargarProductos(),
+      cargarCategorias(),
+      multiBrandEnabled ? cargarMarcas() : Promise.resolve(),
+    ]);
+
+    setMensaje(
+      modoEdicion
+        ? 'Producto actualizado correctamente.'
+        : 'Producto creado correctamente.'
+    );
+
+    resetForm();
+  } catch (error: any) {
+    console.error('Error guardando producto:', error);
+    setMensaje(
+      error?.message ||
+        (modoEdicion
+          ? 'No se pudo actualizar el producto.'
+          : 'No se pudo crear el producto.')
+    );
+  } finally {
+    setGuardando(false);
+  }
+};
 
   const eliminarProducto = async (id: number) => {
     const prod = productos.find((p) => p.id === id);
