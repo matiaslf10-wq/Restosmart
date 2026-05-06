@@ -53,6 +53,11 @@ type ProductRestaurantConfig = {
   permitir_sin_stock: boolean;
 };
 
+type ProductoConSucursales = ProductoRow & {
+  restaurant_ids: string[];
+  restaurant_configs: ProductRestaurantConfig[];
+};
+
 type RestaurantRow = {
   id: number | string;
   slug: string | null;
@@ -520,6 +525,61 @@ async function syncProductRestaurants(params: {
   };
 }
 
+function applyEffectiveStockFromRestaurantConfigs(
+  product: ProductoConSucursales,
+  restaurantConfig?: ProductRestaurantConfig | null
+) {
+  if (restaurantConfig) {
+    return {
+      ...product,
+      control_stock: restaurantConfig.control_stock,
+      stock_actual: restaurantConfig.stock_actual,
+      permitir_sin_stock: restaurantConfig.permitir_sin_stock,
+      restaurant_ids: restaurantConfig.visible_en_menu
+        ? [restaurantConfig.restaurant_id]
+        : [],
+      restaurant_configs: [restaurantConfig],
+    };
+  }
+
+  const visibleConfigs = (product.restaurant_configs ?? []).filter(
+    (config) => config.visible_en_menu
+  );
+
+  if (visibleConfigs.length === 0) {
+    return product;
+  }
+
+  const hasStockControl = visibleConfigs.some(
+    (config) => config.control_stock
+  );
+
+  if (!hasStockControl) {
+    return {
+      ...product,
+      control_stock: false,
+      stock_actual: 0,
+      permitir_sin_stock: true,
+    };
+  }
+
+  const totalStock = visibleConfigs.reduce(
+    (total, config) => total + normalizeStockQuantity(config.stock_actual),
+    0
+  );
+
+  const allowWithoutStock = visibleConfigs.some(
+    (config) => config.control_stock && config.permitir_sin_stock
+  );
+
+  return {
+    ...product,
+    control_stock: true,
+    stock_actual: totalStock,
+    permitir_sin_stock: allowWithoutStock,
+  };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const soloDisponibles =
@@ -530,10 +590,11 @@ export async function GET(req: NextRequest) {
       ? await resolveAccessForRequest(req, null)
       : null;
 
-        let visibleProductConfigs: Map<number, ProductRestaurantConfig> | null = null;
+    let visibleProductConfigs: Map<number, ProductRestaurantConfig> | null =
+      null;
     let visibleProductIds: number[] | null = null;
 
-        if (filterByTenant) {
+    if (filterByTenant) {
       const restaurantId = access?.restaurant?.id;
 
       if (!restaurantId) {
@@ -569,36 +630,32 @@ export async function GET(req: NextRequest) {
 
     if (error) throw error;
 
-        const productosData = (data ?? []) as ProductoRow[];
-    const enriched = await enrichProductsWithRestaurantIds(productosData);
+    const productosData = (data ?? []) as ProductoRow[];
 
-    if (filterByTenant && visibleProductConfigs) {
-      const productsForRestaurant = enriched.map((product) => {
-        const restaurantConfig = visibleProductConfigs?.get(Number(product.id));
+    const enriched = (await enrichProductsWithRestaurantIds(
+      productosData
+    )) as ProductoConSucursales[];
 
-        if (!restaurantConfig) {
-          return product;
-        }
+    const productsWithEffectiveStock = enriched.map((product) => {
+      const restaurantConfig =
+        filterByTenant && visibleProductConfigs
+          ? visibleProductConfigs.get(Number(product.id)) ?? null
+          : null;
 
-        return {
-          ...product,
-          control_stock: restaurantConfig.control_stock,
-          stock_actual: restaurantConfig.stock_actual,
-          permitir_sin_stock: restaurantConfig.permitir_sin_stock,
-          restaurant_ids: [restaurantConfig.restaurant_id],
-          restaurant_configs: [restaurantConfig],
-        };
-      });
+      return applyEffectiveStockFromRestaurantConfigs(
+        product,
+        restaurantConfig
+      );
+    });
 
-      return NextResponse.json(productsForRestaurant);
-    }
-
-    return NextResponse.json(enriched);
+    return NextResponse.json(productsWithEffectiveStock);
   } catch (error) {
     console.error('Error obteniendo productos:', error);
 
     const message =
-      error instanceof Error ? error.message : 'No se pudieron cargar los productos.';
+      error instanceof Error
+        ? error.message
+        : 'No se pudieron cargar los productos.';
 
     return NextResponse.json(
       { error: message || 'No se pudieron cargar los productos.' },

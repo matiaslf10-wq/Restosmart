@@ -165,15 +165,37 @@ function getProductAllowsWithoutStock(producto: Producto) {
 }
 
 function getStockLabel(producto: Producto) {
-  if (!producto.control_stock) {
+  const visibleConfigs = (producto.restaurant_configs ?? []).filter(
+    (config) => config.visible_en_menu
+  );
+
+  const hasRestaurantStockControl = visibleConfigs.some(
+    (config) => config.control_stock
+  );
+
+  const controlStock = !!producto.control_stock || hasRestaurantStockControl;
+
+  if (!controlStock) {
     return {
       text: 'Sin control de stock',
       className: 'bg-slate-100 text-slate-700',
     };
   }
 
-  const stock = getProductTotalStock(producto);
-  const permitirSinStock = getProductAllowsWithoutStock(producto);
+  const stock =
+    visibleConfigs.length > 0
+      ? visibleConfigs.reduce(
+          (total, config) => total + Number(config.stock_actual ?? 0),
+          0
+        )
+      : Number(producto.stock_actual ?? 0);
+
+  const permitirSinStock =
+    visibleConfigs.length > 0
+      ? visibleConfigs.some(
+          (config) => config.control_stock && config.permitir_sin_stock
+        )
+      : !!producto.permitir_sin_stock;
 
   if (stock <= 0) {
     return permitirSinStock
@@ -188,7 +210,10 @@ function getStockLabel(producto: Producto) {
   }
 
   return {
-    text: `Stock sucursales: ${stock}`,
+    text:
+      visibleConfigs.length > 1
+        ? `Stock sucursales: ${stock}`
+        : `Stock: ${stock}`,
     className: 'bg-sky-100 text-sky-800',
   };
 }
