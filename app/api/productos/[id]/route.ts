@@ -38,6 +38,17 @@ type ProductRestaurantRow = {
   producto_id: number | string | null;
   restaurant_id: number | string | null;
   visible_en_menu: boolean | null;
+  control_stock: boolean | null;
+  stock_actual: number | string | null;
+  permitir_sin_stock: boolean | null;
+};
+
+type ProductRestaurantConfig = {
+  restaurant_id: string;
+  visible_en_menu: boolean;
+  control_stock: boolean;
+  stock_actual: number;
+  permitir_sin_stock: boolean;
 };
 
 type RestaurantRow = {
@@ -88,6 +99,36 @@ function normalizeIdList(value: unknown): string[] {
         .filter((item): item is string => !!item)
     )
   );
+}
+
+function normalizeStockQuantity(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.trunc(num));
+}
+
+function normalizeRestaurantConfigs(value: unknown): ProductRestaurantConfig[] {
+  if (!Array.isArray(value)) return [];
+
+  const byRestaurantId = new Map<string, ProductRestaurantConfig>();
+
+  for (const item of value) {
+    const record = asRecord(item);
+    if (!record) continue;
+
+    const restaurantId = normalizeNonEmptyString(record.restaurant_id);
+    if (!restaurantId) continue;
+
+    byRestaurantId.set(restaurantId, {
+      restaurant_id: restaurantId,
+      visible_en_menu: normalizeBoolean(record.visible_en_menu, true),
+      control_stock: normalizeBoolean(record.control_stock, false),
+      stock_actual: normalizeStockQuantity(record.stock_actual),
+      permitir_sin_stock: normalizeBoolean(record.permitir_sin_stock, true),
+    });
+  }
+
+  return Array.from(byRestaurantId.values());
 }
 
 function pickFirstString(...values: unknown[]): string | null {
@@ -269,58 +310,121 @@ async function validateRestaurantIdsForTenant(
   return requestedRestaurantIds;
 }
 
-async function getRestaurantIdsForProduct(productoId: number) {
+async function getProductRestaurantSyncData(productoId: number) {
   const { data, error } = await supabaseAdmin
     .from('producto_restaurantes')
-    .select('producto_id, restaurant_id, visible_en_menu')
-    .eq('producto_id', productoId)
-    .eq('visible_en_menu', true);
+    .select(
+      'producto_id, restaurant_id, visible_en_menu, control_stock, stock_actual, permitir_sin_stock'
+    )
+    .eq('producto_id', productoId);
 
   if (error) {
     console.error('Error leyendo sucursales del producto:', error);
-    return [];
+
+    return {
+      restaurantIds: [],
+      restaurantConfigs: [],
+    };
   }
 
-  return ((data ?? []) as ProductRestaurantRow[])
-    .map((row) => row.restaurant_id)
-    .filter((id): id is number | string => id !== null && id !== undefined)
-    .map((id) => String(id));
+  const configs = ((data ?? []) as ProductRestaurantRow[])
+    .filter(
+      (row) =>
+        row.restaurant_id !== null &&
+        row.restaurant_id !== undefined
+    )
+    .map((row) => ({
+      restaurant_id: String(row.restaurant_id),
+      visible_en_menu: row.visible_en_menu !== false,
+      control_stock: row.control_stock === true,
+      stock_actual: normalizeStockQuantity(row.stock_actual),
+      permitir_sin_stock: row.permitir_sin_stock !== false,
+    }));
+
+  return {
+    restaurantIds: configs
+      .filter((config) => config.visible_en_menu)
+      .map((config) => config.restaurant_id),
+    restaurantConfigs: configs,
+  };
 }
 
 async function syncProductRestaurants(params: {
   productId: number;
   restaurantIds: string[];
+  restaurantConfigs?: ProductRestaurantConfig[];
   access: AdminAccessSnapshot;
+  controlStock: boolean;
+  permitirSinStock: boolean;
 }) {
-  const { productId, restaurantIds, access } = params;
-
-  const validRestaurantIds = await validateRestaurantIdsForTenant(
+  const {
+    productId,
     restaurantIds,
-    access
-  );
+    restaurantConfigs = [],
+    access,
+    controlStock,
+    permitirSinStock,
+  } = params;
+
+  const hasRestaurantConfigs = restaurantConfigs.length > 0;
+
+  const idsToValidate = hasRestaurantConfigs
+    ? restaurantConfigs.map((config) => config.restaurant_id)
+    : restaurantIds;
+
+  await validateRestaurantIdsForTenant(idsToValidate, access);
 
   const activeRestaurants = await getActiveRestaurantsForTenant(access);
   const activeRestaurantIds = activeRestaurants.map((restaurant) =>
     String(restaurant.id)
   );
 
-  const selectedIds = new Set(validRestaurantIds);
-
-  const rows = activeRestaurantIds.map((restaurantId) => ({
-    producto_id: productId,
-    restaurant_id: restaurantId,
-    visible_en_menu: selectedIds.has(restaurantId),
-    actualizado_en: new Date().toISOString(),
-  }));
-
-  if (rows.length === 0) {
+  if (activeRestaurantIds.length === 0) {
     await supabaseAdmin
       .from('producto_restaurantes')
       .delete()
       .eq('producto_id', productId);
 
-    return [];
+    return {
+      restaurantIds: [],
+      restaurantConfigs: [],
+    };
   }
+
+  const configsByRestaurantId = new Map(
+    restaurantConfigs.map((config) => [config.restaurant_id, config])
+  );
+
+  const selectedIds = new Set(
+    hasRestaurantConfigs
+      ? restaurantConfigs
+          .filter((config) => config.visible_en_menu)
+          .map((config) => config.restaurant_id)
+      : restaurantIds
+  );
+
+  const now = new Date().toISOString();
+
+  const rows = activeRestaurantIds.map((restaurantId) => {
+    const config = configsByRestaurantId.get(restaurantId);
+    const visible = selectedIds.has(restaurantId);
+    const rowControlStock = visible && (config?.control_stock ?? controlStock);
+
+    return {
+      producto_id: productId,
+      restaurant_id: restaurantId,
+      visible_en_menu: visible,
+      control_stock: rowControlStock,
+      stock_actual:
+        visible && rowControlStock
+          ? normalizeStockQuantity(config?.stock_actual ?? 0)
+          : 0,
+      permitir_sin_stock: rowControlStock
+        ? config?.permitir_sin_stock ?? permitirSinStock
+        : true,
+      actualizado_en: now,
+    };
+  });
 
   const { error } = await supabaseAdmin
     .from('producto_restaurantes')
@@ -333,7 +437,20 @@ async function syncProductRestaurants(params: {
     throw new Error('No se pudo guardar en qué sucursales aparece el producto.');
   }
 
-  return validRestaurantIds;
+  const syncedConfigs = rows.map((row) => ({
+    restaurant_id: String(row.restaurant_id),
+    visible_en_menu: row.visible_en_menu,
+    control_stock: row.control_stock,
+    stock_actual: row.stock_actual,
+    permitir_sin_stock: row.permitir_sin_stock,
+  }));
+
+  return {
+    restaurantIds: syncedConfigs
+      .filter((config) => config.visible_en_menu)
+      .map((config) => config.restaurant_id),
+    restaurantConfigs: syncedConfigs,
+  };
 }
 
 async function validateProductBelongsToAccess(
@@ -423,8 +540,40 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const control_stock =
       stockControlEnabled && normalizeBoolean(body?.control_stock, false);
 
+    const restaurantConfigsWasProvided =
+      Array.isArray(body?.restaurant_configs) ||
+      Array.isArray(body?.restaurantConfigs);
+
+    const requestedRestaurantConfigs = normalizeRestaurantConfigs(
+      Array.isArray(body?.restaurant_configs)
+        ? body.restaurant_configs
+        : body?.restaurantConfigs
+    );
+
+    const restaurantIdsWasProvided =
+      restaurantConfigsWasProvided ||
+      Array.isArray(body?.restaurant_ids) ||
+      Array.isArray(body?.restaurantIds);
+
+    const rawRestaurantIds = Array.isArray(body?.restaurant_ids)
+      ? body.restaurant_ids
+      : body?.restaurantIds;
+
+    const requestedRestaurantIds = restaurantConfigsWasProvided
+      ? requestedRestaurantConfigs
+          .filter((config) => config.visible_en_menu)
+          .map((config) => config.restaurant_id)
+      : normalizeIdList(rawRestaurantIds);
+
     const stock_actual = control_stock
-      ? Math.max(0, Math.trunc(normalizeNumber(body?.stock_actual, 0)))
+      ? restaurantConfigsWasProvided
+        ? requestedRestaurantConfigs
+            .filter((config) => config.visible_en_menu)
+            .reduce(
+              (total, config) => total + normalizeStockQuantity(config.stock_actual),
+              0
+            )
+        : Math.max(0, Math.trunc(normalizeNumber(body?.stock_actual, 0)))
       : 0;
 
     const permitir_sin_stock = control_stock
@@ -476,21 +625,30 @@ export async function PUT(req: NextRequest, { params }: Params) {
       );
     }
 
-    const restaurantIdsWasProvided =
-  Array.isArray(body?.restaurant_ids) || Array.isArray(body?.restaurantIds);
+    const restaurantSync = restaurantIdsWasProvided
+      ? await syncProductRestaurants({
+          productId: productoId,
+          restaurantIds: requestedRestaurantIds,
+          restaurantConfigs: restaurantConfigsWasProvided
+            ? requestedRestaurantConfigs
+            : requestedRestaurantIds.map((restaurantId) => ({
+                restaurant_id: restaurantId,
+                visible_en_menu: true,
+                control_stock,
+                stock_actual: control_stock ? stock_actual : 0,
+                permitir_sin_stock,
+              })),
+          access,
+          controlStock: control_stock,
+          permitirSinStock: permitir_sin_stock,
+        })
+      : await getProductRestaurantSyncData(productoId);
 
-const restaurantIds = restaurantIdsWasProvided
-  ? await syncProductRestaurants({
-      productId: productoId,
-      restaurantIds: normalizeIdList(body?.restaurant_ids ?? body?.restaurantIds),
-      access,
-    })
-  : await getRestaurantIdsForProduct(productoId);
-
-return NextResponse.json({
-  ...data,
-  restaurant_ids: restaurantIds,
-});
+    return NextResponse.json({
+      ...data,
+      restaurant_ids: restaurantSync.restaurantIds,
+      restaurant_configs: restaurantSync.restaurantConfigs,
+    });
   } catch (error) {
     console.error('Error actualizando producto:', error);
 
