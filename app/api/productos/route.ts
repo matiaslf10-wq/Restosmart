@@ -284,10 +284,14 @@ function shouldFilterProductsByTenant(req: NextRequest) {
   );
 }
 
-async function getVisibleProductIdsForRestaurant(restaurantId: string | number) {
+async function getVisibleProductConfigsForRestaurant(
+  restaurantId: string | number
+) {
   const { data, error } = await supabaseAdmin
     .from('producto_restaurantes')
-    .select('producto_id')
+    .select(
+      'producto_id, restaurant_id, visible_en_menu, control_stock, stock_actual, permitir_sin_stock'
+    )
     .eq('restaurant_id', restaurantId)
     .eq('visible_en_menu', true);
 
@@ -296,9 +300,22 @@ async function getVisibleProductIdsForRestaurant(restaurantId: string | number) 
     throw new Error('No se pudieron leer los productos visibles de esta sucursal.');
   }
 
-  return ((data ?? []) as ProductRestaurantRow[])
-    .map((row) => row.producto_id)
-    .filter((id): id is number | string => id !== null && id !== undefined);
+  const configsByProductId = new Map<number, ProductRestaurantConfig>();
+
+  for (const row of (data ?? []) as ProductRestaurantRow[]) {
+    if (row.producto_id === null || row.producto_id === undefined) continue;
+    if (row.restaurant_id === null || row.restaurant_id === undefined) continue;
+
+    configsByProductId.set(Number(row.producto_id), {
+      restaurant_id: String(row.restaurant_id),
+      visible_en_menu: row.visible_en_menu !== false,
+      control_stock: row.control_stock === true,
+      stock_actual: normalizeStockQuantity(row.stock_actual),
+      permitir_sin_stock: row.permitir_sin_stock !== false,
+    });
+  }
+
+  return configsByProductId;
 }
 
 async function enrichProductsWithRestaurantIds(products: ProductoRow[]) {
@@ -513,16 +530,21 @@ export async function GET(req: NextRequest) {
       ? await resolveAccessForRequest(req, null)
       : null;
 
-    let visibleProductIds: Array<string | number> | null = null;
+        let visibleProductConfigs: Map<number, ProductRestaurantConfig> | null = null;
+    let visibleProductIds: number[] | null = null;
 
-    if (filterByTenant) {
+        if (filterByTenant) {
       const restaurantId = access?.restaurant?.id;
 
       if (!restaurantId) {
         return NextResponse.json([]);
       }
 
-      visibleProductIds = await getVisibleProductIdsForRestaurant(restaurantId);
+      visibleProductConfigs = await getVisibleProductConfigsForRestaurant(
+        restaurantId
+      );
+
+      visibleProductIds = Array.from(visibleProductConfigs.keys());
 
       if (visibleProductIds.length === 0) {
         return NextResponse.json([]);
@@ -547,8 +569,29 @@ export async function GET(req: NextRequest) {
 
     if (error) throw error;
 
-    const productosData = (data ?? []) as ProductoRow[];
-const enriched = await enrichProductsWithRestaurantIds(productosData);
+        const productosData = (data ?? []) as ProductoRow[];
+    const enriched = await enrichProductsWithRestaurantIds(productosData);
+
+    if (filterByTenant && visibleProductConfigs) {
+      const productsForRestaurant = enriched.map((product) => {
+        const restaurantConfig = visibleProductConfigs?.get(Number(product.id));
+
+        if (!restaurantConfig) {
+          return product;
+        }
+
+        return {
+          ...product,
+          control_stock: restaurantConfig.control_stock,
+          stock_actual: restaurantConfig.stock_actual,
+          permitir_sin_stock: restaurantConfig.permitir_sin_stock,
+          restaurant_ids: [restaurantConfig.restaurant_id],
+          restaurant_configs: [restaurantConfig],
+        };
+      });
+
+      return NextResponse.json(productsForRestaurant);
+    }
 
     return NextResponse.json(enriched);
   } catch (error) {

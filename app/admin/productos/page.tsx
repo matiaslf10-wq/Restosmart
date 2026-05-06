@@ -423,12 +423,21 @@ const cargarRestaurantes = async () => {
 
     setRestaurantes(items);
 
-    setForm((prev) => {
+        setForm((prev) => {
       if (prev.restaurant_ids.length > 0) return prev;
+
+      const restaurantIds = items.map((item) => String(item.id));
 
       return {
         ...prev,
-        restaurant_ids: items.map((item) => String(item.id)),
+        restaurant_ids: restaurantIds,
+        restaurant_stock: restaurantIds.reduce<Record<string, string>>(
+          (acc, restaurantId) => {
+            acc[restaurantId] = '0';
+            return acc;
+          },
+          {}
+        ),
       };
     });
   } catch (error: any) {
