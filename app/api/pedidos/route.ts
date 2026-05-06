@@ -61,10 +61,16 @@ type ProductoStockRow = {
   id: number;
   nombre: string;
   disponible: boolean | null;
-  control_stock: boolean | null;
-  stock_actual: number | null;
-  permitir_sin_stock: boolean | null;
   marca_id: string | null;
+};
+
+type ProductRestaurantStockRow = {
+  producto_id: number | string | null;
+  restaurant_id: number | string | null;
+  visible_en_menu: boolean | null;
+  control_stock: boolean | null;
+  stock_actual: number | string | null;
+  permitir_sin_stock: boolean | null;
 };
 
 type MarcaPedidoMeta = {
@@ -81,8 +87,8 @@ type AggregatedProductRequest = {
 
 type AppliedStockAdjustment = {
   producto_id: number;
+  restaurant_id: string | number;
   previous_stock: number;
-  previous_disponible: boolean | null;
 };
 
 function normalizePlan(plan: unknown): 'esencial' | 'pro' | 'intelligence' {
@@ -149,6 +155,12 @@ function normalizeOrigen(value: unknown, tipoServicio: TipoServicio) {
 function normalizeOptionalText(value: unknown) {
   const text = String(value ?? '').trim();
   return text.length ? text : null;
+}
+
+function normalizeStockQuantity(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.trunc(num));
 }
 
 function pickFirstString(...values: unknown[]) {
@@ -289,9 +301,7 @@ async function loadProductsForStock(
 ): Promise<Map<number, ProductoStockRow>> {
   const { data, error } = await supabaseAdmin
     .from('productos')
-    .select(
-      'id, nombre, disponible, control_stock, stock_actual, permitir_sin_stock, marca_id'
-    )
+    .select('id, nombre, disponible, marca_id')
     .in('id', productoIds);
 
   if (error) {
@@ -303,6 +313,34 @@ async function loadProductsForStock(
 
   for (const row of rows) {
     map.set(Number(row.id), row);
+  }
+
+  return map;
+}
+
+async function loadRestaurantStockForProducts(params: {
+  productoIds: number[];
+  restaurantId: string | number;
+}): Promise<Map<number, ProductRestaurantStockRow>> {
+  const { productoIds, restaurantId } = params;
+
+  const { data, error } = await supabaseAdmin
+    .from('producto_restaurantes')
+    .select(
+      'producto_id, restaurant_id, visible_en_menu, control_stock, stock_actual, permitir_sin_stock'
+    )
+    .eq('restaurant_id', restaurantId)
+    .in('producto_id', productoIds);
+
+  if (error) {
+    throw error;
+  }
+
+  const map = new Map<number, ProductRestaurantStockRow>();
+
+  for (const row of (data ?? []) as ProductRestaurantStockRow[]) {
+    if (row.producto_id === null || row.producto_id === undefined) continue;
+    map.set(Number(row.producto_id), row);
   }
 
   return map;
@@ -343,10 +381,12 @@ async function loadBrandMetaForProducts(
 
 function validateStockAvailability(
   requestedProducts: AggregatedProductRequest[],
-  productsMap: Map<number, ProductoStockRow>
+  productsMap: Map<number, ProductoStockRow>,
+  restaurantStocksMap: Map<number, ProductRestaurantStockRow>
 ) {
   const missingProducts: number[] = [];
   const unavailableProducts: string[] = [];
+  const notVisibleInRestaurantProducts: string[] = [];
   const insufficientProducts: Array<{
     nombre: string;
     solicitado: number;
@@ -366,9 +406,16 @@ function validateStockAvailability(
       continue;
     }
 
-    const controlStock = !!product.control_stock;
-    const permitirSinStock = !!product.permitir_sin_stock;
-    const stockActual = Number(product.stock_actual ?? 0);
+    const restaurantStock = restaurantStocksMap.get(requested.producto_id);
+
+    if (!restaurantStock || restaurantStock.visible_en_menu === false) {
+      notVisibleInRestaurantProducts.push(product.nombre);
+      continue;
+    }
+
+    const controlStock = restaurantStock.control_stock === true;
+    const permitirSinStock = restaurantStock.permitir_sin_stock === true;
+    const stockActual = normalizeStockQuantity(restaurantStock.stock_actual);
 
     if (controlStock && !permitirSinStock && stockActual < requested.cantidad) {
       insufficientProducts.push({
@@ -382,6 +429,7 @@ function validateStockAvailability(
   return {
     missingProducts,
     unavailableProducts,
+    notVisibleInRestaurantProducts,
     insufficientProducts,
   };
 }
@@ -401,15 +449,15 @@ async function rollbackStockAdjustments(
   for (const adjustment of adjustments) {
     try {
       await supabaseAdmin
-        .from('productos')
+        .from('producto_restaurantes')
         .update({
           stock_actual: adjustment.previous_stock,
-          disponible: adjustment.previous_disponible,
         })
-        .eq('id', adjustment.producto_id);
+        .eq('producto_id', adjustment.producto_id)
+        .eq('restaurant_id', adjustment.restaurant_id);
     } catch (error) {
       console.error(
-        `No se pudo revertir stock del producto ${adjustment.producto_id}:`,
+        `No se pudo revertir stock del producto ${adjustment.producto_id} en restaurant ${adjustment.restaurant_id}:`,
         error
       );
     }
@@ -419,56 +467,56 @@ async function rollbackStockAdjustments(
 async function applyStockAdjustments(params: {
   requestedProducts: AggregatedProductRequest[];
   productsMap: Map<number, ProductoStockRow>;
+  restaurantStocksMap: Map<number, ProductRestaurantStockRow>;
+  restaurantId: string | number;
 }) {
-  const { requestedProducts, productsMap } = params;
+  const { requestedProducts, productsMap, restaurantStocksMap, restaurantId } =
+    params;
+
   const appliedAdjustments: AppliedStockAdjustment[] = [];
 
   for (const requested of requestedProducts) {
     const product = productsMap.get(requested.producto_id);
+    const restaurantStock = restaurantStocksMap.get(requested.producto_id);
 
-    if (!product || !product.control_stock) {
+    if (!product || !restaurantStock || restaurantStock.control_stock !== true) {
       continue;
     }
 
-    const previousStock = Number(product.stock_actual ?? 0);
-    const previousDisponible = product.disponible ?? null;
-    const permitirSinStock = !!product.permitir_sin_stock;
+    const previousStock = normalizeStockQuantity(restaurantStock.stock_actual);
+    const permitirSinStock = restaurantStock.permitir_sin_stock === true;
 
     const nextStock = permitirSinStock
       ? Math.max(previousStock - requested.cantidad, 0)
       : previousStock - requested.cantidad;
 
-    const nextDisponible = permitirSinStock
-      ? previousDisponible
-      : nextStock > 0
-      ? previousDisponible
-      : false;
-
     const { data, error } = await supabaseAdmin
-      .from('productos')
+      .from('producto_restaurantes')
       .update({
         stock_actual: nextStock,
-        disponible: nextDisponible,
+        actualizado_en: new Date().toISOString(),
       })
-      .eq('id', requested.producto_id)
+      .eq('producto_id', requested.producto_id)
+      .eq('restaurant_id', restaurantId)
+      .eq('visible_en_menu', true)
       .eq('control_stock', true)
       .eq('permitir_sin_stock', permitirSinStock)
       .eq('stock_actual', previousStock)
-      .select('id')
+      .select('producto_id')
       .maybeSingle();
 
     if (error) {
       throw error;
     }
 
-    if (!data?.id) {
+    if (!data?.producto_id) {
       throw new Error(`${STOCK_CONFLICT_PREFIX}${product.nombre}`);
     }
 
     appliedAdjustments.push({
       producto_id: requested.producto_id,
+      restaurant_id: restaurantId,
       previous_stock: previousStock,
-      previous_disponible: previousDisponible,
     });
   }
 
@@ -756,6 +804,13 @@ if (restaurant && isRestaurantClosedForOrdering(restaurant.estado)) {
   );
 }
 
+if (!restaurant?.id) {
+  return NextResponse.json(
+    { error: 'No se pudo identificar la sucursal del pedido.' },
+    { status: 400 }
+  );
+}
+
 const plan = normalizePlan(restaurant?.plan);
 const businessMode = await resolveBusinessMode(restaurant);
     const stockControlEnabled = planHasStockControl(plan);
@@ -844,11 +899,23 @@ const businessMode = await resolveBusinessMode(restaurant);
     const requestedProducts = aggregateRequestedProducts(items);
     const productoIds = requestedProducts.map((item) => item.producto_id);
 
-    const productsMap = await loadProductsForStock(productoIds);
-const brandMetaMap = await loadBrandMetaForProducts(productsMap);
+        const productsMap = await loadProductsForStock(productoIds);
+    const restaurantStocksMap = await loadRestaurantStockForProducts({
+      productoIds,
+      restaurantId: restaurant.id,
+    });
+    const brandMetaMap = await loadBrandMetaForProducts(productsMap);
 
-const { missingProducts, unavailableProducts, insufficientProducts } =
-  validateStockAvailability(requestedProducts, productsMap);
+    const {
+      missingProducts,
+      unavailableProducts,
+      notVisibleInRestaurantProducts,
+      insufficientProducts,
+    } = validateStockAvailability(
+      requestedProducts,
+      productsMap,
+      restaurantStocksMap
+    );
 
 if (missingProducts.length > 0) {
   return NextResponse.json(
@@ -863,6 +930,15 @@ if (unavailableProducts.length > 0) {
   return NextResponse.json(
     {
       error: `Hay productos que ya no están disponibles: ${unavailableProducts.join(', ')}.`,
+    },
+    { status: 409 }
+  );
+}
+
+if (notVisibleInRestaurantProducts.length > 0) {
+  return NextResponse.json(
+    {
+      error: `Hay productos que no están disponibles en esta sucursal: ${notVisibleInRestaurantProducts.join(', ')}.`,
     },
     { status: 409 }
   );
@@ -987,9 +1063,11 @@ if (stockControlEnabled && insufficientProducts.length > 0) {
 
     if (stockControlEnabled) {
       try {
-        appliedAdjustments = await applyStockAdjustments({
+                appliedAdjustments = await applyStockAdjustments({
           requestedProducts,
           productsMap,
+          restaurantStocksMap,
+          restaurantId: restaurant.id,
         });
       } catch (error) {
         console.error('POST /api/pedidos - error aplicando stock', error);
