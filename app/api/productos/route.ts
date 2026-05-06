@@ -345,39 +345,45 @@ async function enrichProductsWithRestaurantIds(products: ProductoRow[]) {
     }));
   }
 
-  const configsByProductId = new Map<number, ProductRestaurantConfig[]>();
+  const configsByProductId = new Map<
+  number,
+  Map<string, ProductRestaurantConfig>
+>();
 
-  for (const row of (data ?? []) as ProductRestaurantRow[]) {
-    if (row.producto_id === null || row.producto_id === undefined) continue;
-    if (row.restaurant_id === null || row.restaurant_id === undefined) continue;
+for (const row of (data ?? []) as ProductRestaurantRow[]) {
+  if (row.producto_id === null || row.producto_id === undefined) continue;
+  if (row.restaurant_id === null || row.restaurant_id === undefined) continue;
 
-    const productId = Number(row.producto_id);
-    const restaurantId = String(row.restaurant_id);
+  const productId = Number(row.producto_id);
+  const restaurantId = String(row.restaurant_id);
 
-    const current = configsByProductId.get(productId) ?? [];
+  const currentByRestaurant =
+    configsByProductId.get(productId) ?? new Map<string, ProductRestaurantConfig>();
 
-    current.push({
-      restaurant_id: restaurantId,
-      visible_en_menu: row.visible_en_menu !== false,
-      control_stock: row.control_stock === true,
-      stock_actual: normalizeStockQuantity(row.stock_actual),
-      permitir_sin_stock: row.permitir_sin_stock !== false,
-    });
-
-    configsByProductId.set(productId, current);
-  }
-
-  return products.map((product) => {
-    const configs = configsByProductId.get(Number(product.id)) ?? [];
-
-    return {
-      ...product,
-      restaurant_ids: configs
-        .filter((config) => config.visible_en_menu)
-        .map((config) => config.restaurant_id),
-      restaurant_configs: configs,
-    };
+  currentByRestaurant.set(restaurantId, {
+    restaurant_id: restaurantId,
+    visible_en_menu: row.visible_en_menu !== false,
+    control_stock: row.control_stock === true,
+    stock_actual: normalizeStockQuantity(row.stock_actual),
+    permitir_sin_stock: row.permitir_sin_stock !== false,
   });
+
+  configsByProductId.set(productId, currentByRestaurant);
+}
+
+return products.map((product) => {
+  const configs = Array.from(
+    configsByProductId.get(Number(product.id))?.values() ?? []
+  );
+
+  return {
+    ...product,
+    restaurant_ids: configs
+      .filter((config) => config.visible_en_menu)
+      .map((config) => config.restaurant_id),
+    restaurant_configs: configs,
+  };
+});
 }
 
 async function getActiveRestaurantsForTenant(access: AdminAccessSnapshot) {
