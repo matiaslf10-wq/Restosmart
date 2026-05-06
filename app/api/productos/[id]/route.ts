@@ -34,6 +34,19 @@ type ProductoOwnershipRow = {
   marca_id: string | null;
 };
 
+type ProductRestaurantRow = {
+  producto_id: number | string | null;
+  restaurant_id: number | string | null;
+  visible_en_menu: boolean | null;
+};
+
+type RestaurantRow = {
+  id: number | string;
+  slug: string | null;
+  estado: string | null;
+  owner_tenant_id: string | null;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -63,6 +76,18 @@ function normalizeNumber(value: unknown, fallback = 0) {
 
 function normalizeNullableString(value: unknown) {
   return normalizeNonEmptyString(value);
+}
+
+function normalizeIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return Array.from(
+    new Set(
+      value
+        .map((item) => normalizeNonEmptyString(item))
+        .filter((item): item is string => !!item)
+    )
+  );
 }
 
 function pickFirstString(...values: unknown[]): string | null {
@@ -199,6 +224,116 @@ async function resolveMarcaIdForProduct(
   }
 
   return data.id as string;
+}
+
+async function getActiveRestaurantsForTenant(access: AdminAccessSnapshot) {
+  const { data, error } = await supabaseAdmin
+    .from('restaurants')
+    .select('id, slug, estado, owner_tenant_id')
+    .eq('owner_tenant_id', access.tenantId)
+    .neq('estado', 'cerrado')
+    .order('slug', { ascending: true });
+
+  if (error) {
+    console.error('Error leyendo restaurantes del tenant:', error);
+    throw new Error('No se pudieron leer las sucursales del tenant.');
+  }
+
+  return ((data ?? []) as RestaurantRow[]).filter(
+    (restaurant) => restaurant.id !== null && restaurant.id !== undefined
+  );
+}
+
+async function validateRestaurantIdsForTenant(
+  requestedRestaurantIds: string[],
+  access: AdminAccessSnapshot
+) {
+  if (requestedRestaurantIds.length === 0) {
+    return [];
+  }
+
+  const activeRestaurants = await getActiveRestaurantsForTenant(access);
+
+  const allowedIds = new Set(
+    activeRestaurants.map((restaurant) => String(restaurant.id))
+  );
+
+  const invalidIds = requestedRestaurantIds.filter((id) => !allowedIds.has(id));
+
+  if (invalidIds.length > 0) {
+    throw new Error(
+      'Hay sucursales seleccionadas que no existen, están cerradas o no pertenecen a este tenant.'
+    );
+  }
+
+  return requestedRestaurantIds;
+}
+
+async function getRestaurantIdsForProduct(productoId: number) {
+  const { data, error } = await supabaseAdmin
+    .from('producto_restaurantes')
+    .select('producto_id, restaurant_id, visible_en_menu')
+    .eq('producto_id', productoId)
+    .eq('visible_en_menu', true);
+
+  if (error) {
+    console.error('Error leyendo sucursales del producto:', error);
+    return [];
+  }
+
+  return ((data ?? []) as ProductRestaurantRow[])
+    .map((row) => row.restaurant_id)
+    .filter((id): id is number | string => id !== null && id !== undefined)
+    .map((id) => String(id));
+}
+
+async function syncProductRestaurants(params: {
+  productId: number;
+  restaurantIds: string[];
+  access: AdminAccessSnapshot;
+}) {
+  const { productId, restaurantIds, access } = params;
+
+  const validRestaurantIds = await validateRestaurantIdsForTenant(
+    restaurantIds,
+    access
+  );
+
+  const activeRestaurants = await getActiveRestaurantsForTenant(access);
+  const activeRestaurantIds = activeRestaurants.map((restaurant) =>
+    String(restaurant.id)
+  );
+
+  const selectedIds = new Set(validRestaurantIds);
+
+  const rows = activeRestaurantIds.map((restaurantId) => ({
+    producto_id: productId,
+    restaurant_id: restaurantId,
+    visible_en_menu: selectedIds.has(restaurantId),
+    actualizado_en: new Date().toISOString(),
+  }));
+
+  if (rows.length === 0) {
+    await supabaseAdmin
+      .from('producto_restaurantes')
+      .delete()
+      .eq('producto_id', productId);
+
+    return [];
+  }
+
+  const { error } = await supabaseAdmin
+    .from('producto_restaurantes')
+    .upsert(rows, {
+      onConflict: 'producto_id,restaurant_id',
+    });
+
+  if (error) {
+    console.error('Error sincronizando producto_restaurantes:', error);
+    throw new Error('No se pudo guardar en qué sucursales aparece el producto.');
+  }
+
+  return validRestaurantIds;
 }
 
 async function validateProductBelongsToAccess(
@@ -341,7 +476,21 @@ export async function PUT(req: NextRequest, { params }: Params) {
       );
     }
 
-    return NextResponse.json(data);
+    const restaurantIdsWasProvided =
+  Array.isArray(body?.restaurant_ids) || Array.isArray(body?.restaurantIds);
+
+const restaurantIds = restaurantIdsWasProvided
+  ? await syncProductRestaurants({
+      productId: productoId,
+      restaurantIds: normalizeIdList(body?.restaurant_ids ?? body?.restaurantIds),
+      access,
+    })
+  : await getRestaurantIdsForProduct(productoId);
+
+return NextResponse.json({
+  ...data,
+  restaurant_ids: restaurantIds,
+});
   } catch (error) {
     console.error('Error actualizando producto:', error);
 

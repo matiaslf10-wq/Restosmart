@@ -25,6 +25,13 @@ type Marca = {
   orden: number | null;
 };
 
+type RestaurantItem = {
+  id: string;
+  slug: string;
+  nombre_local: string;
+  estado?: 'activo' | 'pausado' | 'cerrado';
+};
+
 type Producto = {
   id: number;
   nombre: string;
@@ -37,6 +44,7 @@ type Producto = {
   stock_actual?: number | null;
   permitir_sin_stock?: boolean | null;
   marca_id?: string | null;
+  restaurant_ids?: string[];
 };
 
 type ProductoImagen = {
@@ -66,6 +74,7 @@ type FormProducto = {
   control_stock: boolean;
   stock_actual: string;
   permitir_sin_stock: boolean;
+  restaurant_ids: string[];
 };
 
 type AdminSessionPayload = {
@@ -185,6 +194,7 @@ export default function AdminProductosPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [marcas, setMarcas] = useState<Marca[]>([]);
+  const [restaurantes, setRestaurantes] = useState<RestaurantItem[]>([]);
 
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -210,6 +220,7 @@ export default function AdminProductosPage() {
   control_stock: false,
   stock_actual: '',
   permitir_sin_stock: false,
+  restaurant_ids: [],
 });
 
   const [modoEdicion, setModoEdicion] = useState(false);
@@ -357,6 +368,40 @@ const cargarMarcas = async () => {
   }
 };
 
+const cargarRestaurantes = async () => {
+  try {
+    const res = await fetch(buildTenantApiUrl('/api/admin/restaurants'), {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    const raw = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(raw?.error || 'No se pudieron cargar las sucursales.');
+    }
+
+    const items = ((raw?.items ?? []) as RestaurantItem[]).filter(
+      (item) => item.estado !== 'cerrado'
+    );
+
+    setRestaurantes(items);
+
+    setForm((prev) => {
+      if (prev.restaurant_ids.length > 0) return prev;
+
+      return {
+        ...prev,
+        restaurant_ids: items.map((item) => String(item.id)),
+      };
+    });
+  } catch (error: any) {
+    console.error('Error cargando sucursales:', error);
+    setRestaurantes([]);
+    setMensaje(error?.message || 'No se pudieron cargar las sucursales.');
+  }
+};
+
 useEffect(() => {
   const cargarTodo = async () => {
     setCargando(true);
@@ -365,10 +410,11 @@ useEffect(() => {
     const sessionFlags = await cargarSession();
 
     await Promise.all([
-      cargarProductos(),
-      cargarCategorias(),
-      sessionFlags.multiBrandEnabled ? cargarMarcas() : Promise.resolve(),
-    ]);
+  cargarProductos(),
+  cargarCategorias(),
+  cargarRestaurantes(),
+  sessionFlags.multiBrandEnabled ? cargarMarcas() : Promise.resolve(),
+]);
 
     if (!sessionFlags.multiBrandEnabled) {
       setMarcas([]);
@@ -406,17 +452,18 @@ useEffect(() => {
 
   const resetForm = () => {
   setForm({
-  id: null,
-  nombre: '',
-  descripcion: '',
-  precio: '',
-  categoria: categorias[0]?.nombre ?? '',
-  marca_id: marcas[0]?.id ?? '',
-  disponible: true,
-  control_stock: false,
-  stock_actual: '',
-  permitir_sin_stock: false,
-});
+    id: null,
+    nombre: '',
+    descripcion: '',
+    precio: '',
+    categoria: categorias[0]?.nombre ?? '',
+    marca_id: marcas[0]?.id ?? '',
+    disponible: true,
+    control_stock: false,
+    stock_actual: '',
+    permitir_sin_stock: false,
+    restaurant_ids: restaurantes.map((restaurant) => String(restaurant.id)),
+  });
   setModoEdicion(false);
   setProductoEditando(null);
   setImagenesExistentes([]);
@@ -451,6 +498,23 @@ useEffect(() => {
     });
   };
 
+  const toggleRestaurantInForm = (restaurantId: string, checked: boolean) => {
+  setForm((prev) => {
+    const current = new Set(prev.restaurant_ids);
+
+    if (checked) {
+      current.add(restaurantId);
+    } else {
+      current.delete(restaurantId);
+    }
+
+    return {
+      ...prev,
+      restaurant_ids: Array.from(current),
+    };
+  });
+};
+
   const comenzarEdicion = async (p: Producto) => {
   setModoEdicion(true);
   setProductoEditando(p);
@@ -468,6 +532,7 @@ useEffect(() => {
       ? String(p.stock_actual)
       : '',
   permitir_sin_stock: !!p.permitir_sin_stock,
+  restaurant_ids: p.restaurant_ids ?? [],
 });
   setImagenesPendientes([]);
   await cargarImagenesProducto(p.id);
@@ -790,6 +855,7 @@ const payload = {
   control_stock: controlStockFinal,
   stock_actual: controlStockFinal ? stockActualNumber : 0,
   permitir_sin_stock: controlStockFinal ? form.permitir_sin_stock : true,
+  restaurant_ids: form.restaurant_ids,
 };
 
     if (!payload.nombre) {
@@ -1245,6 +1311,48 @@ const getMarcaNombre = (producto: Producto) => {
             </div>
           </div>
         </div>
+
+<div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
+  <div>
+    <h3 className="text-sm font-semibold text-blue-950">
+      Sucursales donde aparece
+    </h3>
+    <p className="mt-1 text-xs text-blue-900">
+      Marcá en qué menús públicos va a mostrarse este producto.
+    </p>
+  </div>
+
+  {restaurantes.length === 0 ? (
+    <p className="text-xs text-blue-900">
+      No hay sucursales activas cargadas para este tenant.
+    </p>
+  ) : (
+    <div className="grid gap-2 md:grid-cols-2">
+      {restaurantes.map((restaurant) => {
+        const restaurantId = String(restaurant.id);
+        const checked = form.restaurant_ids.includes(restaurantId);
+
+        return (
+          <label
+            key={restaurant.id}
+            className="flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm text-blue-950"
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(e) =>
+                toggleRestaurantInForm(restaurantId, e.target.checked)
+              }
+            />
+            <span>
+              {restaurant.nombre_local || restaurant.slug || `Sucursal ${restaurant.id}`}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  )}
+</div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
           <div>
