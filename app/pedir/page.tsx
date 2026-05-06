@@ -5,6 +5,14 @@ import { useSearchParams } from 'next/navigation';
 import type { BusinessMode } from '@/lib/plans';
 import { supabase } from '@/lib/supabaseClient';
 
+type ProductRestaurantConfig = {
+  restaurant_id: string;
+  visible_en_menu: boolean;
+  control_stock: boolean;
+  stock_actual: number | string | null;
+  permitir_sin_stock: boolean;
+};
+
 type Producto = {
   id: number;
   nombre: string;
@@ -17,6 +25,7 @@ type Producto = {
   stock_actual?: number | null;
   permitir_sin_stock?: boolean | null;
   marca_id?: string | null;
+  restaurant_configs?: ProductRestaurantConfig[];
 };
 
 type Marca = {
@@ -84,10 +93,52 @@ function isRestaurantClosedForOrdering(value: unknown) {
   return estado === 'cerrado' || estado === 'pausado';
 }
 
+function normalizeStockQuantity(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.trunc(num));
+}
+
+function getEffectiveStockInfo(producto: Producto) {
+  const configs = Array.isArray(producto.restaurant_configs)
+    ? producto.restaurant_configs
+    : [];
+
+  const visibleConfigs = configs.filter(
+    (config) => config.visible_en_menu !== false
+  );
+
+  const stockConfigs = visibleConfigs.filter(
+    (config) => config.control_stock === true
+  );
+
+  if (stockConfigs.length > 0) {
+    return {
+      controlStock: true,
+      stock: stockConfigs.reduce(
+        (total, config) => total + normalizeStockQuantity(config.stock_actual),
+        0
+      ),
+      permitirSinStock: stockConfigs.some(
+        (config) => config.permitir_sin_stock === true
+      ),
+    };
+  }
+
+  return {
+    controlStock: producto.control_stock === true,
+    stock: normalizeStockQuantity(producto.stock_actual),
+    permitirSinStock: producto.permitir_sin_stock === true,
+  };
+}
+
 function getStockDisponible(producto: Producto) {
-  if (!producto.control_stock) return null;
-  if (producto.permitir_sin_stock) return null;
-  return Math.max(Number(producto.stock_actual ?? 0), 0);
+  const stockInfo = getEffectiveStockInfo(producto);
+
+  if (!stockInfo.controlStock) return null;
+  if (stockInfo.permitirSinStock) return null;
+
+  return stockInfo.stock;
 }
 
 function isProductoAgotado(producto: Producto) {
@@ -101,13 +152,13 @@ function getMaxCantidadCarrito(producto: Producto) {
 }
 
 function getStockMessage(producto: Producto) {
-  if (!producto.control_stock) return null;
-  if (producto.permitir_sin_stock) return 'Stock flexible';
+  const stockInfo = getEffectiveStockInfo(producto);
 
-  const stock = Math.max(Number(producto.stock_actual ?? 0), 0);
+  if (!stockInfo.controlStock) return null;
+  if (stockInfo.permitirSinStock) return 'Stock flexible';
 
-  if (stock <= 0) return 'Sin stock';
-  if (stock <= 5) return `Disponibles: ${stock}`;
+  if (stockInfo.stock <= 0) return 'Sin stock';
+  if (stockInfo.stock <= 5) return `Disponibles: ${stockInfo.stock}`;
 
   return null;
 }
@@ -831,7 +882,7 @@ function PedirPageContent() {
                 <div className="mt-4 space-y-3">
                   {carrito.map((item) => {
                     const maxCantidad = getMaxCantidadCarrito(item.producto);
-                    const tieneLimite = Number.isFinite(maxCantidad);
+                    const tieneLimite = maxCantidad !== Number.MAX_SAFE_INTEGER;
 
                     return (
                       <div

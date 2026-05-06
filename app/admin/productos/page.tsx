@@ -164,41 +164,57 @@ function getProductAllowsWithoutStock(producto: Producto) {
   );
 }
 
+function getEffectiveStock(producto: Producto) {
+  const configs = Array.isArray(producto.restaurant_configs)
+    ? producto.restaurant_configs
+    : [];
+
+  const visibleConfigs = configs.filter(
+    (config) => config.visible_en_menu !== false
+  );
+
+  const stockConfigs = visibleConfigs.filter(
+    (config) => config.control_stock === true
+  );
+
+  if (stockConfigs.length > 0) {
+    const totalStock = stockConfigs.reduce(
+      (total, config) => total + Number(config.stock_actual ?? 0),
+      0
+    );
+
+    const permitirSinStock = stockConfigs.some(
+      (config) => config.permitir_sin_stock === true
+    );
+
+    return {
+      controlStock: true,
+      stock: totalStock,
+      permitirSinStock,
+      source: 'restaurant_configs' as const,
+    };
+  }
+
+  return {
+    controlStock: producto.control_stock === true,
+    stock: Number(producto.stock_actual ?? 0),
+    permitirSinStock: producto.permitir_sin_stock === true,
+    source: 'producto' as const,
+  };
+}
+
 function getStockLabel(producto: Producto) {
-  const visibleConfigs = (producto.restaurant_configs ?? []).filter(
-    (config) => config.visible_en_menu
-  );
+  const stockInfo = getEffectiveStock(producto);
 
-  const hasRestaurantStockControl = visibleConfigs.some(
-    (config) => config.control_stock
-  );
-
-  const controlStock = !!producto.control_stock || hasRestaurantStockControl;
-
-  if (!controlStock) {
+  if (!stockInfo.controlStock) {
     return {
       text: 'Sin control de stock',
       className: 'bg-slate-100 text-slate-700',
     };
   }
 
-  const stock =
-    visibleConfigs.length > 0
-      ? visibleConfigs.reduce(
-          (total, config) => total + Number(config.stock_actual ?? 0),
-          0
-        )
-      : Number(producto.stock_actual ?? 0);
-
-  const permitirSinStock =
-    visibleConfigs.length > 0
-      ? visibleConfigs.some(
-          (config) => config.control_stock && config.permitir_sin_stock
-        )
-      : !!producto.permitir_sin_stock;
-
-  if (stock <= 0) {
-    return permitirSinStock
+  if (stockInfo.stock <= 0) {
+    return stockInfo.permitirSinStock
       ? {
           text: 'Stock 0 · vende igual',
           className: 'bg-amber-100 text-amber-800',
@@ -211,9 +227,9 @@ function getStockLabel(producto: Producto) {
 
   return {
     text:
-      visibleConfigs.length > 1
-        ? `Stock sucursales: ${stock}`
-        : `Stock: ${stock}`,
+      stockInfo.source === 'restaurant_configs'
+        ? `Stock sucursales: ${stockInfo.stock}`
+        : `Stock: ${stockInfo.stock}`,
     className: 'bg-sky-100 text-sky-800',
   };
 }
