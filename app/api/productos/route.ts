@@ -433,9 +433,8 @@ export async function GET(req: NextRequest) {
 
     if (error) throw error;
 
-    const enriched = await enrichProductsWithRestaurantIds(
-      ((data ?? []) as ProductoRow[]) ?? []
-    );
+    const productosData = (data ?? []) as ProductoRow[];
+const enriched = await enrichProductsWithRestaurantIds(productosData);
 
     return NextResponse.json(enriched);
   } catch (error) {
@@ -504,19 +503,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const requestedRestaurantIds = normalizeIdList(
-      body?.restaurant_ids ?? body?.restaurantIds
-    );
+    const restaurantIdsWasProvided =
+  Array.isArray(body?.restaurant_ids) || Array.isArray(body?.restaurantIds);
 
-    const activeRestaurants = await getActiveRestaurantsForTenant(access);
-    const defaultRestaurantIds = activeRestaurants.map((restaurant) =>
-      String(restaurant.id)
-    );
+const rawRestaurantIds = Array.isArray(body?.restaurant_ids)
+  ? body.restaurant_ids
+  : body?.restaurantIds;
 
-    const restaurantIdsToUse =
-      requestedRestaurantIds.length > 0
-        ? requestedRestaurantIds
-        : defaultRestaurantIds;
+const requestedRestaurantIds = normalizeIdList(rawRestaurantIds);
+
+const activeRestaurants = await getActiveRestaurantsForTenant(access);
+const defaultRestaurantIds = activeRestaurants.map((restaurant) =>
+  String(restaurant.id)
+);
+
+const restaurantIdsToUse = restaurantIdsWasProvided
+  ? requestedRestaurantIds
+  : defaultRestaurantIds;
 
     const { data, error } = await supabaseAdmin
       .from('productos')
