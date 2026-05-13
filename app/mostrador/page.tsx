@@ -1573,14 +1573,14 @@ const { error: updateError } = await cerrarQuery;
               </button>
 
               <button
-                onClick={() => router.push('/cocina')}
+                onClick={() => router.push(`/cocina?${restaurantScopeQuery}`)}
                 className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Ver cocina
               </button>
 
               <button
-                onClick={() => router.push('/retiro')}
+                onClick={() => router.push(`/retiro?${restaurantScopeQuery}`)}
                 className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
               >
                 Ver pantalla pública
@@ -1588,7 +1588,7 @@ const { error: updateError } = await cerrarQuery;
 
               {businessMode === 'restaurant' && canUseWaiterMode ? (
                 <button
-                  onClick={() => router.push('/mozo/mesas')}
+                  onClick={() => router.push(`/mozo/mesas?${restaurantScopeQuery}`)}
                   className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
                 >
                   Ver mozo
