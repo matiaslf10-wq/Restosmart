@@ -630,7 +630,8 @@ async function resolveBusinessMode(restaurant: RestaurantContext | null) {
 
 async function resolveMesaIdForPedido(
   rawMesaId: number,
-  tipoServicio: TipoServicio
+  tipoServicio: TipoServicio,
+  restaurantId: string | number
 ) {
   if (tipoServicio !== 'mesa') {
     return { ok: true as const, mesaId: SIN_MESA_ID };
@@ -650,6 +651,7 @@ async function resolveMesaIdForPedido(
     .from('mesas')
     .select('id')
     .eq('id', rawMesaId)
+    .eq('restaurant_id', restaurantId)
     .maybeSingle();
 
   if (mesaError) {
@@ -668,7 +670,7 @@ async function resolveMesaIdForPedido(
     return {
       ok: false as const,
       response: NextResponse.json(
-        { error: 'La mesa indicada no existe.' },
+        { error: 'La mesa indicada no existe para esta sucursal.' },
         { status: 400 }
       ),
     };
@@ -748,34 +750,77 @@ function extractTakeawayDataFromItems(items: PedidoItemInput[]) {
 export async function GET(request: NextRequest) {
   try {
     const ctx = await resolveRestaurantContextForRequest(request);
-const businessMode = await resolveBusinessMode(ctx);
+    const businessMode = await resolveBusinessMode(ctx);
 
-let pedidosQuery = supabaseAdmin
-  .from('pedidos')
-  .select('*')
-  .order('creado_en', { ascending: false })
-  .limit(50);
+    if (!ctx?.id) {
+      return NextResponse.json(
+        { error: 'No se pudo identificar la sucursal.' },
+        { status: 400 }
+      );
+    }
 
-if (ctx?.id != null) {
-  pedidosQuery = pedidosQuery.eq('restaurant_id', ctx.id);
-}
+    const { data: pedidos, error: pedidosError } = await supabaseAdmin
+      .from('pedidos')
+      .select(
+        `
+          id,
+          restaurant_id,
+          mesa_id,
+          creado_en,
+          estado,
+          total,
+          codigo_publico,
+          origen,
+          tipo_servicio,
+          cliente_nombre,
+          medio_pago,
+          estado_pago,
+          forma_pago,
+          paga_efectivo,
+          efectivo_aprobado,
+          pasado_a_caja,
+          items_pedido (
+            id,
+            cantidad,
+            comentarios,
+            producto:productos ( id, nombre, precio, marca_id )
+          )
+        `
+      )
+      .eq('restaurant_id', ctx.id)
+      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
+      .order('creado_en', { ascending: false })
+      .limit(100);
 
-const { data, error } = await pedidosQuery;
+    if (pedidosError) {
+      return NextResponse.json(
+        { error: pedidosError.message },
+        { status: 500 }
+      );
+    }
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    const { data: mesas, error: mesasError } = await supabaseAdmin
+      .from('mesas')
+      .select('id, numero, nombre, restaurant_id')
+      .eq('restaurant_id', ctx.id)
+      .order('numero', { ascending: true });
+
+    if (mesasError) {
+      return NextResponse.json(
+        { error: mesasError.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
-      pedidos: data ?? [],
-      restaurant: ctx
-  ? {
-      id: ctx.id,
-      slug: ctx.slug,
-      plan: normalizePlan(ctx.plan),
-      estado: ctx.estado ?? 'activo',
-    }
-  : null,
+      pedidos: pedidos ?? [],
+      mesas: mesas ?? [],
+      restaurant: {
+        id: ctx.id,
+        slug: ctx.slug,
+        plan: normalizePlan(ctx.plan),
+        estado: ctx.estado ?? 'activo',
+      },
       meta: {
         business_mode: businessMode,
         default_identity: businessMode === 'takeaway' ? 'persona' : 'mesa',
@@ -960,8 +1005,11 @@ if (stockControlEnabled && insufficientProducts.length > 0) {
   );
 }
 
-    const mesaResolution = await resolveMesaIdForPedido(rawMesaId, tipoServicio);
-
+const mesaResolution = await resolveMesaIdForPedido(
+  rawMesaId,
+  tipoServicio,
+  restaurant.id
+);
     if (!mesaResolution.ok) {
       return mesaResolution.response;
     }

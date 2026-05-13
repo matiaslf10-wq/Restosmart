@@ -34,6 +34,7 @@ type ItemPedido = {
 
 type Pedido = {
   id: number;
+    restaurant_id?: string | number | null;
   mesa_id: number;
   creado_en: string;
   estado: string;
@@ -55,6 +56,7 @@ type MesaRef = {
   id: number;
   numero: number | null;
   nombre: string | null;
+  restaurant_id?: string | number | null;
 };
 
 type Producto = {
@@ -493,6 +495,9 @@ function MostradorPageContent() {
   const [businessMode, setBusinessMode] = useState<BusinessMode>('restaurant');
   const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
   const [canUseMultiBrand, setCanUseMultiBrand] = useState(false);
+  const [currentRestaurantId, setCurrentRestaurantId] = useState<
+  string | number | null
+>(null);
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [mesasMap, setMesasMap] = useState<Record<number, MesaRef>>({});
@@ -650,72 +655,59 @@ setBusinessMode(
   setError(null);
 
   try {
-    const pedidosPromise = supabase
-      .from('pedidos')
-      .select(
-        `
-          id,
-          mesa_id,
-          creado_en,
-          estado,
-          total,
-          codigo_publico,
-          origen,
-          tipo_servicio,
-          cliente_nombre,
-          medio_pago,
-          estado_pago,
-          forma_pago,
-          paga_efectivo,
-          efectivo_aprobado,
-          pasado_a_caja,
-          items_pedido (
-            id,
-            cantidad,
-            comentarios,
-            producto:productos ( id, nombre, precio, marca_id )
-          )
-        `
-      )
-      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
-      .order('creado_en', { ascending: false });
-
-    const mesasPromise = supabase
-      .from('mesas')
-      .select('id, numero, nombre');
-
-    const productosPromise = fetch('/api/productos?soloDisponibles=1', {
-  method: 'GET',
-  cache: 'no-store',
-});
-
-const marcasPromise = canUseMultiBrand
-  ? fetch('/api/admin/marcas', {
+    const pedidosPromise = fetch('/api/pedidos?scope=mostrador', {
       method: 'GET',
       cache: 'no-store',
       credentials: 'include',
-    })
-  : Promise.resolve(null);
+    });
 
-const [
-  { data: pedidosData, error: pedidosError },
-  { data: mesasData, error: mesasError },
-  productosRes,
-  marcasRes,
-] = await Promise.all([
-  pedidosPromise,
-  mesasPromise,
-  productosPromise,
-  marcasPromise,
-]);
+    const productosPromise = fetch('/api/productos?soloDisponibles=1', {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'include',
+    });
 
-    if (pedidosError) {
-      console.error('Error cargando pedidos en mostrador:', pedidosError);
-      setError('No se pudieron cargar los pedidos de mostrador.');
+    const marcasPromise = canUseMultiBrand
+      ? fetch('/api/admin/marcas', {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'include',
+        })
+      : Promise.resolve(null);
+
+    const [pedidosRes, productosRes, marcasRes] = await Promise.all([
+      pedidosPromise,
+      productosPromise,
+      marcasPromise,
+    ]);
+
+    const pedidosBody = await pedidosRes.json().catch(() => null);
+
+    if (!pedidosRes.ok) {
+      console.error('Error cargando pedidos en mostrador por API:', {
+        status: pedidosRes.status,
+        body: pedidosBody,
+      });
+
+      setError(
+        pedidosBody?.error || 'No se pudieron cargar los pedidos de mostrador.'
+      );
       setPedidos([]);
+      setMesasMap({});
+      setMesasList([]);
     } else {
+      const restaurantId = pedidosBody?.restaurant?.id ?? null;
+      setCurrentRestaurantId(restaurantId);
+
+      if (pedidosBody?.meta?.business_mode) {
+        setBusinessMode(normalizeBusinessMode(pedidosBody.meta.business_mode));
+      }
+
+      const pedidosData = pedidosBody?.pedidos ?? [];
+
       const formateados: Pedido[] = ((pedidosData ?? []) as any[]).map((p) => ({
         id: p.id,
+        restaurant_id: p.restaurant_id ?? null,
         mesa_id: p.mesa_id,
         creado_en: p.creado_en,
         estado: p.estado,
@@ -764,12 +756,8 @@ const [
 
         knownPedidoIdsRef.current = currentIds;
       }
-    }
 
-    if (mesasError) {
-      console.error('Error cargando mesas en mostrador:', mesasError);
-    } else {
-      const mesasTodas = ((mesasData ?? []) as MesaRef[])
+      const mesasTodas = ((pedidosBody?.mesas ?? []) as MesaRef[])
         .filter((mesa) => mesa.id >= DELIVERY_MESA_ID)
         .sort(sortMesas);
 
@@ -827,24 +815,24 @@ const [
       });
 
       if (!canUseMultiBrand) {
-  setMarcas([]);
-} else if (marcasRes) {
-  const marcasBody = await marcasRes.json().catch(() => null);
+        setMarcas([]);
+      } else if (marcasRes) {
+        const marcasBody = await marcasRes.json().catch(() => null);
 
-  if (!marcasRes.ok) {
-    console.error('Error cargando marcas en mostrador:', {
-      status: marcasRes.status,
-      body: marcasBody,
-    });
-    setMarcas([]);
-  } else {
-    const marcasData = ((marcasBody?.marcas ?? []) as Marca[]).filter(
-      (marca) => marca.activa !== false
-    );
+        if (!marcasRes.ok) {
+          console.error('Error cargando marcas en mostrador:', {
+            status: marcasRes.status,
+            body: marcasBody,
+          });
+          setMarcas([]);
+        } else {
+          const marcasData = ((marcasBody?.marcas ?? []) as Marca[]).filter(
+            (marca) => marca.activa !== false
+          );
 
-    setMarcas(marcasData);
-  }
-}
+          setMarcas(marcasData);
+        }
+      }
     }
   } catch (err) {
     console.error('Error inesperado cargando mostrador:', err);
@@ -1190,10 +1178,16 @@ function renderMarcaBadge(
     setMensaje(null);
     setError(null);
 
-    const { error: updateError } = await supabase
-      .from('pedidos')
-      .update({ estado: nuevoEstado })
-      .eq('id', pedidoId);
+    let updateQuery = supabase
+  .from('pedidos')
+  .update({ estado: nuevoEstado })
+  .eq('id', pedidoId);
+
+if (currentRestaurantId != null) {
+  updateQuery = updateQuery.eq('restaurant_id', currentRestaurantId);
+}
+
+const { error: updateError } = await updateQuery;
 
     if (updateError) {
       console.error('No se pudo actualizar el pedido:', updateError);
@@ -1228,10 +1222,16 @@ function renderMarcaBadge(
       return;
     }
 
-    const { error: pedidoError } = await supabase
-      .from('pedidos')
-      .update({ estado: 'en_preparacion' })
-      .eq('id', pedidoId);
+    let pedidoUpdateQuery = supabase
+  .from('pedidos')
+  .update({ estado: 'en_preparacion' })
+  .eq('id', pedidoId);
+
+if (currentRestaurantId != null) {
+  pedidoUpdateQuery = pedidoUpdateQuery.eq('restaurant_id', currentRestaurantId);
+}
+
+const { error: pedidoError } = await pedidoUpdateQuery;
 
     if (pedidoError) {
       console.error(
@@ -1279,10 +1279,16 @@ function renderMarcaBadge(
       return;
     }
 
-    const { error: pedidoError } = await supabase
-      .from('pedidos')
-      .update({ estado: 'en_preparacion' })
-      .eq('id', pedido.id);
+    let pedidoUpdateQuery = supabase
+  .from('pedidos')
+  .update({ estado: 'en_preparacion' })
+  .eq('id', pedido.id);
+
+if (currentRestaurantId != null) {
+  pedidoUpdateQuery = pedidoUpdateQuery.eq('restaurant_id', currentRestaurantId);
+}
+
+const { error: pedidoError } = await pedidoUpdateQuery;
 
     if (pedidoError) {
       console.error(
@@ -1316,10 +1322,16 @@ function renderMarcaBadge(
 
     const ids = mesa.pedidos.map((pedido) => pedido.id);
 
-    const { error: updateError } = await supabase
+    let cerrarQuery = supabase
   .from('pedidos')
   .update({ estado: 'cerrado', pasado_a_caja: false })
   .in('id', ids);
+
+if (currentRestaurantId != null) {
+  cerrarQuery = cerrarQuery.eq('restaurant_id', currentRestaurantId);
+}
+
+const { error: updateError } = await cerrarQuery;
 
     if (updateError) {
       console.error('No se pudo cerrar la cuenta de la mesa:', updateError);
