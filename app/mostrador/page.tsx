@@ -489,7 +489,7 @@ function MostradorPageContent() {
 
     return parsed;
   }, [searchParams]);
-  
+
   const restaurantScopeQuery = useMemo(() => {
   const params = new URLSearchParams();
 
@@ -520,6 +520,9 @@ function MostradorPageContent() {
   const [currentRestaurantId, setCurrentRestaurantId] = useState<
   string | number | null
 >(null);
+const [currentRestaurantLabel, setCurrentRestaurantLabel] = useState(
+  'Sucursal no identificada'
+);
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [mesasMap, setMesasMap] = useState<Record<number, MesaRef>>({});
@@ -718,8 +721,17 @@ setBusinessMode(
       setMesasMap({});
       setMesasList([]);
     } else {
-      const restaurantId = pedidosBody?.restaurant?.id ?? null;
-      setCurrentRestaurantId(restaurantId);
+      const restaurantData = pedidosBody?.restaurant ?? null;
+const restaurantId = restaurantData?.id ?? null;
+
+const restaurantLabel = String(
+  restaurantData?.nombre_local ??
+    restaurantData?.slug ??
+    (restaurantId != null ? `Sucursal ${restaurantId}` : 'Sucursal no identificada')
+).trim();
+
+setCurrentRestaurantId(restaurantId);
+setCurrentRestaurantLabel(restaurantLabel || 'Sucursal no identificada');
 
       if (pedidosBody?.meta?.business_mode) {
         setBusinessMode(normalizeBusinessMode(pedidosBody.meta.business_mode));
@@ -1494,6 +1506,10 @@ const { error: updateError } = await cerrarQuery;
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                   Modo {formatBusinessModeLabel(businessMode)}
                 </span>
+
+                <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-800">
+  Sucursal: {currentRestaurantLabel}
+</span>
 
                 <span
                   className={`rounded-full px-3 py-1 text-xs font-semibold ${

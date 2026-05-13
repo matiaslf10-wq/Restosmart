@@ -750,14 +750,25 @@ function extractTakeawayDataFromItems(items: PedidoItemInput[]) {
 export async function GET(request: NextRequest) {
   try {
     const ctx = await resolveRestaurantContextForRequest(request);
-    const businessMode = await resolveBusinessMode(ctx);
+const businessMode = await resolveBusinessMode(ctx);
 
-    if (!ctx?.id) {
-      return NextResponse.json(
-        { error: 'No se pudo identificar la sucursal.' },
-        { status: 400 }
-      );
-    }
+if (!ctx?.id) {
+  return NextResponse.json(
+    { error: 'No se pudo identificar la sucursal.' },
+    { status: 400 }
+  );
+}
+
+const { data: localConfig, error: localConfigError } = await supabaseAdmin
+  .from('configuracion_local')
+  .select('nombre_local, direccion')
+  .eq('restaurant_id', ctx.id)
+  .limit(1)
+  .maybeSingle();
+
+if (localConfigError) {
+  console.error('GET /api/pedidos - no se pudo leer configuracion_local:', localConfigError);
+}
 
     const { data: pedidos, error: pedidosError } = await supabaseAdmin
       .from('pedidos')
@@ -816,11 +827,16 @@ export async function GET(request: NextRequest) {
       pedidos: pedidos ?? [],
       mesas: mesas ?? [],
       restaurant: {
-        id: ctx.id,
-        slug: ctx.slug,
-        plan: normalizePlan(ctx.plan),
-        estado: ctx.estado ?? 'activo',
-      },
+  id: String(ctx.id),
+  slug: ctx.slug,
+  nombre_local:
+    localConfig?.nombre_local?.trim() ||
+    ctx.slug ||
+    `Sucursal ${ctx.id}`,
+  direccion: localConfig?.direccion ?? null,
+  plan: normalizePlan(ctx.plan),
+  estado: ctx.estado ?? 'activo',
+},
       meta: {
         business_mode: businessMode,
         default_identity: businessMode === 'takeaway' ? 'persona' : 'mesa',
