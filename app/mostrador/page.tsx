@@ -1433,12 +1433,13 @@ const { error: updateError } = await cerrarQuery;
       };
 
       const res = await fetch(`/api/pedidos?${restaurantScopeQuery}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  credentials: 'include',
+  body: JSON.stringify(payload),
+});
 
       const body = await res.json().catch(() => null);
 
