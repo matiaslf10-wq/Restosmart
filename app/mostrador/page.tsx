@@ -655,7 +655,7 @@ setBusinessMode(
   setError(null);
 
   try {
-    const pedidosPromise = fetch('/api/pedidos?scope=mostrador', {
+    const pedidosPromise = fetch(`/api/pedidos?${restaurantScopeQuery}`, {
       method: 'GET',
       cache: 'no-store',
       credentials: 'include',
@@ -846,6 +846,7 @@ setBusinessMode(
   manualMesaId,
   marcarPedidosComoNuevos,
   reproducirSonidoNuevoPedido,
+  restaurantScopeQuery,
 ]);
 
   useEffect(() => {
@@ -1394,7 +1395,7 @@ const { error: updateError } = await cerrarQuery;
         })),
       };
 
-      const res = await fetch('/api/pedidos', {
+      const res = await fetch(`/api/pedidos?${restaurantScopeQuery}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1501,6 +1502,27 @@ const { error: updateError } = await cerrarQuery;
                     Foco en mesa {focusMesaId}
                   </span>
                 ) : null}
+                const restaurantScopeQuery = useMemo(() => {
+  const params = new URLSearchParams();
+
+  params.set('scope', 'mostrador');
+
+  const restaurantId =
+    searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
+
+  const restaurantSlug =
+    searchParams.get('restaurantSlug') ??
+    searchParams.get('restaurant') ??
+    searchParams.get('slug');
+
+  if (restaurantId) {
+    params.set('restaurantId', restaurantId);
+  } else if (restaurantSlug) {
+    params.set('restaurantSlug', restaurantSlug);
+  }
+
+  return params.toString();
+}, [searchParams]);
               </div>
 
               <h1 className="mt-4 text-3xl font-bold text-slate-900">
