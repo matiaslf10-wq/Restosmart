@@ -686,11 +686,14 @@ setBusinessMode(
       credentials: 'include',
     });
 
-    const productosPromise = fetch('/api/productos?soloDisponibles=1', {
-      method: 'GET',
-      cache: 'no-store',
-      credentials: 'include',
-    });
+    const productosQuery = new URLSearchParams(restaurantScopeQuery);
+productosQuery.set('soloDisponibles', '1');
+
+const productosPromise = fetch(`/api/productos?${productosQuery.toString()}`, {
+  method: 'GET',
+  cache: 'no-store',
+  credentials: 'include',
+});
 
     const marcasPromise = canUseMultiBrand
       ? fetch('/api/admin/marcas', {
