@@ -35,7 +35,30 @@ type AdminSessionPayload = {
   } | null;
 };
 
-type CardTone = 'default' | 'pro' | 'intelligence' | 'addon' | 'not_applicable';
+type RestaurantStatus = 'activo' | 'pausado' | 'cerrado';
+
+type RestaurantItem = {
+  id: string;
+  slug: string;
+  nombre_local: string;
+  direccion: string;
+  telefono: string;
+  celular: string;
+  email: string;
+  horario_atencion: string;
+  business_mode: BusinessMode;
+  multi_brand?: boolean;
+  estado: RestaurantStatus;
+  cerrado_en?: string | null;
+  cerrado_motivo?: string | null;
+};
+
+type CardTone =
+  | 'default'
+  | 'pro'
+  | 'intelligence'
+  | 'addon'
+  | 'not_applicable';
 
 type QuickLink = {
   href?: string;
@@ -80,6 +103,18 @@ function getBadgeClassName(tone: CardTone = 'default') {
     default:
       return 'bg-slate-100 text-slate-700';
   }
+}
+
+function getRestaurantName(restaurant: RestaurantItem) {
+  return (
+    restaurant.nombre_local?.trim() ||
+    restaurant.slug?.trim() ||
+    `Sucursal ${restaurant.id}`
+  );
+}
+
+function getScopedHref(path: string, restaurantId: string) {
+  return `${path}?restaurantId=${encodeURIComponent(restaurantId)}`;
 }
 
 function QuickAccessCard({
@@ -135,6 +170,192 @@ function QuickAccessCard({
   );
 }
 
+function RestaurantAccessCard({
+  restaurant,
+  mesaId,
+  planAllowsMozo,
+  hasOperationalManagement,
+}: {
+  restaurant: RestaurantItem;
+  mesaId: number;
+  planAllowsMozo: boolean;
+  hasOperationalManagement: boolean;
+}) {
+  const businessMode = normalizeBusinessMode(restaurant.business_mode);
+  const isRestaurant = businessMode === 'restaurant';
+  const isTakeAway = businessMode === 'takeaway';
+  const restaurantName = getRestaurantName(restaurant);
+
+  const mostradorHref = getScopedHref('/mostrador', restaurant.id);
+  const cocinaHref = getScopedHref('/cocina', restaurant.id);
+  const operacionesHref = getScopedHref('/admin/operaciones', restaurant.id);
+  const configuracionHref = getScopedHref('/admin/configuracion', restaurant.id);
+  const mesasHref = getScopedHref('/admin/mesas', restaurant.id);
+  const mozoHref = getScopedHref('/mozo/mesas', restaurant.id);
+  const pedirHref = getScopedHref('/pedir', restaurant.id);
+  const retiroHref = getScopedHref('/retiro', restaurant.id);
+  const mesaClienteHref = `/mesa/${mesaId}?restaurantId=${encodeURIComponent(
+    restaurant.id
+  )}`;
+
+  return (
+    <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                isRestaurant
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-amber-100 text-amber-800'
+              }`}
+            >
+              {formatBusinessModeLabel(businessMode)}
+            </span>
+
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              ID sucursal: {restaurant.id}
+            </span>
+          </div>
+
+          <h2 className="mt-4 text-2xl font-bold text-slate-900">
+            {restaurantName}
+          </h2>
+
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+            {restaurant.direccion?.trim()
+              ? restaurant.direccion
+              : isRestaurant
+              ? 'Sucursal configurada para operación con mesas.'
+              : 'Sucursal configurada para operación take away.'}
+          </p>
+        </div>
+
+        <Link
+          href={configuracionHref}
+          className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Configurar
+        </Link>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <Link
+          href={mostradorHref}
+          className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          🧾 Abrir mostrador
+          <span className="mt-1 block text-xs font-normal text-amber-800">
+            Caja, cobro, cierre y operación diaria de esta sucursal.
+          </span>
+        </Link>
+
+        <Link
+          href={cocinaHref}
+          className="rounded-2xl border border-sky-300 bg-sky-50 px-4 py-4 text-sm font-semibold text-sky-900 hover:bg-sky-100"
+        >
+          👨‍🍳 Abrir cocina
+          <span className="mt-1 block text-xs font-normal text-sky-800">
+            Preparación de pedidos de esta sucursal.
+          </span>
+        </Link>
+
+        {hasOperationalManagement ? (
+          <Link
+            href={operacionesHref}
+            className="rounded-2xl border border-slate-300 bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+          >
+            📍 Operaciones
+            <span className="mt-1 block text-xs font-normal text-slate-700">
+              Tablero operativo filtrado por sucursal.
+            </span>
+          </Link>
+        ) : (
+          <Link
+            href="/#precios"
+            className="rounded-2xl border border-blue-300 bg-blue-50 px-4 py-4 text-sm font-semibold text-blue-900 hover:bg-blue-100"
+          >
+            📍 Operaciones
+            <span className="mt-1 block text-xs font-normal text-blue-800">
+              Disponible desde Pro.
+            </span>
+          </Link>
+        )}
+
+        {isRestaurant ? (
+          <>
+            <Link
+              href={mesasHref}
+              className="rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-4 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
+            >
+              🔗 Mesas y QR
+              <span className="mt-1 block text-xs font-normal text-emerald-800">
+                Alta de mesas y QR propios de esta sucursal.
+              </span>
+            </Link>
+
+            <Link
+              href={mesaClienteHref}
+              className="rounded-2xl border border-emerald-300 bg-white px-4 py-4 text-sm font-semibold text-emerald-900 hover:bg-emerald-50"
+            >
+              🪑 Probar mesa {mesaId}
+              <span className="mt-1 block text-xs font-normal text-emerald-800">
+                Entrada pública de cliente para esta sucursal.
+              </span>
+            </Link>
+
+            {planAllowsMozo ? (
+              <Link
+                href={mozoHref}
+                className="rounded-2xl border border-blue-300 bg-blue-50 px-4 py-4 text-sm font-semibold text-blue-900 hover:bg-blue-100"
+              >
+                🍽️ Abrir mozo
+                <span className="mt-1 block text-xs font-normal text-blue-800">
+                  Salón y mesas de esta sucursal.
+                </span>
+              </Link>
+            ) : (
+              <Link
+                href="/#precios"
+                className="rounded-2xl border border-blue-300 bg-blue-50 px-4 py-4 text-sm font-semibold text-blue-900 hover:bg-blue-100"
+              >
+                🍽️ Mozo
+                <span className="mt-1 block text-xs font-normal text-blue-800">
+                  Disponible desde Pro.
+                </span>
+              </Link>
+            )}
+          </>
+        ) : null}
+
+        {isTakeAway ? (
+          <>
+            <Link
+              href={pedirHref}
+              className="rounded-2xl border border-amber-300 bg-white px-4 py-4 text-sm font-semibold text-amber-900 hover:bg-amber-50"
+            >
+              🥡 Pedido público
+              <span className="mt-1 block text-xs font-normal text-amber-800">
+                Entrada take away para esta sucursal.
+              </span>
+            </Link>
+
+            <Link
+              href={retiroHref}
+              className="rounded-2xl border border-amber-300 bg-white px-4 py-4 text-sm font-semibold text-amber-900 hover:bg-amber-50"
+            >
+              📺 Pantalla de retiro
+              <span className="mt-1 block text-xs font-normal text-amber-800">
+                Pedidos listos y en preparación de esta sucursal.
+              </span>
+            </Link>
+          </>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
 export default function InicioPage() {
   const router = useRouter();
 
@@ -142,7 +363,9 @@ export default function InicioPage() {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [sessionData, setSessionData] =
     useState<AdminSessionPayload | null>(null);
+  const [restaurants, setRestaurants] = useState<RestaurantItem[]>([]);
   const [error, setError] = useState('');
+  const [restaurantsError, setRestaurantsError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -151,25 +374,45 @@ export default function InicioPage() {
       try {
         setCheckingAccess(true);
         setError('');
+        setRestaurantsError('');
 
-        const res = await fetch('/api/admin/session', {
-          method: 'GET',
-          cache: 'no-store',
-          credentials: 'include',
-        });
+        const [sessionRes, restaurantsRes] = await Promise.all([
+          fetch('/api/admin/session', {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'include',
+          }),
+          fetch('/api/admin/restaurants', {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'include',
+          }),
+        ]);
 
-        const payload = await res.json().catch(() => null);
+        const sessionPayload = await sessionRes.json().catch(() => null);
 
-        if (!res.ok) {
+        if (!sessionRes.ok) {
           router.replace('/admin/login');
           return;
         }
 
+        const restaurantsPayload = await restaurantsRes.json().catch(() => null);
+
         if (!active) return;
 
         setSessionData(
-          (payload?.session as AdminSessionPayload | null) ?? null
+          (sessionPayload?.session as AdminSessionPayload | null) ?? null
         );
+
+        if (!restaurantsRes.ok) {
+          setRestaurants([]);
+          setRestaurantsError(
+            restaurantsPayload?.error ||
+              'No se pudieron cargar las sucursales del tenant.'
+          );
+        } else {
+          setRestaurants((restaurantsPayload?.items ?? []) as RestaurantItem[]);
+        }
       } catch (err) {
         console.error('No se pudo cargar inicio', err);
 
@@ -203,26 +446,28 @@ export default function InicioPage() {
   const plan = sessionData?.plan ?? sessionData?.restaurant?.plan ?? 'esencial';
   const planLabel = formatPlanLabel(plan);
 
-  const businessMode = normalizeBusinessMode(
+  const sessionBusinessMode = normalizeBusinessMode(
     sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
   );
 
-  const businessModeLabel = formatBusinessModeLabel(businessMode);
+  const businessModeLabel = formatBusinessModeLabel(sessionBusinessMode);
   const tenantLabel =
     sessionData?.restaurant?.slug || sessionData?.tenantId || 'default';
 
   const capabilities = sessionData?.capabilities ?? {};
   const addons = sessionData?.addons ?? {};
 
-  const isRestaurant = businessMode === 'restaurant';
-  const isTakeAway = businessMode === 'takeaway';
-
   const hasOperationalManagement =
     plan === 'pro' || plan === 'intelligence';
 
-  const canUseMozo = isRestaurant && capabilities.waiter_mode === true;
+  const planAllowsMozo = plan === 'pro' || plan === 'intelligence';
   const canUseAnalytics = capabilities.analytics === true;
   const hasWhatsappDelivery = addons.whatsapp_delivery === true;
+
+  const activeRestaurants = useMemo(
+    () => restaurants.filter((restaurant) => restaurant.estado === 'activo'),
+    [restaurants]
+  );
 
   const planSummary = useMemo(() => {
     if (plan === 'intelligence') {
@@ -238,9 +483,7 @@ export default function InicioPage() {
       return {
         title: 'Pro activo',
         description:
-          isRestaurant
-            ? 'Tenés gestión operativa ampliada y modo mozo para ordenar mejor el salón.'
-            : 'Tenés gestión operativa ampliada para ordenar mejor mostrador, cocina y retiro.',
+          'Tenés gestión operativa ampliada. Cada sucursal puede abrir su propio mostrador, cocina y mozo si trabaja con mesas.',
         badgeTone: 'pro' as CardTone,
       };
     }
@@ -248,12 +491,10 @@ export default function InicioPage() {
     return {
       title: 'Esencial activo',
       description:
-        isRestaurant
-          ? 'Tenés la base operativa: menú, cocina, mostrador, mesas y QR. Pro suma gestión operativa ampliada y modo mozo.'
-          : 'Tenés la base operativa para take away: menú, cocina, mostrador, pedido público y retiro.',
+        'Tenés la base operativa. En este inicio elegís la sucursal y desde ahí abrís sus pantallas de trabajo.',
       badgeTone: 'default' as CardTone,
     };
-  }, [isRestaurant, plan]);
+  }, [plan]);
 
   const quickLinks = useMemo<QuickLink[]>(() => {
     const links: QuickLink[] = [
@@ -265,26 +506,24 @@ export default function InicioPage() {
         badge: 'Base',
       },
       {
+        href: '/admin/restaurantes',
+        title: '🏪 Sucursales',
+        description:
+          'Alta, edición y cierre de sucursales del tenant. Desde ahí se organiza la operación multi-sucursal.',
+        badge: 'Multi-tenant',
+      },
+      {
         href: '/admin/productos',
         title: '🍔 Menú / Productos',
         description:
-          'Carga y administración de productos, categorías, precios, imágenes, disponibilidad y marcas.',
+          'Carga y administración de productos, categorías, precios, imágenes, disponibilidad, marcas y visibilidad por sucursal.',
         badge: 'Base',
       },
       {
-        href: '/cocina',
-        title: '👨‍🍳 Cocina',
+        href: '/admin/configuracion',
+        title: '⚙️ Configuración',
         description:
-          'Vista operativa para preparar pedidos y actualizar estados de cocina.',
-        badge: 'Base',
-      },
-      {
-        href: '/mostrador',
-        title: '🧾 Mostrador / Caja',
-        description:
-          isTakeAway
-            ? 'Pantalla central para tomar pedidos, cobrar, entregar y cerrar retiros.'
-            : 'Pantalla central para cobro, cierre de cuenta, apoyo al salón y operación diaria.',
+          'Configuración general del local, modo de negocio y datos operativos.',
         badge: 'Base',
       },
       {
@@ -297,51 +536,6 @@ export default function InicioPage() {
         tone: hasOperationalManagement ? 'default' : 'pro',
       },
     ];
-
-    if (isRestaurant) {
-      links.push({
-        href: '/admin/mesas',
-        title: '🔗 Mesas y QR',
-        description:
-          'Alta de mesas, generación de QR y accesos públicos por mesa para clientes del salón.',
-        badge: 'Restaurante',
-      });
-
-      links.push({
-        href: canUseMozo ? '/mozo/mesas' : '/#precios',
-        title: '🍽️ Mozo',
-        description: canUseMozo
-          ? 'Vista de salón para atención de mesas, seguimiento de pedidos y operación del mozo.'
-          : 'Vista de salón para atención de mesas. Disponible desde Pro en modo restaurante.',
-        badge: canUseMozo ? 'Activo' : 'Pro',
-        tone: canUseMozo ? 'default' : 'pro',
-      });
-    } else {
-      links.push({
-        href: '/pedir',
-        title: '🥡 Pedido Take Away',
-        description:
-          'Entrada pública para que el cliente haga un pedido sin mesa y retire por mostrador.',
-        badge: 'Take Away',
-      });
-
-      links.push({
-        href: '/retiro',
-        title: '📺 Pantalla de retiro',
-        description:
-          'Pantalla pública para mostrar pedidos en preparación y pedidos listos para retirar.',
-        badge: 'Take Away',
-      });
-
-      links.push({
-        title: '🍽️ Mozo',
-        description:
-          'No aplica en modo take away porque no hay atención de salón por mesa.',
-        badge: 'No aplica',
-        tone: 'not_applicable',
-        disabled: true,
-      });
-    }
 
     links.push({
       href: canUseAnalytics ? '/admin/analytics' : '/#precios',
@@ -368,11 +562,8 @@ export default function InicioPage() {
     return links;
   }, [
     canUseAnalytics,
-    canUseMozo,
     hasOperationalManagement,
     hasWhatsappDelivery,
-    isRestaurant,
-    isTakeAway,
   ]);
 
   if (checkingAccess) {
@@ -394,6 +585,12 @@ export default function InicioPage() {
           </div>
         ) : null}
 
+        {restaurantsError ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {restaurantsError}
+          </div>
+        ) : null}
+
         <header className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -406,8 +603,9 @@ export default function InicioPage() {
               </h1>
 
               <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-600">
-                Esta pantalla funciona como antesala después del login. Desde
-                acá elegís a qué vista entrar según la función dentro del local.
+                Esta pantalla funciona como antesala después del login. Primero
+                elegís la sucursal y después abrís su mostrador, cocina, mozo o
+                pantalla pública correspondiente.
               </p>
             </div>
 
@@ -418,6 +616,10 @@ export default function InicioPage() {
                 )}`}
               >
                 {planSummary.title}
+              </span>
+
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                Plan {planLabel}
               </span>
 
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -439,38 +641,85 @@ export default function InicioPage() {
             </Link>
 
             <Link
-              href="/cocina"
+              href="/admin/restaurantes"
               className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              Abrir cocina
+              Gestionar sucursales
             </Link>
 
             <Link
-              href="/mostrador"
-              className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+              href="/admin/productos"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              Abrir mostrador / caja
+              Menú / productos
             </Link>
-
-            {canUseMozo ? (
-              <Link
-                href="/mozo/mesas"
-                className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Abrir mozo
-              </Link>
-            ) : null}
-
-            {isTakeAway ? (
-              <Link
-                href="/pedir"
-                className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
-              >
-                Abrir take away
-              </Link>
-            ) : null}
           </div>
         </header>
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">
+                Elegí sucursal para operar
+              </h2>
+
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
+                Desde acá se define a qué sucursal pertenece cada pantalla. Así
+                evitamos abrir un mostrador, cocina o mozo genérico sin contexto.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <label className="block text-sm font-semibold text-slate-900">
+                Mesa de prueba
+              </label>
+
+              <input
+                type="number"
+                min={1}
+                value={mesaInput}
+                onChange={(e) => setMesaInput(e.target.value)}
+                className="mt-2 h-11 w-36 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-500"
+              />
+
+              <p className="mt-2 text-xs text-slate-500">
+                Se usa para probar <code>/mesa/{mesaId}</code> por sucursal.
+              </p>
+            </div>
+          </div>
+
+          {activeRestaurants.length === 0 ? (
+            <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
+              <p className="text-sm font-medium text-slate-800">
+                No hay sucursales activas para operar.
+              </p>
+
+              <p className="mt-2 text-sm text-slate-600">
+                Creá o reactivá una sucursal desde administración para poder
+                abrir Mostrador, Cocina o Mozo con contexto.
+              </p>
+
+              <Link
+                href="/admin/restaurantes"
+                className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Ir a sucursales
+              </Link>
+            </div>
+          ) : (
+            <div className="mt-6 grid gap-5">
+              {activeRestaurants.map((restaurant) => (
+                <RestaurantAccessCard
+                  key={restaurant.id}
+                  restaurant={restaurant}
+                  mesaId={mesaId}
+                  planAllowsMozo={planAllowsMozo}
+                  hasOperationalManagement={hasOperationalManagement}
+                />
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {quickLinks.map((link) => (
@@ -481,190 +730,6 @@ export default function InicioPage() {
           ))}
         </section>
 
-        {isRestaurant ? (
-          <section className="grid gap-6 lg:grid-cols-2">
-            <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex items-center gap-2">
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-                  Restaurante
-                </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                  Con mesas
-                </span>
-              </div>
-
-              <h2 className="mt-4 text-2xl font-bold text-slate-900">
-                Acceso del cliente por mesa
-              </h2>
-
-              <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                Para el flujo de salón, el cliente entra por una mesa específica.
-                Podés abrir una mesa manualmente desde acá para probar o validar
-                el recorrido.
-              </p>
-
-              <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <label className="block text-sm font-semibold text-emerald-900">
-                  ID de mesa
-                </label>
-
-                <input
-                  type="number"
-                  min={1}
-                  value={mesaInput}
-                  onChange={(e) => setMesaInput(e.target.value)}
-                  className="mt-2 h-12 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm text-slate-900 outline-none focus:border-emerald-500"
-                />
-
-                <p className="mt-2 text-xs text-emerald-900/80">
-                  Esto abre la ruta <code>/mesa/{mesaId}</code>.
-                </p>
-              </div>
-
-              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                <Link
-                  href={`/mesa/${mesaId}`}
-                  className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
-                >
-                  Abrir mesa {mesaId}
-                </Link>
-
-                <Link
-                  href="/admin/mesas"
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Revisar mesas y QR
-                </Link>
-
-                <Link
-                  href="/mostrador"
-                  className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
-                >
-                  Abrir caja / salón
-                </Link>
-              </div>
-            </article>
-
-            <article className="rounded-3xl border border-blue-200 bg-blue-50 p-6 shadow-sm">
-              <span className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700">
-                Pro
-              </span>
-
-              <h2 className="mt-4 text-2xl font-bold text-slate-900">
-                Operación de salón
-              </h2>
-
-              <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                En modo restaurante, Pro habilita el modo mozo para trabajar con
-                mesas, seguimiento de pedidos y coordinación del salón.
-              </p>
-
-              <div className="mt-5 flex flex-wrap gap-3">
-                {canUseMozo ? (
-                  <Link
-                    href="/mozo/mesas"
-                    className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-                  >
-                    Abrir modo mozo
-                  </Link>
-                ) : (
-                  <Link
-                    href="/#precios"
-                    className="rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800"
-                  >
-                    Ver Pro
-                  </Link>
-                )}
-
-                <Link
-                  href="/admin/configuracion"
-                  className="rounded-xl border border-blue-300 bg-white px-4 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
-                >
-                  Ver configuración
-                </Link>
-              </div>
-            </article>
-          </section>
-        ) : (
-          <section className="grid gap-6 lg:grid-cols-2">
-            <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex items-center gap-2">
-                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                  Take Away
-                </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                  Sin mesas
-                </span>
-              </div>
-
-              <h2 className="mt-4 text-2xl font-bold text-slate-900">
-                Acceso público para pedidos
-              </h2>
-
-              <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                En take away el cliente no necesita mesa. El ingreso público se
-                resuelve desde <code>/pedir</code>, la pantalla de retiro desde{' '}
-                <code>/retiro</code> y la entrega final desde{' '}
-                <code>/mostrador</code>.
-              </p>
-
-              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                <Link
-                  href="/pedir"
-                  className="rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-600"
-                >
-                  Abrir take away
-                </Link>
-
-                <Link
-                  href="/retiro"
-                  className="rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
-                >
-                  Abrir pantalla de retiro
-                </Link>
-
-                <Link
-                  href="/mostrador"
-                  className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
-                >
-                  Abrir mostrador / caja
-                </Link>
-              </div>
-            </article>
-
-            <article className="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
-              <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-semibold text-amber-800">
-                QR Take Away
-              </span>
-
-              <h2 className="mt-4 text-2xl font-bold text-slate-900">
-                QR del local
-              </h2>
-
-              <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                En modo take away no se generan QR por mesa. El QR principal
-                debería apuntar a la entrada pública <code>/pedir</code>.
-              </p>
-
-              <div className="mt-5 flex flex-wrap gap-3">
-                <Link
-                  href="/admin/configuracion"
-                  className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-                >
-                  Ver configuración
-                </Link>
-
-                <Link
-                  href="/pedir"
-                  className="rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
-                >
-                  Probar pedido público
-                </Link>
-              </div>
-            </article>
-          </section>
-        )}
-
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-bold text-slate-900">
             Flujo esperado del sistema
@@ -674,25 +739,23 @@ export default function InicioPage() {
             {[
               {
                 step: '1',
-                title: 'Página principal',
-                desc: 'Entrada pública comercial del producto.',
-              },
-              {
-                step: '2',
                 title: 'Login',
                 desc: 'Ingreso del usuario con credenciales.',
               },
               {
-                step: '3',
+                step: '2',
                 title: 'Inicio',
-                desc: 'Selección de vista según función y permisos.',
+                desc: 'Selección de sucursal activa.',
+              },
+              {
+                step: '3',
+                title: 'Pantalla operativa',
+                desc: 'Mostrador, cocina, mozo, retiro o pedido público reciben restaurantId.',
               },
               {
                 step: '4',
-                title: 'Operación',
-                desc: isRestaurant
-                  ? 'Admin, cocina, mostrador, mesas, QR y mozo si el plan lo permite.'
-                  : 'Admin, cocina, mostrador, pedido público y pantalla de retiro.',
+                title: 'Operación separada',
+                desc: 'Pedidos, mesas, stock y productos se filtran por sucursal.',
               },
             ].map((item) => (
               <div
