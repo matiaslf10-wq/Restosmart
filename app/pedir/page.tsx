@@ -220,6 +220,8 @@ function PedirPageContent() {
     );
   }, [searchParams]);
 
+  const hasRestaurantScope = !!restaurantId || !!restaurantSlug;
+
   const productosEndpoint = useMemo(
   () =>
     buildPublicEndpoint('/api/productos?soloDisponibles=1', {
@@ -293,47 +295,54 @@ const pedidosEndpoint = useMemo(
     let activo = true;
 
     async function cargar() {
-      try {
-        setCargando(true);
-        setMensaje(null);
-        setError(null);
+  try {
+    setCargando(true);
+    setMensaje(null);
+    setError(null);
 
-        let restaurantContext: RestaurantPublicContext | null = null;
+    if (!hasRestaurantScope) {
+      throw new Error(
+        'Falta identificar la sucursal del pedido. Volvé a abrir el link desde el QR o desde Inicio.'
+      );
+    }
 
-        if (restaurantId || restaurantSlug) {
-  let restaurantQuery = supabase
-    .from('restaurants')
-    .select('id, slug, plan, estado');
+    let restaurantContext: RestaurantPublicContext | null = null;
 
-  if (restaurantId) {
-    restaurantQuery = restaurantQuery.eq('id', restaurantId);
-  } else {
-    restaurantQuery = restaurantQuery.eq('slug', restaurantSlug);
-  }
+    if (restaurantId || restaurantSlug) {
+      let restaurantQuery = supabase
+        .from('restaurants')
+        .select('id, slug, plan, estado');
 
-  const { data, error: restaurantError } = await restaurantQuery.maybeSingle();
+      if (restaurantId) {
+        restaurantQuery = restaurantQuery.eq('id', restaurantId);
+      } else {
+        restaurantQuery = restaurantQuery.eq('slug', restaurantSlug);
+      }
 
-          if (restaurantError) {
-            console.warn(
-              'No se pudo cargar el restaurante público en /pedir:',
-              restaurantError
-            );
-          }
+      const { data, error: restaurantError } =
+        await restaurantQuery.maybeSingle();
 
-          if (!data?.id) {
-            throw new Error(
-              'No encontramos el local asociado a este QR. Revisá que el enlace sea correcto.'
-            );
-          }
+      if (restaurantError) {
+        console.warn(
+          'No se pudo cargar el restaurante público en /pedir:',
+          restaurantError
+        );
+      }
 
-          if (isRestaurantClosedForOrdering(data.estado)) {
-  throw new Error(
-    'Este local ya no está recibiendo pedidos desde este QR.'
-  );
-}
+      if (!data?.id) {
+        throw new Error(
+          'No encontramos el local asociado a este QR. Revisá que el enlace sea correcto.'
+        );
+      }
 
-          restaurantContext = data as RestaurantPublicContext;
-        }
+      if (isRestaurantClosedForOrdering(data.estado)) {
+        throw new Error(
+          'Este local ya no está recibiendo pedidos desde este QR.'
+        );
+      }
+
+      restaurantContext = data as RestaurantPublicContext;
+    }
 
         const configQuery = supabase
           .from('configuracion_local')
@@ -429,7 +438,7 @@ const pedidosEndpoint = useMemo(
     return () => {
       activo = false;
     };
-  }, [productosEndpoint, restaurantId, restaurantSlug]);
+  }, [productosEndpoint, restaurantId, restaurantSlug, hasRestaurantScope]);
 
   const marcasPorId = useMemo(() => {
     return new Map(marcas.map((marca) => [marca.id, marca]));
@@ -542,6 +551,13 @@ const pedidosEndpoint = useMemo(
   );
 
   async function confirmarPedido(formaPago: FormaPago) {
+if (!hasRestaurantScope) {
+  setError(
+    'Falta identificar la sucursal del pedido. Volvé a abrir el link desde el QR o desde Inicio.'
+  );
+  return;
+}
+
     if (!clienteNombre.trim()) {
       setError('Ingresá un nombre para el retiro.');
       return;
