@@ -480,7 +480,7 @@ const productosPromise = fetch(productosEndpoint, {
     }
   };
 
-  const marcarPagoEfectivoDesdeCliente = async () => {
+    const marcarPagoEfectivoDesdeCliente = async () => {
     if (!mesa?.id) return;
 
     setProcesandoPago(true);
@@ -493,31 +493,37 @@ const productosPromise = fetch(productosEndpoint, {
 
         setMensaje(getMensajePedidoCreado(pedido, 'efectivo'));
       } else {
-        let updateQuery = supabase
-  .from('pedidos')
-  .update({
-    paga_efectivo: true,
-    forma_pago: 'efectivo',
-    origen: 'salon',
-    tipo_servicio: 'mesa',
-    medio_pago: 'efectivo',
-    estado_pago: 'aprobado',
-    efectivo_aprobado: true,
-  })
-  .eq('mesa_id', mesa.id)
-  .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
+        const { error } = await supabase
+          .from('pedidos')
+          .update({
+            paga_efectivo: true,
+            forma_pago: 'efectivo',
+            origen: 'salon',
+            tipo_servicio: 'mesa',
+            medio_pago: 'efectivo',
+            estado_pago: 'aprobado',
+            efectivo_aprobado: true,
+          })
+          .eq('mesa_id', mesa.id)
+          .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
-const scopedRestaurantId = mesa.restaurant_id ?? restaurantIdParam;
+        if (error) {
+          console.error('No se pudo marcar pago en efectivo:', error);
+          setMensaje('No se pudo registrar el pago en efectivo.');
+          return;
+        }
 
-if (scopedRestaurantId != null) {
-  updateQuery = updateQuery.eq('restaurant_id', scopedRestaurantId);
-}
-
-const { error } = await updateQuery;
+        setMensaje('Registramos que vas a pagar en efectivo 💵');
+      }
+    } finally {
+      setProcesandoPago(false);
+    }
+  };
 
   const pagarVirtual = async () => {
     const urlPago =
-      process.env.NEXT_PUBLIC_PAGO_VIRTUAL_URL || 'https://www.mercadopago.com.ar';
+      process.env.NEXT_PUBLIC_PAGO_VIRTUAL_URL ||
+      'https://www.mercadopago.com.ar';
 
     setMensaje(null);
 
@@ -528,27 +534,32 @@ const { error } = await updateQuery;
 
         setMensaje(getMensajePedidoCreado(pedido, 'virtual'));
       } else {
-        let updateQuery = supabase
-  .from('pedidos')
-  .update({
-    paga_efectivo: false,
-    forma_pago: 'virtual',
-    origen: 'salon',
-    tipo_servicio: 'mesa',
-    medio_pago: 'virtual',
-    estado_pago: 'pendiente',
-    efectivo_aprobado: false,
-  })
-  .eq('mesa_id', mesa.id)
-  .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
+        const { error } = await supabase
+          .from('pedidos')
+          .update({
+            paga_efectivo: false,
+            forma_pago: 'virtual',
+            origen: 'salon',
+            tipo_servicio: 'mesa',
+            medio_pago: 'virtual',
+            estado_pago: 'pendiente',
+            efectivo_aprobado: false,
+          })
+          .eq('mesa_id', mesa.id)
+          .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
-const scopedRestaurantId = mesa.restaurant_id ?? restaurantIdParam;
+        if (error) {
+          console.error('No se pudo marcar pago virtual:', error);
+          setMensaje('No se pudo registrar el pago virtual.');
+          return;
+        }
 
-if (scopedRestaurantId != null) {
-  updateQuery = updateQuery.eq('restaurant_id', scopedRestaurantId);
-}
+        setMensaje('Registramos que vas a pagar de forma virtual 💳');
+      }
+    }
 
-const { error } = await updateQuery;
+    window.open(urlPago, '_blank', 'noopener,noreferrer');
+  };
 
   if (!mesaValida) {
     return (
@@ -913,8 +924,8 @@ const { error } = await updateQuery;
           </p>
         </section>
       </div>
-    </main>
-      );
+        </main>
+  );
 }
 
 export default function MesaPage() {
@@ -928,7 +939,5 @@ export default function MesaPage() {
     >
       <MesaPageContent />
     </Suspense>
-  );
-}
   );
 }
