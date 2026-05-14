@@ -163,13 +163,27 @@ function getStockMessage(producto: Producto) {
   return null;
 }
 
-function buildPublicEndpoint(basePath: string, restaurantSlug: string | null) {
-  if (!restaurantSlug) return basePath;
+function buildPublicEndpoint(
+  basePath: string,
+  scope: {
+    restaurantId?: string | null;
+    restaurantSlug?: string | null;
+  }
+) {
+  const params = new URLSearchParams();
+
+  if (scope.restaurantId) {
+    params.set('restaurantId', scope.restaurantId);
+  } else if (scope.restaurantSlug) {
+    params.set('restaurant', scope.restaurantSlug);
+  }
+
+  const query = params.toString();
+
+  if (!query) return basePath;
 
   const separator = basePath.includes('?') ? '&' : '?';
-  return `${basePath}${separator}restaurant=${encodeURIComponent(
-    restaurantSlug
-  )}`;
+  return `${basePath}${separator}${query}`;
 }
 
 function LoadingMenu() {
@@ -190,6 +204,11 @@ export default function PedirPage() {
 
 function PedirPageContent() {
   const searchParams = useSearchParams();
+  const restaurantId = useMemo(() => {
+  return normalizePublicSlug(
+    searchParams.get('restaurantId') ?? searchParams.get('restaurant_id')
+  );
+}, [searchParams]);
 
   const restaurantSlug = useMemo(() => {
     return normalizePublicSlug(
@@ -202,18 +221,22 @@ function PedirPageContent() {
   }, [searchParams]);
 
   const productosEndpoint = useMemo(
-    () =>
-      buildPublicEndpoint(
-        '/api/productos?soloDisponibles=1',
-        restaurantSlug
-      ),
-    [restaurantSlug]
-  );
+  () =>
+    buildPublicEndpoint('/api/productos?soloDisponibles=1', {
+      restaurantId,
+      restaurantSlug,
+    }),
+  [restaurantId, restaurantSlug]
+);
 
-  const pedidosEndpoint = useMemo(
-    () => buildPublicEndpoint('/api/pedidos', restaurantSlug),
-    [restaurantSlug]
-  );
+const pedidosEndpoint = useMemo(
+  () =>
+    buildPublicEndpoint('/api/pedidos', {
+      restaurantId,
+      restaurantSlug,
+    }),
+  [restaurantId, restaurantSlug]
+);
 
   const [localConfig, setLocalConfig] = useState<LocalPublicConfig | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -277,12 +300,18 @@ function PedirPageContent() {
 
         let restaurantContext: RestaurantPublicContext | null = null;
 
-        if (restaurantSlug) {
-          const { data, error: restaurantError } = await supabase
-  .from('restaurants')
-  .select('id, slug, plan, estado')
-  .eq('slug', restaurantSlug)
-  .maybeSingle();
+        if (restaurantId || restaurantSlug) {
+  let restaurantQuery = supabase
+    .from('restaurants')
+    .select('id, slug, plan, estado');
+
+  if (restaurantId) {
+    restaurantQuery = restaurantQuery.eq('id', restaurantId);
+  } else {
+    restaurantQuery = restaurantQuery.eq('slug', restaurantSlug);
+  }
+
+  const { data, error: restaurantError } = await restaurantQuery.maybeSingle();
 
           if (restaurantError) {
             console.warn(
@@ -400,7 +429,7 @@ function PedirPageContent() {
     return () => {
       activo = false;
     };
-  }, [productosEndpoint, restaurantSlug]);
+  }, [productosEndpoint, restaurantId, restaurantSlug]);
 
   const marcasPorId = useMemo(() => {
     return new Map(marcas.map((marca) => [marca.id, marca]));

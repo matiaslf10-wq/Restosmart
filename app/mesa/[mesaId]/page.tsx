@@ -1,8 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 const DELIVERY_MESA_ID = 0;
@@ -30,6 +37,7 @@ type Mesa = {
   id: number;
   numero: number | null;
   nombre: string;
+  restaurant_id?: string | number | null;
 };
 
 type PedidoCreado = {
@@ -66,10 +74,63 @@ function getStockMessage(producto: Producto) {
   return null;
 }
 
-export default function MesaPage() {
+function buildScopedEndpoint(basePath: string, restaurantScopeQuery: string) {
+  if (!restaurantScopeQuery) return basePath;
+
+  const separator = basePath.includes('?') ? '&' : '?';
+  return `${basePath}${separator}${restaurantScopeQuery}`;
+}
+
+function MesaPageContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const rawMesaId = params?.mesaId as string | string[] | undefined;
   const mesaRutaId = Number(Array.isArray(rawMesaId) ? rawMesaId[0] : rawMesaId);
+  const restaurantScopeQuery = useMemo(() => {
+  const params = new URLSearchParams();
+
+  params.set('scope', 'mesa');
+
+  const restaurantId =
+    searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
+
+  const restaurantSlug =
+    searchParams.get('restaurantSlug') ??
+    searchParams.get('restaurant') ??
+    searchParams.get('tenant') ??
+    searchParams.get('tenantSlug') ??
+    searchParams.get('slug');
+
+  if (restaurantId) {
+    params.set('restaurantId', restaurantId);
+  } else if (restaurantSlug) {
+    params.set('restaurantSlug', restaurantSlug);
+  }
+
+  return params.toString();
+}, [searchParams]);
+
+const restaurantIdParam = useMemo(() => {
+  return (
+    searchParams.get('restaurantId') ??
+    searchParams.get('restaurant_id') ??
+    null
+  );
+}, [searchParams]);
+
+const productosEndpoint = useMemo(
+  () =>
+    buildScopedEndpoint(
+      '/api/productos?soloDisponibles=1',
+      restaurantScopeQuery
+    ),
+  [restaurantScopeQuery]
+);
+
+const pedidosEndpoint = useMemo(
+  () => buildScopedEndpoint('/api/pedidos', restaurantScopeQuery),
+  [restaurantScopeQuery]
+);
 
   const [mesa, setMesa] = useState<Mesa | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -89,74 +150,77 @@ export default function MesaPage() {
   const mesaValida = Number.isFinite(mesaRutaId) && mesaRutaId > DELIVERY_MESA_ID;
 
   const cargarMesa = useCallback(async () => {
-    if (!mesaValida) {
-      setMesa(null);
-      return;
-    }
+  if (!mesaValida) {
+    setMesa(null);
+    return;
+  }
 
-    const { data: mesaData, error: mesaError } = await supabase
-      .from('mesas')
-      .select('id, numero, nombre')
-      .eq('id', mesaRutaId)
-      .maybeSingle();
+  let mesaQuery = supabase
+    .from('mesas')
+    .select('id, numero, nombre, restaurant_id')
+    .eq('id', mesaRutaId);
 
-    if (mesaError) {
-      console.error('Error cargando mesa:', {
-        message: mesaError.message,
-        details: (mesaError as any)?.details,
-        hint: (mesaError as any)?.hint,
-        code: (mesaError as any)?.code,
-        raw: mesaError,
-      });
-      setMensaje('No se pudo cargar la mesa.');
-      setMesa(null);
-      return;
-    }
+  if (restaurantIdParam) {
+    mesaQuery = mesaQuery.eq('restaurant_id', restaurantIdParam);
+  }
 
-    setMesa((mesaData as Mesa | null) ?? null);
-  }, [mesaRutaId, mesaValida]);
+  const { data: mesaData, error: mesaError } = await mesaQuery.maybeSingle();
+
+  if (mesaError) {
+    console.error('Error cargando mesa:', {
+      message: mesaError.message,
+      details: (mesaError as any)?.details,
+      hint: (mesaError as any)?.hint,
+      code: (mesaError as any)?.code,
+      raw: mesaError,
+    });
+    setMensaje('No se pudo cargar la mesa.');
+    setMesa(null);
+    return;
+  }
+
+  setMesa((mesaData as Mesa | null) ?? null);
+}, [mesaRutaId, mesaValida, restaurantIdParam]);
 
   const cargarProductos = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('productos')
-      .select(
-        'id, nombre, descripcion, precio, categoria, imagen_url, disponible, control_stock, stock_actual, permitir_sin_stock'
-      )
-      .eq('disponible', true)
-      .order('categoria', { ascending: true })
-      .order('nombre', { ascending: true });
+  const productosRes = await fetch(productosEndpoint, {
+    method: 'GET',
+    cache: 'no-store',
+  });
 
-    if (error) {
-      console.error('Error cargando productos:', {
-        message: error.message,
-        details: (error as any)?.details,
-        hint: (error as any)?.hint,
-        code: (error as any)?.code,
-        raw: error,
-      });
-      setMensaje('No se pudieron cargar los productos.');
-      setProductos([]);
-      setCategorias([]);
-      setCategoriaSeleccionada(null);
-      return;
-    }
+  const productosBody = await productosRes.json().catch(() => null);
 
-    const lista = (data as Producto[]) ?? [];
-    setProductos(lista);
+  if (!productosRes.ok) {
+    console.error('Error cargando productos por API:', {
+      status: productosRes.status,
+      body: productosBody,
+    });
 
-    const cats = Array.from(
-      new Set(
-        lista
-          .map((p) => p.categoria)
-          .filter((c): c is string => !!c && c.trim() !== '')
-      )
-    ).sort((a, b) => a.localeCompare(b));
-
-    setCategorias(cats);
-    setCategoriaSeleccionada((prev) =>
-      prev && cats.includes(prev) ? prev : (cats[0] ?? null)
+    setMensaje(
+      productosBody?.error || 'No se pudieron cargar los productos.'
     );
-  }, []);
+    setProductos([]);
+    setCategorias([]);
+    setCategoriaSeleccionada(null);
+    return;
+  }
+
+  const lista = (productosBody as Producto[]) ?? [];
+  setProductos(lista);
+
+  const cats = Array.from(
+    new Set(
+      lista
+        .map((p) => p.categoria)
+        .filter((c): c is string => !!c && c.trim() !== '')
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  setCategorias(cats);
+  setCategoriaSeleccionada((prev) =>
+    prev && cats.includes(prev) ? prev : cats[0] ?? null
+  );
+}, [productosEndpoint]);
 
   useEffect(() => {
   const cargarDatosIniciales = async () => {
@@ -168,16 +232,21 @@ export default function MesaPage() {
     setCargando(true);
 
     try {
-      const mesaPromise = supabase
-        .from('mesas')
-        .select('id, numero, nombre')
-        .eq('id', mesaRutaId)
-        .maybeSingle();
+      let mesaQuery = supabase
+  .from('mesas')
+  .select('id, numero, nombre, restaurant_id')
+  .eq('id', mesaRutaId);
 
-      const productosPromise = fetch('/api/productos?soloDisponibles=1', {
-        method: 'GET',
-        cache: 'no-store',
-      });
+if (restaurantIdParam) {
+  mesaQuery = mesaQuery.eq('restaurant_id', restaurantIdParam);
+}
+
+const mesaPromise = mesaQuery.maybeSingle();
+
+const productosPromise = fetch(productosEndpoint, {
+  method: 'GET',
+  cache: 'no-store',
+});
 
       const [{ data: mesaData, error: mesaError }, productosRes] =
         await Promise.all([mesaPromise, productosPromise]);
@@ -226,7 +295,7 @@ export default function MesaPage() {
   };
 
   void cargarDatosIniciales();
-}, [mesaRutaId, mesaValida]);
+}, [mesaRutaId, mesaValida, productosEndpoint, restaurantIdParam]);
 
   useEffect(() => {
     if (!mesa?.id) return;
@@ -383,13 +452,13 @@ export default function MesaPage() {
         })),
       };
 
-      const res = await fetch('/api/pedidos', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      const res = await fetch(pedidosEndpoint, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify(payload),
+});
 
       const body = await res.json().catch(() => null);
 
@@ -424,38 +493,27 @@ export default function MesaPage() {
 
         setMensaje(getMensajePedidoCreado(pedido, 'efectivo'));
       } else {
-        const { error } = await supabase
-          .from('pedidos')
-          .update({
-            paga_efectivo: true,
-            forma_pago: 'efectivo',
-            origen: 'salon',
-            tipo_servicio: 'mesa',
-            medio_pago: 'efectivo',
-            estado_pago: 'aprobado',
-            efectivo_aprobado: true,
-          })
-          .eq('mesa_id', mesa.id)
-          .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
+        let updateQuery = supabase
+  .from('pedidos')
+  .update({
+    paga_efectivo: true,
+    forma_pago: 'efectivo',
+    origen: 'salon',
+    tipo_servicio: 'mesa',
+    medio_pago: 'efectivo',
+    estado_pago: 'aprobado',
+    efectivo_aprobado: true,
+  })
+  .eq('mesa_id', mesa.id)
+  .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
-        if (error) {
-          console.error('Error al marcar pago en efectivo desde cliente:', {
-            message: error.message,
-            details: (error as any)?.details,
-            hint: (error as any)?.hint,
-            code: (error as any)?.code,
-            raw: error,
-          });
-          setMensaje('No se pudo registrar el pago en efectivo. Avisá al personal.');
-          return;
-        }
+const scopedRestaurantId = mesa.restaurant_id ?? restaurantIdParam;
 
-        setMensaje('Listo, registramos que vas a pagar en efectivo 💵');
-      }
-    } finally {
-      setProcesandoPago(false);
-    }
-  };
+if (scopedRestaurantId != null) {
+  updateQuery = updateQuery.eq('restaurant_id', scopedRestaurantId);
+}
+
+const { error } = await updateQuery;
 
   const pagarVirtual = async () => {
     const urlPago =
@@ -470,38 +528,27 @@ export default function MesaPage() {
 
         setMensaje(getMensajePedidoCreado(pedido, 'virtual'));
       } else {
-        const { error } = await supabase
-          .from('pedidos')
-          .update({
-            paga_efectivo: false,
-            forma_pago: 'virtual',
-            origen: 'salon',
-            tipo_servicio: 'mesa',
-            medio_pago: 'virtual',
-            estado_pago: 'pendiente',
-            efectivo_aprobado: false,
-          })
-          .eq('mesa_id', mesa.id)
-          .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
+        let updateQuery = supabase
+  .from('pedidos')
+  .update({
+    paga_efectivo: false,
+    forma_pago: 'virtual',
+    origen: 'salon',
+    tipo_servicio: 'mesa',
+    medio_pago: 'virtual',
+    estado_pago: 'pendiente',
+    efectivo_aprobado: false,
+  })
+  .eq('mesa_id', mesa.id)
+  .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
-        if (error) {
-          console.error('Error al marcar pago virtual desde cliente:', {
-            message: error.message,
-            details: (error as any)?.details,
-            hint: (error as any)?.hint,
-            code: (error as any)?.code,
-            raw: error,
-          });
-          setMensaje('No se pudo registrar el pago virtual. Avisá al personal.');
-          return;
-        }
+const scopedRestaurantId = mesa.restaurant_id ?? restaurantIdParam;
 
-        setMensaje('Abrimos el pago virtual en una nueva ventana 💳');
-      }
-    }
+if (scopedRestaurantId != null) {
+  updateQuery = updateQuery.eq('restaurant_id', scopedRestaurantId);
+}
 
-    if (urlPago) window.open(urlPago, '_blank');
-  };
+const { error } = await updateQuery;
 
   if (!mesaValida) {
     return (
@@ -867,5 +914,21 @@ export default function MesaPage() {
         </section>
       </div>
     </main>
+      );
+}
+
+export default function MesaPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center">
+          <p>Cargando menú...</p>
+        </main>
+      }
+    >
+      <MesaPageContent />
+    </Suspense>
+  );
+}
   );
 }
