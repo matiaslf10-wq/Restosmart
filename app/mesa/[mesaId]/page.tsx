@@ -118,6 +118,8 @@ const restaurantIdParam = useMemo(() => {
   );
 }, [searchParams]);
 
+const hasRestaurantScope = !!restaurantIdParam;
+
 const productosEndpoint = useMemo(
   () =>
     buildScopedEndpoint(
@@ -241,6 +243,17 @@ if (restaurantIdParam) {
   mesaQuery = mesaQuery.eq('restaurant_id', restaurantIdParam);
 }
 
+if (!hasRestaurantScope) {
+  setMensaje(
+    'Falta identificar la sucursal de esta mesa. Volvé a abrir el QR desde Inicio o desde Mesas y QR.'
+  );
+  setProductos([]);
+  setCategorias([]);
+  setCategoriaSeleccionada(null);
+  setCargando(false);
+  return;
+}
+
 const mesaPromise = mesaQuery.maybeSingle();
 
 const productosPromise = fetch(productosEndpoint, {
@@ -295,7 +308,7 @@ const productosPromise = fetch(productosEndpoint, {
   };
 
   void cargarDatosIniciales();
-}, [mesaRutaId, mesaValida, productosEndpoint, restaurantIdParam]);
+}, [mesaRutaId, mesaValida, productosEndpoint, restaurantIdParam, hasRestaurantScope]);
 
   useEffect(() => {
     if (!mesa?.id) return;
@@ -424,6 +437,12 @@ const productosPromise = fetch(productosEndpoint, {
   const crearPedidoDesdeCarrito = async (
     formaPago: 'virtual' | 'efectivo'
   ): Promise<PedidoCreado | null> => {
+    if (!hasRestaurantScope) {
+  setMensaje(
+    'Falta identificar la sucursal de esta mesa. Volvé a abrir el QR desde Inicio o desde Mesas y QR.'
+  );
+  return null;
+}
     if (!mesa?.id) return null;
 
     if (carrito.length === 0) {

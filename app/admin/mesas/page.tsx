@@ -1,8 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import QRCode from 'react-qr-code';
 import {
@@ -17,6 +23,7 @@ type Mesa = {
   id: number;
   nombre: string | null;
   numero: number | null;
+  restaurant_id?: string | number | null;
 };
 
 type AdminSessionPayload = {
@@ -24,8 +31,14 @@ type AdminSessionPayload = {
   plan?: PlanCode;
   business_mode?: BusinessMode;
   restaurant?: {
+    id?: string | number | null;
     business_mode?: BusinessMode;
   } | null;
+};
+
+type LocalConfigRow = {
+  nombre_local: string | null;
+  business_mode: string | null;
 };
 
 function getMesaNumero(mesa: Mesa, fallbackIndex = 1) {
@@ -65,11 +78,40 @@ function isDefaultMesaName(nombre: string | null | undefined, numero: number) {
   return normalized === '' || normalized === `mesa ${numero}`.toLowerCase();
 }
 
-export default function AdminMesasPage() {
+function buildScopedHref(path: string, restaurantId: string | null) {
+  if (!restaurantId) return path;
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}restaurantId=${encodeURIComponent(restaurantId)}`;
+}
+
+function buildMesaUrl(
+  baseUrl: string,
+  mesaId: number,
+  restaurantId: string | null
+) {
+  const basePath = baseUrl ? `${baseUrl}/mesa/${mesaId}` : `/mesa/${mesaId}`;
+
+  if (!restaurantId) return basePath;
+
+  return `${basePath}?restaurantId=${encodeURIComponent(restaurantId)}`;
+}
+
+function AdminMesasPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const currentRestaurantId = useMemo(() => {
+    return (
+      searchParams.get('restaurantId') ??
+      searchParams.get('restaurant_id') ??
+      null
+    );
+  }, [searchParams]);
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [businessMode, setBusinessMode] = useState<BusinessMode>('restaurant');
+  const [restaurantLabel, setRestaurantLabel] = useState('Sucursal no identificada');
 
   const [mesas, setMesas] = useState<Mesa[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -80,6 +122,12 @@ export default function AdminMesasPage() {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const pedirHref = buildScopedHref('/pedir', currentRestaurantId);
+  const retiroHref = buildScopedHref('/retiro', currentRestaurantId);
+  const configuracionHref = buildScopedHref('/admin/configuracion', currentRestaurantId);
+  const mostradorHref = buildScopedHref('/mostrador', currentRestaurantId);
+  const cocinaHref = buildScopedHref('/cocina', currentRestaurantId);
+
   useEffect(() => {
     let active = true;
 
@@ -88,6 +136,7 @@ export default function AdminMesasPage() {
         const res = await fetch('/api/admin/session', {
           method: 'GET',
           cache: 'no-store',
+          credentials: 'include',
         });
 
         if (!res.ok) {
@@ -105,11 +154,11 @@ export default function AdminMesasPage() {
           return;
         }
 
-        const resolvedMode = normalizeBusinessMode(
-          session?.business_mode ?? session?.restaurant?.business_mode
+        setBusinessMode(
+          normalizeBusinessMode(
+            session?.business_mode ?? session?.restaurant?.business_mode
+          )
         );
-
-        setBusinessMode(resolvedMode);
       } catch (err) {
         console.error('No se pudo verificar la sesión de mesas admin', err);
         if (!active) return;
@@ -135,7 +184,13 @@ export default function AdminMesasPage() {
   }, []);
 
   useEffect(() => {
-    if (checkingAccess || businessMode !== 'restaurant') {
+    if (checkingAccess) return;
+
+    if (!currentRestaurantId) {
+      setError(
+        'Falta identificar la sucursal. Volvé a Inicio y abrí Mesas y QR desde la tarjeta de una sucursal.'
+      );
+      setMesas([]);
       setCargando(false);
       return;
     }
@@ -146,21 +201,66 @@ export default function AdminMesasPage() {
       setCargando(true);
       setError(null);
 
-      const { data, error } = await supabase
-        .from('mesas')
-        .select('id, nombre, numero')
-        .gt('id', DELIVERY_MESA_ID);
+      try {
+        const configPromise = supabase
+          .from('configuracion_local')
+          .select('nombre_local, business_mode')
+          .eq('restaurant_id', currentRestaurantId)
+          .limit(1)
+          .maybeSingle();
 
-      if (!active) return;
+        const mesasPromise = supabase
+          .from('mesas')
+          .select('id, nombre, numero, restaurant_id')
+          .eq('restaurant_id', currentRestaurantId)
+          .gt('id', DELIVERY_MESA_ID);
 
-      if (!error && data) {
-        setMesas(sortMesas(data as Mesa[]));
-      } else if (error) {
-        console.error('Error cargando mesas:', error);
-        setError('No se pudieron cargar las mesas.');
+        const [configRes, mesasRes] = await Promise.all([
+          configPromise,
+          mesasPromise,
+        ]);
+
+        if (!active) return;
+
+        if (configRes.error) {
+          console.warn(
+            'No se pudo cargar configuracion_local para mesas:',
+            configRes.error
+          );
+        } else {
+          const config = (configRes.data as LocalConfigRow | null) ?? null;
+          setRestaurantLabel(
+            config?.nombre_local?.trim() ||
+              `Sucursal ${currentRestaurantId}`
+          );
+
+          const mode = normalizeBusinessMode(config?.business_mode);
+          setBusinessMode(mode);
+
+          if (mode !== 'restaurant') {
+            setMesas([]);
+            setCargando(false);
+            return;
+          }
+        }
+
+        if (mesasRes.error) {
+          console.error('Error cargando mesas:', mesasRes.error);
+          setError('No se pudieron cargar las mesas de esta sucursal.');
+          setMesas([]);
+        } else {
+          setMesas(sortMesas((mesasRes.data ?? []) as Mesa[]));
+        }
+      } catch (err) {
+        console.error('Error inesperado cargando mesas:', err);
+        if (!active) return;
+        setError('Ocurrió un error al cargar las mesas.');
+        setMesas([]);
+      } finally {
+        if (active) {
+          setCargando(false);
+        }
       }
-
-      setCargando(false);
     };
 
     cargarMesas();
@@ -168,7 +268,7 @@ export default function AdminMesasPage() {
     return () => {
       active = false;
     };
-  }, [checkingAccess, businessMode]);
+  }, [checkingAccess, currentRestaurantId]);
 
   const handlePrint = () => {
     if (typeof window !== 'undefined') {
@@ -191,10 +291,23 @@ export default function AdminMesasPage() {
       .sort((a, b) => a - b);
   }, [mesas]);
 
-  const handleCrearMesa = async (e: React.FormEvent) => {
+  const handleCrearMesa = async (e: FormEvent) => {
     e.preventDefault();
     setMensaje(null);
     setError(null);
+
+    if (!currentRestaurantId) {
+      setError(
+        'Falta identificar la sucursal. Volvé a Inicio y abrí Mesas y QR desde la tarjeta de una sucursal.'
+      );
+      return;
+    }
+
+    if (businessMode !== 'restaurant') {
+      setError('Esta sucursal no está configurada en modo restaurante.');
+      return;
+    }
+
     setCreando(true);
 
     const nombreLimpio = nuevoNombre.trim();
@@ -207,14 +320,15 @@ export default function AdminMesasPage() {
         .insert({
           nombre: nombreFinal,
           numero: numeroNuevo,
+          restaurant_id: currentRestaurantId,
         })
-        .select('id, nombre, numero')
+        .select('id, nombre, numero, restaurant_id')
         .single();
 
       if (error) {
         console.error('Error creando mesa:', error);
         setError(
-          'No se pudo crear la mesa. Verificá que exista la columna "numero" y que no haya una restricción incumplida.'
+          'No se pudo crear la mesa. Verificá que exista la columna "restaurant_id" en mesas y que corresponda a una sucursal válida.'
         );
         setCreando(false);
         return;
@@ -233,7 +347,7 @@ export default function AdminMesasPage() {
       setMesas((prev) => sortMesas([...prev, mesaNueva]));
       setNuevoNombre('');
       setMensaje(
-        `Mesa ${getMesaNumero(mesaNueva)} creada con éxito. ID interno: ${mesaNueva.id}.`
+        `Mesa ${getMesaNumero(mesaNueva)} creada con éxito para ${restaurantLabel}. ID interno: ${mesaNueva.id}.`
       );
     } finally {
       setCreando(false);
@@ -244,6 +358,39 @@ export default function AdminMesasPage() {
     return (
       <main className="min-h-screen flex items-center justify-center bg-slate-100 px-4 py-6">
         <p className="text-slate-600">Verificando configuración del negocio...</p>
+      </main>
+    );
+  }
+
+  if (!currentRestaurantId) {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="rounded-3xl border border-amber-200 bg-white p-8 shadow-sm">
+            <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
+              Falta sucursal
+            </span>
+
+            <h1 className="mt-4 text-3xl font-bold text-slate-900">
+              Administración de mesas
+            </h1>
+
+            <p className="mt-3 text-slate-600 leading-relaxed">
+              Esta pantalla ahora necesita saber a qué sucursal pertenecen las
+              mesas y los QR. Volvé a Inicio y abrí Mesas y QR desde una tarjeta
+              de sucursal.
+            </p>
+
+            <div className="mt-6">
+              <button
+                onClick={() => router.push('/inicio')}
+                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Volver a inicio
+              </button>
+            </div>
+          </div>
+        </div>
       </main>
     );
   }
@@ -262,9 +409,9 @@ export default function AdminMesasPage() {
             </h1>
 
             <p className="mt-3 text-slate-600 leading-relaxed">
-              Este negocio está configurado en <strong>modo take away</strong>.
-              Por eso la administración de mesas y los QR de salón no se usan en
-              esta operación.
+              La sucursal <strong>{restaurantLabel}</strong> está configurada en{' '}
+              <strong>modo take away</strong>. Por eso la administración de mesas
+              y los QR de salón no se usan en esta operación.
             </p>
 
             <p className="mt-3 text-slate-600 leading-relaxed">
@@ -273,28 +420,23 @@ export default function AdminMesasPage() {
               <code>/retiro</code>.
             </p>
 
-            <p className="mt-3 text-slate-600 leading-relaxed">
-              Si más adelante querés trabajar con salón y mesas, podés cambiar el
-              modo del negocio desde Configuración sin cambiar de plan.
-            </p>
-
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
-                href="/pedir"
+                href={pedirHref}
                 className="rounded-xl border border-amber-300 bg-white px-5 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
               >
                 Abrir take away
               </Link>
 
               <Link
-                href="/retiro"
+                href={retiroHref}
                 className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-white hover:bg-amber-600"
               >
                 Abrir pantalla de retiro
               </Link>
 
               <Link
-                href="/admin/configuracion"
+                href={configuracionHref}
                 className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
               >
                 Ir a Configuración
@@ -326,14 +468,35 @@ export default function AdminMesasPage() {
       <div className="max-w-5xl mx-auto space-y-6">
         <header className="flex flex-col gap-2 print:hidden">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <h1 className="text-2xl font-bold">Administración de mesas</h1>
+            <div>
+              <h1 className="text-2xl font-bold">Administración de mesas</h1>
+              <p className="mt-1 text-sm text-slate-600">
+                Sucursal: <strong>{restaurantLabel}</strong>
+              </p>
+            </div>
+
             <div className="flex flex-wrap gap-2">
+              <Link
+                href={mostradorHref}
+                className="px-3 py-1 rounded-lg border border-amber-300 bg-amber-50 text-sm font-medium text-amber-800 hover:bg-amber-100"
+              >
+                Mostrador
+              </Link>
+
+              <Link
+                href={cocinaHref}
+                className="px-3 py-1 rounded-lg border border-slate-300 bg-white text-sm hover:bg-slate-50"
+              >
+                Cocina
+              </Link>
+
               <button
                 onClick={() => router.push('/inicio')}
                 className="px-3 py-1 rounded-lg border border-slate-300 bg-white text-sm hover:bg-slate-50"
               >
                 Volver a inicio
               </button>
+
               <button
                 onClick={handlePrint}
                 className="px-3 py-1 rounded-lg bg-slate-800 text-white text-sm hover:bg-slate-700"
@@ -344,11 +507,15 @@ export default function AdminMesasPage() {
           </div>
 
           <p className="text-sm text-slate-600">
-            Cada QR apunta a <code>/mesa/[id]</code>, usando el <strong>ID interno</strong> de la mesa.
+            Cada QR apunta a <code>/mesa/[id]?restaurantId={currentRestaurantId}</code>,
+            usando el <strong>ID interno</strong> de la mesa y la sucursal activa.
           </p>
+
           <p className="text-sm text-slate-600">
-            La identificación visible del salón se hace con el <strong>número de mesa</strong>, no con el ID.
+            La identificación visible del salón se hace con el{' '}
+            <strong>número de mesa</strong>, no con el ID.
           </p>
+
           <p className="text-sm text-slate-600">
             La mesa #{DELIVERY_MESA_ID} está reservada para delivery y no se muestra
             en este listado ni en los QR del salón.
@@ -369,9 +536,8 @@ export default function AdminMesasPage() {
 
         {duplicateNumbers.length > 0 ? (
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg print:hidden">
-            Atención: hay números de mesa duplicados en la base. Se repiten:{' '}
-            <strong>{duplicateNumbers.join(', ')}</strong>. El código nuevo ya usa el
-            menor número libre disponible, pero estas duplicaciones viejas conviene corregirlas.
+            Atención: hay números de mesa duplicados en esta sucursal. Se repiten:{' '}
+            <strong>{duplicateNumbers.join(', ')}</strong>.
           </p>
         ) : null}
 
@@ -399,22 +565,20 @@ export default function AdminMesasPage() {
           </form>
 
           <p className="text-xs text-slate-500">
-            La nueva mesa toma automáticamente el menor número libre disponible.
-            El QR usará el ID interno de base de datos, pero la UI mostrará el número de mesa.
+            La nueva mesa toma automáticamente el menor número libre disponible
+            dentro de esta sucursal.
           </p>
         </section>
 
         {mesas.length === 0 ? (
           <p className="text-slate-600">
-            No hay mesas físicas cargadas en la base de datos.
+            No hay mesas físicas cargadas para esta sucursal.
           </p>
         ) : (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 print:grid-cols-2">
             {mesas.map((mesa, index) => {
               const numeroMesa = getMesaNumero(mesa, index + 1);
-              const url = baseUrl
-                ? `${baseUrl}/mesa/${mesa.id}`
-                : `/mesa/${mesa.id}`;
+              const url = buildMesaUrl(baseUrl, mesa.id, currentRestaurantId);
 
               return (
                 <article
@@ -447,5 +611,19 @@ export default function AdminMesasPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function AdminMesasPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center bg-slate-100 px-4 py-6">
+          <p className="text-slate-600">Cargando administración de mesas...</p>
+        </main>
+      }
+    >
+      <AdminMesasPageContent />
+    </Suspense>
   );
 }
