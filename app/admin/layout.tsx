@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
   formatBusinessModeLabel,
@@ -43,7 +43,7 @@ type NavItem = {
   visible: boolean;
 };
 
-export default function AdminLayout({
+function AdminLayoutContent({
   children,
 }: {
   children: React.ReactNode;
@@ -85,6 +85,8 @@ export default function AdminLayout({
         const data = await res.json().catch(() => null);
 
         if (!active) return;
+
+        
 
         const session = (data?.session as AdminSessionPayload | null) ?? null;
         const capabilities = session?.capabilities ?? {};
@@ -167,6 +169,8 @@ const marcasBlocked =
       router.refresh();
     }
   }
+
+  
 
   const plan = (sessionData?.plan ?? 'esencial') as PlanCode;
 const capabilities = sessionData?.capabilities ?? {};
@@ -393,5 +397,23 @@ function scopedHref(path: string) {
 
       <main className="max-w-6xl mx-auto px-4 py-6">{children}</main>
     </div>
+  );
+}
+
+export default function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center bg-slate-100 px-4 py-6">
+          <p className="text-slate-600">Cargando administración...</p>
+        </main>
+      }
+    >
+      <AdminLayoutContent>{children}</AdminLayoutContent>
+    </Suspense>
   );
 }
