@@ -119,6 +119,38 @@ type AdminSessionPayload = {
   } | null;
 };
 
+function getInitialRestaurantScopeQuery() {
+  if (typeof window === 'undefined') return '';
+
+  const currentParams = new URLSearchParams(window.location.search);
+  const params = new URLSearchParams();
+
+  const restaurantId =
+    currentParams.get('restaurantId') ?? currentParams.get('restaurant_id');
+
+  const restaurantSlug =
+    currentParams.get('restaurantSlug') ??
+    currentParams.get('restaurant') ??
+    currentParams.get('tenant') ??
+    currentParams.get('tenantSlug') ??
+    currentParams.get('slug');
+
+  if (restaurantId) {
+    params.set('restaurantId', restaurantId);
+  } else if (restaurantSlug) {
+    params.set('restaurantSlug', restaurantSlug);
+  }
+
+  return params.toString();
+}
+
+function buildScopedHref(path: string, restaurantScopeQuery: string) {
+  if (!restaurantScopeQuery) return path;
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}${restaurantScopeQuery}`;
+}
+
 function formatMoney(value: number | string | null | undefined) {
   const num = Number(value ?? 0);
 
@@ -295,10 +327,15 @@ function getHistoryDetailLabel(
 }
 
 export default function AdminOperacionesPage() {
+  const [restaurantScopeQuery] = useState(() =>
+    getInitialRestaurantScopeQuery()
+  );
+
   const [data, setData] = useState<OperacionesResponse | null>(null);
-  const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
+  const [sessionData, setSessionData] =
+    useState<AdminSessionPayload | null>(null);
   const [cargando, setCargando] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState('');e('');
 
   const plan = sessionData?.plan ?? 'esencial';
   const planLabel = formatPlanLabel(plan);
@@ -312,6 +349,19 @@ export default function AdminOperacionesPage() {
   const hasAdvancedOperations =
     plan === 'pro' || plan === 'intelligence';
 
+    const operacionesResumenHref = buildScopedHref(
+  '/api/admin/operaciones-resumen',
+  restaurantScopeQuery
+);
+
+const cocinaHref = buildScopedHref('/cocina', restaurantScopeQuery);
+const mostradorHref = buildScopedHref('/mostrador', restaurantScopeQuery);
+const mozoHref = buildScopedHref('/mozo/mesas', restaurantScopeQuery);
+const configuracionHref = buildScopedHref(
+  '/admin/configuracion',
+  restaurantScopeQuery
+);
+
   async function cargar() {
     try {
       setError('');
@@ -321,10 +371,11 @@ export default function AdminOperacionesPage() {
           method: 'GET',
           cache: 'no-store',
         }),
-        fetch('/api/admin/operaciones-resumen', {
-          method: 'GET',
-          cache: 'no-store',
-        }),
+        fetch(operacionesResumenHref, {
+  method: 'GET',
+  cache: 'no-store',
+  credentials: 'include',
+}),
       ]);
 
       const sessionBody = await sessionRes.json().catch(() => null);
@@ -366,7 +417,7 @@ export default function AdminOperacionesPage() {
     }, 15000);
 
     return () => clearInterval(interval);
-  }, []);
+ }, [operacionesResumenHref]);
 
   const localPedidosConCanal = useMemo(() => {
     return (data?.localPedidos ?? data?.salonPedidos ?? []).map((pedido) => ({
@@ -463,26 +514,33 @@ export default function AdminOperacionesPage() {
           </Link>
 
           <Link
-            href="/cocina"
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-          >
-            Ver cocina
-          </Link>
+  href={cocinaHref}
+  className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+>
+  Ver cocina
+</Link>
 
-          <Link
-            href="/mostrador"
-            className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 hover:bg-amber-100"
-          >
-            Ir a mostrador / caja
-          </Link>
+<Link
+  href={mostradorHref}
+  className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 hover:bg-amber-100"
+>
+  Ir a mostrador / caja
+</Link>
+
+<Link
+  href={configuracionHref}
+  className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-2 text-sm text-blue-800 hover:bg-blue-100"
+>
+  Configuración
+</Link>
 
           {businessMode === 'restaurant' && waiterModeEnabled ? (
             <Link
-              href="/mozo/mesas"
-              className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-            >
-              Ver mozo
-            </Link>
+  href={mozoHref}
+  className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+>
+  Ver mozo
+</Link>
           ) : null}
 
           <button
@@ -514,7 +572,7 @@ export default function AdminOperacionesPage() {
         <>
           <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <Link
-              href="/mostrador"
+  href={mostradorHref}
               className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
             >
               <p className="text-sm font-semibold text-amber-800">
@@ -530,7 +588,7 @@ export default function AdminOperacionesPage() {
             </Link>
 
             <Link
-              href="/cocina"
+  href={cocinaHref}
               className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
             >
               <p className="text-sm font-semibold text-slate-700">Producción</p>
@@ -540,10 +598,25 @@ export default function AdminOperacionesPage() {
                 para entregar.
               </p>
             </Link>
+            <Link
+  href={configuracionHref}
+  className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
+>
+  <p className="text-sm font-semibold text-blue-800">
+    Configuración
+  </p>
+  <h2 className="mt-2 text-xl font-bold text-slate-900">
+    Modo de sucursal
+  </h2>
+  <p className="mt-2 text-sm text-slate-600">
+    Cambiar datos del local, modo restaurante/take away y configuración propia
+    de esta sucursal.
+  </p>
+</Link>
 
             {businessMode === 'restaurant' && waiterModeEnabled ? (
               <Link
-                href="/mozo/mesas"
+  href={mozoHref}
                 className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
               >
                 <p className="text-sm font-semibold text-emerald-800">
