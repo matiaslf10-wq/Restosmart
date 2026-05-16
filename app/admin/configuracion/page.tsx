@@ -304,23 +304,55 @@ function getInitialRequestedTenant() {
   );
 }
 
+function getInitialRequestedRestaurantId() {
+  if (typeof window === 'undefined') return null;
+
+  const params = new URLSearchParams(window.location.search);
+
+  return normalizeNonEmptyText(
+    params.get('restaurantId') ?? params.get('restaurant_id')
+  );
+}
+
 export default function AdminConfiguracionPage() {
-  const [sessionData, setSessionData] = useState<AdminSessionPayload | null>(null);
+  const [sessionData, setSessionData] =
+    useState<AdminSessionPayload | null>(null);
+
   const [requestedTenant] = useState<string | null>(() =>
-  getInitialRequestedTenant()
-);
+    getInitialRequestedTenant()
+  );
+
+  const [requestedRestaurantId] = useState<string | null>(() =>
+    getInitialRequestedRestaurantId()
+  );
 
 function buildTenantApiUrl(path: string) {
-  if (!requestedTenant) return path;
+  const params = new URLSearchParams();
+
+  if (requestedRestaurantId) {
+    params.set('restaurantId', requestedRestaurantId);
+  } else if (requestedTenant) {
+    params.set('tenant', requestedTenant);
+  }
+
+  const query = params.toString();
+
+  if (!query) return path;
 
   const separator = path.includes('?') ? '&' : '?';
-  return `${path}${separator}tenant=${encodeURIComponent(requestedTenant)}`;
+  return `${path}${separator}${query}`;
 }
 
 function buildPublicPedirHref() {
-  if (!requestedTenant) return '/pedir';
+  if (requestedRestaurantId) {
+    return `/pedir?restaurantId=${encodeURIComponent(requestedRestaurantId)}`;
+  }
 
-  return `/pedir?restaurant=${encodeURIComponent(requestedTenant)}`;
+  if (requestedTenant) {
+    return `/pedir?restaurant=${encodeURIComponent(requestedTenant)}`;
+  }
+
+  return '/pedir';
 }
 
 function buildPublicRetiroHref() {
@@ -355,6 +387,7 @@ const multiBrandAddonEnabled =
 const analyticsEnabled = !!capabilities.analytics;
   const tenantLabel =
   requestedTenant ||
+  (requestedRestaurantId ? `Sucursal ${requestedRestaurantId}` : null) ||
   sessionData?.restaurant?.slug ||
   sessionData?.tenantId ||
   'default';
@@ -649,7 +682,7 @@ async function cargarAddons() {
     return () => {
       activo = false;
     };
-  }, [requestedTenant]);
+  }, [requestedTenant, requestedRestaurantId]);
 
   function updateLocal<K extends keyof LocalConfig>(
     key: K,
@@ -688,8 +721,8 @@ async function cargarAddons() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
   plan: selectedPlan,
-  tenantSlug: tenantLabel,
-  restaurantId: sessionData?.restaurant?.id ?? null,
+  tenantSlug: requestedTenant ?? sessionData?.tenantId ?? tenantLabel,
+  restaurantId: requestedRestaurantId ?? sessionData?.restaurant?.id ?? null,
 }),
         }
       );
@@ -839,16 +872,21 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
 
   return (
     <div className="space-y-6 p-6">
-      {requestedTenant ? (
+   {requestedRestaurantId || requestedTenant ? (
   <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
     Estás editando la configuración de la sucursal{' '}
-    <strong>{requestedTenant}</strong>. Los datos que guardes acá se aplican a
-    este restaurante, no a todo el tenant.
+    <strong>
+      {localForm.nombre_local?.trim() ||
+        requestedTenant ||
+        `Sucursal ${requestedRestaurantId}`}
+    </strong>
+    . Los datos que guardes acá se aplican a este restaurante, no a todo el tenant.
   </div>
 ) : (
-  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-    Estás editando la configuración del local actual. Para editar una sucursal
-    específica, entrá desde <strong>Restaurantes / sucursales</strong>.
+  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+    Esta pantalla debería abrirse desde una sucursal específica. Volvé a{' '}
+    <strong>Inicio</strong> o <strong>Restaurantes / sucursales</strong> y entrá
+    con una URL que incluya <code>restaurantId</code>.
   </div>
 )}
 
@@ -913,8 +951,8 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
           <div>
             <h2 className="text-lg font-medium">Plan y funcionalidades</h2>
             <p className="mt-1 text-sm text-neutral-600">
-  El cambio se aplica sobre todo el tenant/grupo. Los restaurantes activos,
-  las marcas activas, analytics y add-ons se validan a nivel tenant.
+  El plan se aplica sobre todo el tenant/grupo. En cambio, los datos del local y
+el modo de negocio se guardan por sucursal.
 </p>
           </div>
 
