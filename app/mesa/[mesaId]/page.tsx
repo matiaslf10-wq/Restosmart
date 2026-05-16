@@ -160,7 +160,7 @@ const pedidosEndpoint = useMemo(
   let mesaQuery = supabase
     .from('mesas')
     .select('id, numero, nombre, restaurant_id')
-    .eq('id', mesaRutaId);
+    .eq('numero', mesaRutaId);
 
   if (restaurantIdParam) {
     mesaQuery = mesaQuery.eq('restaurant_id', restaurantIdParam);
@@ -237,7 +237,7 @@ const pedidosEndpoint = useMemo(
       let mesaQuery = supabase
   .from('mesas')
   .select('id, numero, nombre, restaurant_id')
-  .eq('id', mesaRutaId);
+  .eq('numero', mesaRutaId);
 
 if (restaurantIdParam) {
   mesaQuery = mesaQuery.eq('restaurant_id', restaurantIdParam);

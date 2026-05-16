@@ -87,10 +87,12 @@ function buildScopedHref(path: string, restaurantId: string | null) {
 
 function buildMesaUrl(
   baseUrl: string,
-  mesaId: number,
+  mesaNumero: number,
   restaurantId: string | null
 ) {
-  const basePath = baseUrl ? `${baseUrl}/mesa/${mesaId}` : `/mesa/${mesaId}`;
+  const basePath = baseUrl
+    ? `${baseUrl}/mesa/${mesaNumero}`
+    : `/mesa/${mesaNumero}`;
 
   if (!restaurantId) return basePath;
 
@@ -311,8 +313,13 @@ function AdminMesasPageContent() {
     setCreando(true);
 
     const nombreLimpio = nuevoNombre.trim();
-    const numeroNuevo = getNextAvailableMesaNumero(mesas);
-    const nombreFinal = nombreLimpio || `Mesa ${numeroNuevo}`;
+
+const mesasDeEstaSucursal = mesas.filter(
+  (mesa) => String(mesa.restaurant_id) === String(currentRestaurantId)
+);
+
+const numeroNuevo = getNextAvailableMesaNumero(mesasDeEstaSucursal);
+const nombreFinal = nombreLimpio || `Mesa ${numeroNuevo}`;
 
     try {
       const { data, error } = await supabase
@@ -507,8 +514,8 @@ function AdminMesasPageContent() {
           </div>
 
           <p className="text-sm text-slate-600">
-            Cada QR apunta a <code>/mesa/[id]?restaurantId={currentRestaurantId}</code>,
-            usando el <strong>ID interno</strong> de la mesa y la sucursal activa.
+            Cada QR apunta a <code>/mesa/[numero]?restaurantId={currentRestaurantId}</code>,
+usando el <strong>número visible de mesa</strong> dentro de esta sucursal.
           </p>
 
           <p className="text-sm text-slate-600">
@@ -577,8 +584,8 @@ function AdminMesasPageContent() {
         ) : (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 print:grid-cols-2">
             {mesas.map((mesa, index) => {
-              const numeroMesa = getMesaNumero(mesa, index + 1);
-              const url = buildMesaUrl(baseUrl, mesa.id, currentRestaurantId);
+  const numeroMesa = getMesaNumero(mesa, index + 1);
+  const url = buildMesaUrl(baseUrl, numeroMesa, currentRestaurantId);
 
               return (
                 <article
@@ -593,8 +600,8 @@ function AdminMesasPageContent() {
                     ) : null}
 
                     <p className="text-xs text-slate-500 mt-1">
-                      ID interno #{mesa.id}
-                    </p>
+  QR de {restaurantLabel}
+</p>
                   </div>
 
                   <div className="bg-white p-2 rounded-md border border-slate-200">
