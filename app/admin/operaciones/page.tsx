@@ -335,7 +335,7 @@ export default function AdminOperacionesPage() {
   const [sessionData, setSessionData] =
     useState<AdminSessionPayload | null>(null);
   const [cargando, setCargando] = useState(true);
-  const [error, setError] = useState('');e('');
+  const [error, setError] = useState('');
 
   const plan = sessionData?.plan ?? 'esencial';
   const planLabel = formatPlanLabel(plan);
