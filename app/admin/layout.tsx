@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
   formatBusinessModeLabel,
   formatPlanLabel,
@@ -50,6 +50,7 @@ export default function AdminLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [ready, setReady] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -182,6 +183,35 @@ const multiBrandEnabled =
   );
   const businessModeLabel = formatBusinessModeLabel(businessMode);
 
+  const restaurantScopeQuery = useMemo(() => {
+  const params = new URLSearchParams();
+
+  const restaurantId =
+    searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
+
+  const restaurantSlug =
+    searchParams.get('restaurant') ??
+    searchParams.get('restaurantSlug') ??
+    searchParams.get('tenant') ??
+    searchParams.get('tenantSlug') ??
+    searchParams.get('slug');
+
+  if (restaurantId) {
+    params.set('restaurantId', restaurantId);
+  } else if (restaurantSlug) {
+    params.set('restaurant', restaurantSlug);
+  }
+
+  return params.toString();
+}, [searchParams]);
+
+function scopedHref(path: string) {
+  if (!restaurantScopeQuery) return path;
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}${restaurantScopeQuery}`;
+}
+
   const navItems = useMemo<NavItem[]>(() => {
   return [
     { href: '/inicio', label: 'Inicio', visible: true },
@@ -191,47 +221,69 @@ const multiBrandEnabled =
       label: 'Restaurantes',
       visible: true,
     },
-    { href: '/admin/productos', label: 'Menú / Productos', visible: true },
-{
-  href: '/admin/marcas',
-  label: 'Marcas',
-  visible: multiBrandEnabled,
-},
-{ href: '/cocina', label: 'Cocina', visible: true },
-      { href: '/mostrador', label: 'Mostrador / Caja', visible: true },
-      {
-        href: '/admin/operaciones',
-        label: 'Gestión operativa',
-        visible: hasOperationalManagement,
-      },
-      {
-        href: '/admin/mesas',
-        label: 'Mesas / QR',
-        visible: businessMode === 'restaurant',
-      },
-      {
-        href: '/mozo/mesas',
-        label: 'Mozo',
-        visible: businessMode === 'restaurant' && !!capabilities.waiter_mode,
-      },
-      {
-        href: '/pedir',
-        label: 'Take Away',
-        visible: businessMode === 'takeaway',
-      },
-      { href: '/admin/configuracion', label: 'Configuración', visible: true },
-      {
-        href: '/admin/delivery',
-        label: 'Delivery',
-        visible: !!capabilities.delivery,
-      },
-      {
-        href: '/admin/analytics',
-        label: 'Analytics',
-        visible: !!capabilities.analytics,
-      },
-    ].filter((item) => item.visible);
-  }, [businessMode, capabilities, hasOperationalManagement, multiBrandEnabled]);
+    {
+      href: scopedHref('/admin/productos'),
+      label: 'Menú / Productos',
+      visible: true,
+    },
+    {
+      href: scopedHref('/admin/marcas'),
+      label: 'Marcas',
+      visible: multiBrandEnabled,
+    },
+    {
+      href: scopedHref('/cocina'),
+      label: 'Cocina',
+      visible: true,
+    },
+    {
+      href: scopedHref('/mostrador'),
+      label: 'Mostrador / Caja',
+      visible: true,
+    },
+    {
+      href: scopedHref('/admin/operaciones'),
+      label: 'Gestión operativa',
+      visible: hasOperationalManagement,
+    },
+    {
+      href: scopedHref('/admin/mesas'),
+      label: 'Mesas / QR',
+      visible: businessMode === 'restaurant',
+    },
+    {
+      href: scopedHref('/mozo/mesas'),
+      label: 'Mozo',
+      visible: businessMode === 'restaurant' && !!capabilities.waiter_mode,
+    },
+    {
+      href: scopedHref('/pedir'),
+      label: 'Take Away',
+      visible: businessMode === 'takeaway',
+    },
+    {
+      href: scopedHref('/admin/configuracion'),
+      label: 'Configuración',
+      visible: true,
+    },
+    {
+      href: scopedHref('/admin/delivery'),
+      label: 'Delivery',
+      visible: !!capabilities.delivery,
+    },
+    {
+      href: scopedHref('/admin/analytics'),
+      label: 'Analytics',
+      visible: !!capabilities.analytics,
+    },
+  ].filter((item) => item.visible);
+}, [
+  businessMode,
+  capabilities,
+  hasOperationalManagement,
+  multiBrandEnabled,
+  restaurantScopeQuery,
+]);
 
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin';
