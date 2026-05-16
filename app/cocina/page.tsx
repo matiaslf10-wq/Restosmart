@@ -1,7 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import {
   normalizeBusinessMode,
@@ -25,6 +32,7 @@ type ItemPedido = {
 
 type Pedido = {
   id: number;
+  restaurant_id?: string | number | null;
   mesa_id: number;
   creado_en: string;
   estado: string;
@@ -39,6 +47,7 @@ type MesaRef = {
   id: number;
   numero: number | null;
   nombre: string | null;
+  restaurant_id?: string | number | null;
 };
 
 type FiltroEstado = 'todos' | 'pendiente' | 'en_preparacion' | 'listo';
@@ -276,12 +285,75 @@ function getReadyMessage(params: {
   return 'Los ítems de cocina ya están listos. Ahora Caja / Salón debe verlo desde Mostrador para entregarlo o cerrar la cuenta cuando corresponda.';
 }
 
-export default function CocinaPage() {
+function buildScopedHref(path: string, restaurantScopeQuery: string) {
+  if (!restaurantScopeQuery) return path;
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}${restaurantScopeQuery}`;
+}
+
+function CocinaPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const restaurantScopeQuery = useMemo(() => {
+    const params = new URLSearchParams();
+
+    params.set('scope', 'cocina');
+
+    const restaurantId =
+      searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
+
+    const restaurantSlug =
+      searchParams.get('restaurantSlug') ??
+      searchParams.get('restaurant') ??
+      searchParams.get('tenant') ??
+      searchParams.get('tenantSlug') ??
+      searchParams.get('slug');
+
+    if (restaurantId) {
+      params.set('restaurantId', restaurantId);
+    } else if (restaurantSlug) {
+      params.set('restaurantSlug', restaurantSlug);
+    }
+
+    return params.toString();
+  }, [searchParams]);
+
+  const currentRestaurantId = useMemo(() => {
+    return (
+      searchParams.get('restaurantId') ??
+      searchParams.get('restaurant_id') ??
+      null
+    );
+  }, [searchParams]);
+
+  const pedidosEndpoint = useMemo(
+    () => buildScopedHref('/api/pedidos', restaurantScopeQuery),
+    [restaurantScopeQuery]
+  );
+
+  const mostradorHref = useMemo(
+    () => buildScopedHref('/mostrador', restaurantScopeQuery),
+    [restaurantScopeQuery]
+  );
+
+  const mozoHref = useMemo(
+    () => buildScopedHref('/mozo/mesas', restaurantScopeQuery),
+    [restaurantScopeQuery]
+  );
+
+  const adminHref = useMemo(
+    () => buildScopedHref('/admin', restaurantScopeQuery),
+    [restaurantScopeQuery]
+  );
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
   const [businessMode, setBusinessMode] = useState<BusinessMode>('restaurant');
+  const [restaurantLabel, setRestaurantLabel] = useState(
+  'Sucursal no identificada'
+);
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [mesasMap, setMesasMap] = useState<Record<number, MesaRef>>({});
@@ -403,88 +475,108 @@ export default function CocinaPage() {
   }, []);
 
   const cargarPedidos = useCallback(async () => {
-    setCargando(true);
-    setError(null);
+  setCargando(true);
+  setError(null);
 
-    const [
-      { data: pedidosData, error: pedidosError },
-      { data: mesasData, error: mesasError },
-    ] = await Promise.all([
-      supabase
-        .from('pedidos')
-        .select(`
-          id,
-          mesa_id,
-          creado_en,
-          estado,
-          origen,
-          tipo_servicio,
-          codigo_publico,
-          cliente_nombre,
-          items_pedido (
-            id,
-            cantidad,
-            comentarios,
-            producto:productos ( nombre )
-          )
-        `)
-        .in('estado', ['pendiente', 'en_preparacion', 'listo'])
-        .order('creado_en', { ascending: false }),
-      supabase.from('mesas').select('id, numero, nombre'),
-    ]);
-
-    if (pedidosError) {
-      console.error('Error cargando pedidos en cocina:', pedidosError);
-      setError('No se pudieron cargar los pedidos de cocina.');
+  try {
+    if (!currentRestaurantId && !restaurantScopeQuery.includes('restaurantSlug=')) {
       setPedidos([]);
-    } else if (pedidosData) {
-      const formateados: Pedido[] = (pedidosData as any[])
-        .map((p) => {
-          const items: ItemPedido[] = ((p.items_pedido ?? []) as any[]).map(
-            (item) => {
-              const parsed = parseKitchenMeta(item.comentarios);
-
-              return {
-                id: item.id,
-                cantidad: item.cantidad,
-                comentarios: item.comentarios ?? null,
-                comentarioVisible: parsed.comentarioVisible,
-                prepTarget: parsed.prepTarget,
-                kitchenState: parsed.kitchenState,
-                producto: item.producto ?? null,
-              };
-            }
-          );
-
-          return {
-            id: p.id,
-            mesa_id: p.mesa_id,
-            creado_en: p.creado_en,
-            estado: p.estado,
-            items,
-            origen: p.origen ?? null,
-            tipo_servicio: p.tipo_servicio ?? null,
-            codigo_publico: p.codigo_publico ?? null,
-            cliente_nombre: p.cliente_nombre ?? null,
-          };
-        })
-        .filter((pedido) => getKitchenItems(pedido).length > 0);
-
-      setPedidos(formateados);
+      setMesasMap({});
+      setRestaurantLabel('Sucursal no identificada');
+      setError(
+        'Falta identificar la sucursal. Volvé a Inicio y abrí Cocina desde la tarjeta de una sucursal.'
+      );
+      return;
     }
 
-    if (mesasError) {
-      console.error('Error cargando mesas en cocina:', mesasError);
-    } else if (mesasData) {
-      const map: Record<number, MesaRef> = {};
-      for (const mesa of mesasData as MesaRef[]) {
-        map[mesa.id] = mesa;
-      }
-      setMesasMap(map);
+    const res = await fetch(pedidosEndpoint, {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'include',
+    });
+
+    const body = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      console.error('Error cargando pedidos de cocina por API:', {
+        status: res.status,
+        body,
+      });
+
+      setPedidos([]);
+      setMesasMap({});
+      setError(body?.error || 'No se pudieron cargar los pedidos de cocina.');
+      return;
     }
 
+    const restaurantData = body?.restaurant ?? null;
+
+    setRestaurantLabel(
+      String(
+        restaurantData?.nombre_local ??
+          restaurantData?.slug ??
+          (restaurantData?.id != null
+            ? `Sucursal ${restaurantData.id}`
+            : 'Sucursal no identificada')
+      ).trim() || 'Sucursal no identificada'
+    );
+
+    if (body?.meta?.business_mode) {
+      setBusinessMode(normalizeBusinessMode(body.meta.business_mode));
+    }
+
+    const pedidosData = (body?.pedidos ?? []) as any[];
+
+    const formateados: Pedido[] = pedidosData
+      .map((p) => {
+        const items: ItemPedido[] = ((p.items_pedido ?? []) as any[]).map(
+          (item) => {
+            const parsed = parseKitchenMeta(item.comentarios);
+
+            return {
+              id: item.id,
+              cantidad: item.cantidad,
+              comentarios: item.comentarios ?? null,
+              comentarioVisible: parsed.comentarioVisible,
+              prepTarget: parsed.prepTarget,
+              kitchenState: parsed.kitchenState,
+              producto: item.producto ?? null,
+            };
+          }
+        );
+
+        return {
+          id: p.id,
+          restaurant_id: p.restaurant_id ?? restaurantData?.id ?? null,
+          mesa_id: p.mesa_id,
+          creado_en: p.creado_en,
+          estado: p.estado,
+          items,
+          origen: p.origen ?? null,
+          tipo_servicio: p.tipo_servicio ?? null,
+          codigo_publico: p.codigo_publico ?? null,
+          cliente_nombre: p.cliente_nombre ?? null,
+        };
+      })
+      .filter((pedido) => getKitchenItems(pedido).length > 0);
+
+    setPedidos(formateados);
+
+    const map: Record<number, MesaRef> = {};
+    for (const mesa of ((body?.mesas ?? []) as MesaRef[])) {
+      map[mesa.id] = mesa;
+    }
+
+    setMesasMap(map);
+  } catch (err) {
+    console.error('Error inesperado cargando cocina:', err);
+    setPedidos([]);
+    setMesasMap({});
+    setError('Ocurrió un error inesperado al cargar cocina.');
+  } finally {
     setCargando(false);
-  }, []);
+  }
+}, [currentRestaurantId, pedidosEndpoint, restaurantScopeQuery]);
 
   useEffect(() => {
     if (checkingAccess) return;
@@ -569,18 +661,19 @@ export default function CocinaPage() {
       }
 
       const updates = await Promise.all(
-        itemsAActualizar.map((item) =>
-          supabase
-            .from('items_pedido')
-            .update({
-              comentarios: buildKitchenComment(
-                item.comentarioVisible,
-                nuevoEstado
-              ),
-            })
-            .eq('id', item.id)
-        )
-      );
+  itemsAActualizar.map((item) =>
+    supabase
+      .from('items_pedido')
+      .update({
+        comentarios: buildKitchenComment(
+          item.comentarioVisible,
+          nuevoEstado
+        ),
+      })
+      .eq('id', item.id)
+      .eq('pedido_id', pedido.id)
+  )
+);
 
       const failed = updates.find((result) => result.error);
 
@@ -588,12 +681,23 @@ export default function CocinaPage() {
         throw failed.error;
       }
 
-      const { error: pedidoError } = await supabase
-        .from('pedidos')
-        .update({
-          estado: nuevoEstado === 'listo' ? 'listo' : 'en_preparacion',
-        })
-        .eq('id', pedido.id);
+      let pedidoUpdateQuery = supabase
+  .from('pedidos')
+  .update({
+    estado: nuevoEstado === 'listo' ? 'listo' : 'en_preparacion',
+  })
+  .eq('id', pedido.id);
+
+const scopedRestaurantId = pedido.restaurant_id ?? currentRestaurantId;
+
+if (scopedRestaurantId != null) {
+  pedidoUpdateQuery = pedidoUpdateQuery.eq(
+    'restaurant_id',
+    scopedRestaurantId
+  );
+}
+
+const { error: pedidoError } = await pedidoUpdateQuery;
 
       if (pedidoError) {
         throw pedidoError;
@@ -635,6 +739,9 @@ export default function CocinaPage() {
         <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">Cocina (tiempo real)</h1>
+            <p className="mt-1 text-sm font-semibold text-emerald-200">
+  Sucursal: {restaurantLabel}
+</p>
             <p className="text-sm text-slate-300">
               Cocina ve solo los ítems que Mostrador le envía.
             </p>
@@ -668,7 +775,7 @@ export default function CocinaPage() {
             </button>
 
             <button
-              onClick={() => router.push('/mostrador')}
+              onClick={() => router.push(mostradorHref)}
               className="px-3 py-1 rounded-lg text-sm bg-amber-400 text-slate-900 font-semibold hover:bg-amber-300"
             >
               Ir a mostrador
@@ -682,7 +789,7 @@ export default function CocinaPage() {
             </button>
 
             <button
-              onClick={() => router.push('/admin')}
+              onClick={() => router.push(adminHref)}
               className="px-3 py-1 rounded-lg text-sm bg-white text-slate-900 hover:bg-slate-100"
             >
               Ir a admin
@@ -690,7 +797,7 @@ export default function CocinaPage() {
 
             {businessMode === 'restaurant' && canUseWaiterMode ? (
               <button
-                onClick={() => router.push('/mozo/mesas')}
+                onClick={() => router.push(mozoHref)}
                 className="px-3 py-1 rounded-lg text-sm bg-emerald-400 text-slate-900 font-semibold hover:bg-emerald-300"
               >
                 Ir a mozo
@@ -882,5 +989,19 @@ export default function CocinaPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function CocinaPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-50">
+          <p>Cargando cocina...</p>
+        </main>
+      }
+    >
+      <CocinaPageContent />
+    </Suspense>
   );
 }
