@@ -349,6 +349,8 @@ export default function AdminOperacionesPage() {
   const hasAdvancedOperations =
     plan === 'pro' || plan === 'intelligence';
 
+    
+
     const operacionesResumenHref = buildScopedHref(
   '/api/admin/operaciones-resumen',
   restaurantScopeQuery
@@ -589,16 +591,17 @@ const configuracionHref = buildScopedHref(
 
             <Link
   href={cocinaHref}
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
-            >
-              <p className="text-sm font-semibold text-slate-700">Producción</p>
-              <h2 className="mt-2 text-xl font-bold text-slate-900">Cocina</h2>
-              <p className="mt-2 text-sm text-slate-600">
-                Producción del local: tomar pedidos, prepararlos y dejarlos listos
-                para entregar.
-              </p>
-            </Link>
-            <Link
+  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
+>
+  <p className="text-sm font-semibold text-slate-700">Producción</p>
+  <h2 className="mt-2 text-xl font-bold text-slate-900">Cocina</h2>
+  <p className="mt-2 text-sm text-slate-600">
+    Producción del local: tomar pedidos, prepararlos y dejarlos listos
+    para entregar.
+  </p>
+</Link>
+
+<Link
   href={configuracionHref}
   className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
 >
@@ -890,7 +893,7 @@ const configuracionHref = buildScopedHref(
                 </div>
 
                 <Link
-                  href="/mostrador"
+  href={mostradorHref}
                   className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
                 >
                   Operar desde mostrador
