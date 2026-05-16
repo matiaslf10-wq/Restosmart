@@ -356,9 +356,15 @@ function buildPublicPedirHref() {
 }
 
 function buildPublicRetiroHref() {
-  if (!requestedTenant) return '/retiro';
+  if (requestedRestaurantId) {
+    return `/retiro?restaurantId=${encodeURIComponent(requestedRestaurantId)}`;
+  }
 
-  return `/retiro?restaurant=${encodeURIComponent(requestedTenant)}`;
+  if (requestedTenant) {
+    return `/retiro?restaurant=${encodeURIComponent(requestedTenant)}`;
+  }
+
+  return '/retiro';
 }
   const [localForm, setLocalForm] = useState<LocalConfig>(DEFAULT_LOCAL);
   const [deliveryForm, setDeliveryForm] = useState<DeliveryConfig>(DEFAULT_DELIVERY);
@@ -1434,18 +1440,30 @@ el modo de negocio se guardan por sucursal.
 
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
-                  href="/mesa/1"
-                  className="rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
-                >
-                  Abrir ejemplo de mesa
-                </Link>
+  href={
+    requestedRestaurantId
+      ? `/mesa/1?restaurantId=${encodeURIComponent(requestedRestaurantId)}`
+      : requestedTenant
+      ? `/mesa/1?restaurant=${encodeURIComponent(requestedTenant)}`
+      : '/mesa/1'
+  }
+  className="rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+>
+  Abrir ejemplo de mesa
+</Link>
 
                 <Link
-                  href="/admin/mesas"
-                  className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-                >
-                  Gestionar mesas y QR
-                </Link>
+  href={
+    requestedRestaurantId
+      ? `/admin/mesas?restaurantId=${encodeURIComponent(requestedRestaurantId)}`
+      : requestedTenant
+      ? `/admin/mesas?restaurant=${encodeURIComponent(requestedTenant)}`
+      : '/admin/mesas'
+  }
+  className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+>
+  Gestionar mesas y QR
+</Link>
               </div>
             </div>
           ) : (
