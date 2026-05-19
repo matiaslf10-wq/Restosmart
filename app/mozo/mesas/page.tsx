@@ -1,7 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import {
   formatPlanLabel,
@@ -46,6 +53,7 @@ type Pedido = {
 
 type MesaConCuenta = {
   id: number;
+  restaurant_id?: string | number | null;
   numero: number | null;
   nombre: string;
   pedidos: Pedido[];
@@ -246,8 +254,60 @@ function buildMesaPosterSvg(params: {
   `;
 }
 
-export default function MesasMozoPage() {
+function buildScopedHref(path: string, restaurantScopeQuery: string) {
+  if (!restaurantScopeQuery) return path;
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}${restaurantScopeQuery}`;
+}
+
+function getMesaNumeroVisible(mesa: { numero: number | null; id: number }) {
+  return typeof mesa.numero === 'number' && mesa.numero > 0
+    ? mesa.numero
+    : mesa.id;
+}
+
+function MesasMozoPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const restaurantScopeQuery = useMemo(() => {
+    const params = new URLSearchParams();
+
+    const restaurantId =
+      searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
+
+    const restaurantSlug =
+      searchParams.get('restaurantSlug') ??
+      searchParams.get('restaurant') ??
+      searchParams.get('tenant') ??
+      searchParams.get('tenantSlug') ??
+      searchParams.get('slug');
+
+    if (restaurantId) {
+      params.set('restaurantId', restaurantId);
+    } else if (restaurantSlug) {
+      params.set('restaurantSlug', restaurantSlug);
+    }
+
+    return params.toString();
+  }, [searchParams]);
+
+  const currentRestaurantId = useMemo(() => {
+    return (
+      searchParams.get('restaurantId') ??
+      searchParams.get('restaurant_id') ??
+      null
+    );
+  }, [searchParams]);
+
+  const configuracionHref = buildScopedHref(
+    '/admin/configuracion',
+    restaurantScopeQuery
+  );
+
+  const mostradorHref = buildScopedHref('/mostrador', restaurantScopeQuery);
+  const inicioHref = '/inicio';
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
@@ -332,10 +392,12 @@ export default function MesasMozoPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const getMesaPublicPath = (mesaId: number | null | undefined) => {
-    if (mesaId == null || mesaId <= DELIVERY_MESA_ID) return '';
-    return `/mesa/${mesaId}`;
-  };
+  const getMesaPublicPath = (mesaNumero: number | null | undefined) => {
+  if (mesaNumero == null || mesaNumero <= DELIVERY_MESA_ID) return '';
+
+  const base = `/mesa/${mesaNumero}`;
+  return buildScopedHref(base, restaurantScopeQuery);
+};
 
   const getMesaPublicUrl = (mesaId: number | null | undefined) => {
     const path = getMesaPublicPath(mesaId);
@@ -353,7 +415,7 @@ export default function MesasMozoPage() {
   };
 
   const copiarLinkMesa = async (mesa: MesaConCuenta) => {
-    const url = getMesaPublicUrl(mesa.id);
+  const url = getMesaPublicUrl(getMesaNumeroVisible(mesa));
     if (!url) return;
 
     try {
@@ -366,7 +428,7 @@ export default function MesasMozoPage() {
   };
 
   const abrirMesa = (mesa: MesaConCuenta) => {
-    const url = getMesaPublicUrl(mesa.id);
+  const url = getMesaPublicUrl(getMesaNumeroVisible(mesa));
     if (!url) return;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
@@ -376,8 +438,9 @@ export default function MesasMozoPage() {
   };
 
   const imprimirQrMesa = (mesa: MesaConCuenta) => {
-    const mesaUrl = getMesaPublicUrl(mesa.id);
-    const qrUrl = getMesaQrUrl(mesa.id);
+    const mesaNumeroVisible = getMesaNumeroVisible(mesa);
+const mesaUrl = getMesaPublicUrl(mesaNumeroVisible);
+const qrUrl = getMesaQrUrl(mesaNumeroVisible);
     const mesaTitulo = getMesaDisplayName(mesa);
 
     if (!mesaUrl || !qrUrl) return;
@@ -648,133 +711,141 @@ export default function MesasMozoPage() {
   };
 
   const cargarDatos = useCallback(async () => {
-    setCargando(true);
-    setMensaje(null);
+  setCargando(true);
+  setMensaje(null);
 
-    try {
-      const { data: mesasData, error: errorMesas } = await supabase
-        .from('mesas')
-        .select('*')
-        .order('id', { ascending: true });
+  if (!currentRestaurantId) {
+    setMesas([]);
+    setMensaje(
+      'Falta identificar la sucursal. Volvé a Inicio y abrí Mozo desde una sucursal.'
+    );
+    setCargando(false);
+    return;
+  }
 
-      if (errorMesas) {
-        console.error('Error al cargar mesas:', errorMesas);
-        setMensaje('Error al cargar las mesas.');
-        setCargando(false);
-        return;
-      }
+  try {
+    const { data: mesasData, error: errorMesas } = await supabase
+      .from('mesas')
+      .select('id, restaurant_id, numero, nombre')
+      .eq('restaurant_id', currentRestaurantId)
+      .gt('id', DELIVERY_MESA_ID)
+      .order('numero', { ascending: true });
 
-      if (!mesasData) {
-        setMesas([]);
-        setCargando(false);
-        return;
-      }
+    if (errorMesas) {
+      console.error('Error al cargar mesas:', errorMesas);
+      setMensaje('Error al cargar las mesas.');
+      setCargando(false);
+      return;
+    }
 
-      const { data: pedidosData, error: errorPedidos } = await supabase
-        .from('pedidos')
-        .select(`
+    const { data: pedidosData, error: errorPedidos } = await supabase
+      .from('pedidos')
+      .select(`
+        id,
+        restaurant_id,
+        mesa_id,
+        creado_en,
+        estado,
+        paga_efectivo,
+        forma_pago,
+        origen,
+        tipo_servicio,
+        medio_pago,
+        estado_pago,
+        efectivo_aprobado,
+        pasado_a_caja,
+        items_pedido (
           id,
-          mesa_id,
-          creado_en,
-          estado,
-          paga_efectivo,
-          forma_pago,
-          origen,
-          tipo_servicio,
-          medio_pago,
-          estado_pago,
-          efectivo_aprobado,
-          pasado_a_caja,
-          items_pedido (
-            id,
-            cantidad,
-            comentarios,
-            producto:productos ( nombre, precio )
-          )
-        `)
-        .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
+          cantidad,
+          comentarios,
+          producto:productos ( nombre, precio )
+        )
+      `)
+      .eq('restaurant_id', currentRestaurantId)
+      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
-      if (errorPedidos) {
-        console.error('Error al cargar pedidos:', errorPedidos);
-        setMensaje('Error al cargar los pedidos.');
-        setCargando(false);
-        return;
-      }
+    if (errorPedidos) {
+      console.error('Error al cargar pedidos:', errorPedidos);
+      setMensaje('Error al cargar los pedidos.');
+      setCargando(false);
+      return;
+    }
 
-      const pedidosBase: any[] = pedidosData ?? [];
+    const pedidosBase: any[] = pedidosData ?? [];
 
-      const pedidosPorMesa: Record<number, Pedido[]> = {};
-      pedidosBase.forEach((p) => {
-        const pedido: Pedido = {
-          id: p.id,
-          mesa_id: p.mesa_id,
-          creado_en: p.creado_en,
-          estado: p.estado,
-          paga_efectivo: p.paga_efectivo,
-          forma_pago: p.forma_pago,
-          origen: p.origen ?? null,
-          tipo_servicio: p.tipo_servicio ?? null,
-          medio_pago: p.medio_pago ?? null,
-          estado_pago: p.estado_pago ?? null,
-          efectivo_aprobado: p.efectivo_aprobado ?? null,
-          pasado_a_caja: p.pasado_a_caja ?? false,
-          items: ((p.items_pedido ?? []) as any[]).map((item) => {
-  const parsed = parseKitchenMeta(item.comentarios);
+    const pedidosPorMesa: Record<number, Pedido[]> = {};
 
-  return {
-    id: item.id,
-    cantidad: item.cantidad,
-    comentarios: item.comentarios ?? null,
-    comentarioVisible: parsed.comentarioVisible,
-    prepTarget: parsed.prepTarget,
-    kitchenState: parsed.kitchenState,
-    producto: item.producto ?? null,
-  };
-}),
-        };
-
-        if (!shouldShowPedidoInMozo(pedido)) {
-          return;
-        }
-
-        if (!pedidosPorMesa[pedido.mesa_id]) {
-          pedidosPorMesa[pedido.mesa_id] = [];
-        }
-
-        pedidosPorMesa[pedido.mesa_id].push(pedido);
-      });
-
-      const mesasConCuenta: MesaConCuenta[] = (mesasData as any[])
-        .map((m) => {
-          const pedidosMesa = pedidosPorMesa[m.id] ?? [];
-
-          const totalMesa = pedidosMesa.reduce((acc, p) => {
-            const subtotal = p.items.reduce((accItem, item) => {
-              const precio = item.producto?.precio ?? 0;
-              return accItem + precio * item.cantidad;
-            }, 0);
-            return acc + subtotal;
-          }, 0);
+    pedidosBase.forEach((p) => {
+      const pedido: Pedido = {
+        id: p.id,
+        mesa_id: p.mesa_id,
+        creado_en: p.creado_en,
+        estado: p.estado,
+        paga_efectivo: p.paga_efectivo,
+        forma_pago: p.forma_pago,
+        origen: p.origen ?? null,
+        tipo_servicio: p.tipo_servicio ?? null,
+        medio_pago: p.medio_pago ?? null,
+        estado_pago: p.estado_pago ?? null,
+        efectivo_aprobado: p.efectivo_aprobado ?? null,
+        pasado_a_caja: p.pasado_a_caja ?? false,
+        items: ((p.items_pedido ?? []) as any[]).map((item) => {
+          const parsed = parseKitchenMeta(item.comentarios);
 
           return {
-            id: m.id,
-            numero: m.numero ?? null,
-            nombre: m.nombre as string,
-            pedidos: pedidosMesa,
-            totalMesa,
+            id: item.id,
+            cantidad: item.cantidad,
+            comentarios: item.comentarios ?? null,
+            comentarioVisible: parsed.comentarioVisible,
+            prepTarget: parsed.prepTarget,
+            kitchenState: parsed.kitchenState,
+            producto: item.producto ?? null,
           };
-        })
-        .filter((mesa) => !esMesaTecnica(mesa))
-        .sort((a, b) => (a.numero ?? 999999) - (b.numero ?? 999999));
+        }),
+      };
 
-      setMesas(mesasConCuenta);
-    } catch (err) {
-      console.error('Error inesperado en cargarDatos:', err);
-      setMensaje('Ocurrió un error inesperado al cargar los datos.');
-    } finally {
-      setCargando(false);
-    }
-  }, []);
+      if (!shouldShowPedidoInMozo(pedido)) return;
+
+      if (!pedidosPorMesa[pedido.mesa_id]) {
+        pedidosPorMesa[pedido.mesa_id] = [];
+      }
+
+      pedidosPorMesa[pedido.mesa_id].push(pedido);
+    });
+
+    const mesasConCuenta: MesaConCuenta[] = ((mesasData ?? []) as any[])
+      .map((m) => {
+        const pedidosMesa = pedidosPorMesa[m.id] ?? [];
+
+        const totalMesa = pedidosMesa.reduce((acc, p) => {
+          const subtotal = p.items.reduce((accItem, item) => {
+            const precio = item.producto?.precio ?? 0;
+            return accItem + precio * item.cantidad;
+          }, 0);
+
+          return acc + subtotal;
+        }, 0);
+
+        return {
+          id: m.id,
+          restaurant_id: m.restaurant_id ?? currentRestaurantId,
+          numero: m.numero ?? null,
+          nombre: m.nombre as string,
+          pedidos: pedidosMesa,
+          totalMesa,
+        };
+      })
+      .filter((mesa) => !esMesaTecnica(mesa))
+      .sort((a, b) => (a.numero ?? 999999) - (b.numero ?? 999999));
+
+    setMesas(mesasConCuenta);
+  } catch (err) {
+    console.error('Error inesperado en cargarDatos:', err);
+    setMensaje('Ocurrió un error inesperado al cargar los datos.');
+  } finally {
+    setCargando(false);
+  }
+}, [currentRestaurantId]);
 
   useEffect(() => {
     if (!canUseWaiterMode || businessMode !== 'restaurant') return;
@@ -993,9 +1064,10 @@ export default function MesasMozoPage() {
       const idsPedidos = mesa.pedidos.map((pedido) => pedido.id);
 
       const { error } = await supabase
-        .from('pedidos')
-        .update({ pasado_a_caja: true })
-        .in('id', idsPedidos);
+  .from('pedidos')
+  .update({ pasado_a_caja: true })
+  .eq('restaurant_id', currentRestaurantId)
+  .in('id', idsPedidos);
 
       if (error) {
         console.error('No se pudo pasar la mesa a caja:', error);
@@ -1026,7 +1098,8 @@ export default function MesasMozoPage() {
     const { error } = await supabase
       .from('pedidos')
       .update({ estado: 'cancelado' })
-      .eq('id', pedidoId);
+      .eq('id', pedidoId)
+.eq('restaurant_id', currentRestaurantId);
 
     if (error) {
       console.error(error);
@@ -1048,7 +1121,8 @@ export default function MesasMozoPage() {
     const { error } = await supabase
       .from('pedidos')
       .update({ estado: nuevoEstado })
-      .eq('id', pedidoId);
+      .eq('id', pedidoId)
+.eq('restaurant_id', currentRestaurantId);
 
     if (error) {
       console.error('Error al actualizar estado del pedido:', error);
@@ -1070,7 +1144,8 @@ export default function MesasMozoPage() {
     .update({
       comentarios: buildKitchenComment(item.comentarioVisible, 'pendiente'),
     })
-    .eq('id', item.id);
+    .eq('id', item.id)
+.eq('pedido_id', pedidoId)
 
   if (itemError) {
     console.error('No se pudo pasar el ítem a cocina:', itemError);
@@ -1082,7 +1157,8 @@ export default function MesasMozoPage() {
   const { error: pedidoError } = await supabase
     .from('pedidos')
     .update({ estado: 'en_preparacion' })
-    .eq('id', pedidoId);
+    .eq('id', pedidoId)
+.eq('restaurant_id', currentRestaurantId);
 
   if (pedidoError) {
     console.error(
@@ -1149,7 +1225,7 @@ export default function MesasMozoPage() {
 
             <div className="mt-6 flex flex-wrap gap-3">
               <button
-                onClick={() => router.push('/admin/configuracion')}
+                onClick={() => router.push(configuracionHref)}
                 className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
               >
                 Ir a Configuración
@@ -1238,8 +1314,8 @@ export default function MesasMozoPage() {
               </p>
 
               <p className="mt-1 text-sm text-slate-500">
-                Los links y QR de cliente usan <strong>/mesa/[id]</strong> con el
-                ID interno. La identificación visible del salón sigue siendo el
+                Los links y QR de cliente usan <strong>/mesa/[numero]?restaurantId=...</strong>.
+El ID interno queda reservado para la base de datos. La identificación visible del salón sigue siendo el
                 número de mesa.
               </p>
             </div>
@@ -1319,8 +1395,8 @@ export default function MesasMozoPage() {
                       {getMesaDisplayName(mesa)}
                     </h2>
                     <span className="text-[11px] text-slate-500">
-                      ID interno {mesa.id}
-                    </span>
+  Número visible por sucursal
+</span>
                   </div>
 
                   <div className="flex flex-col items-end gap-1">
@@ -1539,7 +1615,11 @@ export default function MesasMozoPage() {
 
                   <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={() => router.push(`/mozo/mesas/${mesa.id}`)}
+                      onClick={() =>
+  router.push(
+    buildScopedHref(`/mozo/mesas/${getMesaNumeroVisible(mesa)}`, restaurantScopeQuery)
+  )
+}
                       className="px-3 py-1 rounded-lg bg-white border border-slate-300 text-slate-800 text-sm font-semibold hover:bg-slate-50"
                     >
                       Ver mesa
@@ -1597,7 +1677,7 @@ export default function MesasMozoPage() {
 
             <div className="mt-4 rounded-2xl border p-4">
               <img
-                src={getMesaQrUrl(mesaQrActiva.id)}
+                src={getMesaQrUrl(getMesaNumeroVisible(mesaQrActiva))}
                 alt={`QR ${getMesaDisplayName(mesaQrActiva)}`}
                 className="mx-auto h-72 w-72 max-w-full"
               />
@@ -1605,7 +1685,7 @@ export default function MesasMozoPage() {
                 {getMesaDisplayName(mesaQrActiva)}
               </p>
               <p className="mt-2 break-all text-center text-xs text-slate-600">
-                {getMesaPublicUrl(mesaQrActiva.id)}
+                {getMesaPublicUrl(getMesaNumeroVisible(mesaQrActiva))}
               </p>
             </div>
 
@@ -1643,5 +1723,20 @@ export default function MesasMozoPage() {
         </div>
       ) : null}
     </main>
+  );
+}
+export default function MesasMozoPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-slate-100 px-4 py-6">
+          <div className="max-w-6xl mx-auto">
+            <p className="text-slate-600">Cargando modo mozo…</p>
+          </div>
+        </main>
+      }
+    >
+      <MesasMozoPageContent />
+    </Suspense>
   );
 }

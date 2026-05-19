@@ -1,7 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import {
   formatPlanLabel,
@@ -33,6 +39,13 @@ type Pedido = {
   estado: string;
   paga_efectivo?: boolean;
   items: ItemPedido[];
+};
+
+type MesaActual = {
+  id: number;
+  restaurant_id: string | number | null;
+  numero: number | null;
+  nombre: string | null;
 };
 
 type EstadoMesaView = 'sin_pedidos' | 'en_curso' | 'lista_para_caja';
@@ -163,16 +176,63 @@ function buildKitchenComment(
   return `[[COCINA:${kitchenState}]]${visible ? ` ${visible}` : ''}`;
 }
 
-export default function MozoMesaPage() {
+function buildScopedHref(path: string, restaurantScopeQuery: string) {
+  if (!restaurantScopeQuery) return path;
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}${restaurantScopeQuery}`;
+}
+
+function MozoMesaPageContent() {
   const params = useParams();
   const router = useRouter();
-  const mesaId = Number((params as { mesaId?: string }).mesaId);
-  const mesaIdValido = Number.isFinite(mesaId) && mesaId > 0;
+  const searchParams = useSearchParams();
+
+  const mesaNumero = Number((params as { mesaId?: string }).mesaId);
+  const mesaNumeroValido = Number.isFinite(mesaNumero) && mesaNumero > 0;
+
+  const restaurantScopeQuery = useMemo(() => {
+    const params = new URLSearchParams();
+
+    const restaurantId =
+      searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
+
+    const restaurantSlug =
+      searchParams.get('restaurantSlug') ??
+      searchParams.get('restaurant') ??
+      searchParams.get('tenant') ??
+      searchParams.get('tenantSlug') ??
+      searchParams.get('slug');
+
+    if (restaurantId) {
+      params.set('restaurantId', restaurantId);
+    } else if (restaurantSlug) {
+      params.set('restaurantSlug', restaurantSlug);
+    }
+
+    return params.toString();
+  }, [searchParams]);
+
+  const currentRestaurantId = useMemo(() => {
+    return (
+      searchParams.get('restaurantId') ??
+      searchParams.get('restaurant_id') ??
+      null
+    );
+  }, [searchParams]);
+
+  const mozoMesasHref = buildScopedHref('/mozo/mesas', restaurantScopeQuery);
+  const configuracionHref = buildScopedHref(
+    '/admin/configuracion',
+    restaurantScopeQuery
+  );
+  const adminHref = buildScopedHref('/admin', restaurantScopeQuery);
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
   const [businessMode, setBusinessMode] = useState<BusinessMode>('restaurant');
+  const [mesaActual, setMesaActual] = useState<MesaActual | null>(null);
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -185,68 +245,103 @@ export default function MozoMesaPage() {
     null
   );
 
+  const cargarMesaActual = useCallback(async () => {
+  if (!mesaNumeroValido || !currentRestaurantId) {
+    setMesaActual(null);
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('mesas')
+    .select('id, restaurant_id, numero, nombre')
+    .eq('restaurant_id', currentRestaurantId)
+    .eq('numero', mesaNumero)
+    .maybeSingle();
+
+  if (error) {
+    console.error('No se pudo cargar la mesa del mozo:', error);
+    setMensaje('No se pudo cargar la mesa.');
+    setMesaActual(null);
+    return null;
+  }
+
+  const mesa = (data as MesaActual | null) ?? null;
+  setMesaActual(mesa);
+  return mesa;
+}, [currentRestaurantId, mesaNumero, mesaNumeroValido]);
+
   const cargarPedidos = useCallback(async () => {
-    if (!mesaIdValido) return;
+  if (!mesaNumeroValido || !currentRestaurantId) return;
 
-    setCargando(true);
-    setMensaje(null);
+  setCargando(true);
+  setMensaje(null);
 
-    const { data, error } = await supabase
-      .from('pedidos')
-      .select(`
-        id,
-        mesa_id,
-        creado_en,
-        estado,
-        paga_efectivo,
-        items_pedido (
-          id,
-          cantidad,
-          comentarios,
-          producto:productos ( nombre, precio )
-        )
-      `)
-      .eq('mesa_id', mesaId)
-      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
-      .order('creado_en', { ascending: true });
+  const mesa = mesaActual ?? (await cargarMesaActual());
 
-    if (error) {
-      console.error('Error al cargar pedidos de la mesa:', error);
-      setMensaje('No se pudo cargar la mesa.');
-      setPedidos([]);
-      setCargando(false);
-      return;
-    }
-
-    if (data) {
-      const formateados: Pedido[] = data.map((p: any) => ({
-        id: p.id,
-        mesa_id: p.mesa_id,
-        creado_en: p.creado_en,
-        estado: p.estado,
-        paga_efectivo: p.paga_efectivo,
-        items: (p.items_pedido ?? []).map((item: any) => {
-          const parsed = parseKitchenMeta(item.comentarios);
-
-          return {
-            id: item.id,
-            cantidad: item.cantidad,
-            comentarios: item.comentarios ?? null,
-            comentarioVisible: parsed.comentarioVisible,
-            prepTarget: parsed.prepTarget,
-            kitchenState: parsed.kitchenState,
-            producto: item.producto ?? null,
-          };
-        }),
-      }));
-
-      setPedidos(formateados);
-    } else {
-      setPedidos([]);
-    }
-
+  if (!mesa?.id) {
+    setPedidos([]);
+    setMensaje('La mesa no existe en esta sucursal.');
     setCargando(false);
-  }, [mesaId]);
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('pedidos')
+    .select(`
+      id,
+      mesa_id,
+      creado_en,
+      estado,
+      paga_efectivo,
+      items_pedido (
+        id,
+        cantidad,
+        comentarios,
+        producto:productos ( nombre, precio )
+      )
+    `)
+    .eq('restaurant_id', currentRestaurantId)
+    .eq('mesa_id', mesa.id)
+    .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
+    .order('creado_en', { ascending: true });
+
+  if (error) {
+    console.error('Error al cargar pedidos de la mesa:', error);
+    setMensaje('No se pudo cargar la mesa.');
+    setPedidos([]);
+    setCargando(false);
+    return;
+  }
+
+  const formateados: Pedido[] = ((data ?? []) as any[]).map((p) => ({
+    id: p.id,
+    mesa_id: p.mesa_id,
+    creado_en: p.creado_en,
+    estado: p.estado,
+    paga_efectivo: p.paga_efectivo,
+    items: (p.items_pedido ?? []).map((item: any) => {
+      const parsed = parseKitchenMeta(item.comentarios);
+
+      return {
+        id: item.id,
+        cantidad: item.cantidad,
+        comentarios: item.comentarios ?? null,
+        comentarioVisible: parsed.comentarioVisible,
+        prepTarget: parsed.prepTarget,
+        kitchenState: parsed.kitchenState,
+        producto: item.producto ?? null,
+      };
+    }),
+  }));
+
+  setPedidos(formateados);
+  setCargando(false);
+}, [
+  mesaNumeroValido,
+  currentRestaurantId,
+  mesaActual,
+  cargarMesaActual,
+]);
 
   useEffect(() => {
     let active = true;
@@ -297,7 +392,7 @@ setBusinessMode(resolvedMode);
   }, [router]);
 
   useEffect(() => {
-    if (!canUseWaiterMode || businessMode !== 'restaurant' || !mesaIdValido) return;
+    if (!canUseWaiterMode || businessMode !== 'restaurant' || !mesaNumeroValido) return;
 
     void cargarPedidos();
 
@@ -306,7 +401,7 @@ setBusinessMode(resolvedMode);
     }, 10000);
 
     return () => clearInterval(interval);
-}, [canUseWaiterMode, businessMode, mesaIdValido, mesaId, cargarPedidos]);
+}, [canUseWaiterMode, businessMode, mesaNumeroValido, cargarPedidos]);
 
   const subtotalPedido = (pedido: Pedido) =>
     pedido.items.reduce((acc, item) => {
@@ -331,7 +426,8 @@ setBusinessMode(resolvedMode);
     const { error } = await supabase
       .from('pedidos')
       .update({ estado: nuevoEstado })
-      .eq('id', pedidoId);
+      .eq('id', pedidoId)
+.eq('restaurant_id', currentRestaurantId);
 
     if (error) {
       console.error('Error al actualizar estado del pedido:', error);
@@ -353,7 +449,8 @@ setBusinessMode(resolvedMode);
       .update({
         comentarios: buildKitchenComment(item.comentarioVisible, 'pendiente'),
       })
-      .eq('id', item.id);
+      .eq('id', item.id)
+.eq('pedido_id', pedidoId);
 
     if (itemError) {
       console.error('No se pudo enviar el ítem a cocina:', itemError);
@@ -365,7 +462,8 @@ setBusinessMode(resolvedMode);
     const { error: pedidoError } = await supabase
       .from('pedidos')
       .update({ estado: 'en_preparacion' })
-      .eq('id', pedidoId);
+      .eq('id', pedidoId)
+.eq('restaurant_id', currentRestaurantId);
 
     if (pedidoError) {
       console.error(
@@ -383,7 +481,7 @@ setBusinessMode(resolvedMode);
   };
 
   const pasarACaja = async () => {
-  if (!mesaId) return;
+  if (!mesaActual?.id) return;
 
   setDerivandoACaja(true);
   setMensaje(null);
@@ -391,7 +489,8 @@ setBusinessMode(resolvedMode);
   const { error } = await supabase
     .from('pedidos')
     .update({ pasado_a_caja: true })
-    .eq('mesa_id', mesaId)
+    .eq('restaurant_id', currentRestaurantId)
+.eq('mesa_id', mesaActual.id)
     .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
   if (error) {
@@ -401,7 +500,12 @@ setBusinessMode(resolvedMode);
     return;
   }
 
-  router.push(`/mostrador?focusMesaId=${mesaId}`);
+  router.push(
+  buildScopedHref(
+    `/mostrador?focusMesaId=${mesaActual.id}`,
+    restaurantScopeQuery
+  )
+);
 };
 
   if (checkingAccess) {
@@ -432,7 +536,7 @@ setBusinessMode(resolvedMode);
 
           <div className="mt-6 flex flex-wrap gap-3">
             <button
-              onClick={() => router.push('/admin/configuracion')}
+              onClick={() => router.push(configuracionHref)}
               className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
             >
               Ir a Configuración
@@ -478,7 +582,7 @@ setBusinessMode(resolvedMode);
                 Ver planes
               </a>
               <button
-                onClick={() => router.push('/admin')}
+                onClick={() => router.push(adminHref)}
                 className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Volver al admin
@@ -490,7 +594,7 @@ setBusinessMode(resolvedMode);
     );
   }
 
-  if (!mesaIdValido) {
+  if (!mesaNumeroValido) {
     return (
       <main className="min-h-screen flex items-center justify-center">
         <p>Falta el número de mesa en la URL.</p>
@@ -527,7 +631,7 @@ setBusinessMode(resolvedMode);
               </div>
 
               <h1 className="mt-3 text-3xl font-bold text-slate-900">
-                Mesa {mesaId}
+                Mesa {mesaActual?.numero ?? mesaNumero}
               </h1>
 
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
@@ -548,7 +652,7 @@ setBusinessMode(resolvedMode);
               </button>
 
               <button
-                onClick={() => router.push('/mozo/mesas')}
+                onClick={() => router.push(mozoMesasHref)}
                 className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Volver a mesas
@@ -727,5 +831,19 @@ setBusinessMode(resolvedMode);
         )}
       </div>
     </main>
+  );
+}
+
+export default function MozoMesaPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center">
+          <p>Cargando mesa del mozo...</p>
+        </main>
+      }
+    >
+      <MozoMesaPageContent />
+    </Suspense>
   );
 }
