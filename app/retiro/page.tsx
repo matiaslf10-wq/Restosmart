@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 type PublicRetiroPedido = {
   id: number;
@@ -84,7 +85,31 @@ function getNameClass(
   return 'text-[clamp(2.1rem,2.6vw,3.1rem)] leading-[0.95]';
 }
 
-export default function RetiroPage() {
+function buildRetiroQueryString(searchParams: URLSearchParams) {
+  const query = new URLSearchParams();
+
+  const restaurant =
+    searchParams.get('restaurant') ||
+    searchParams.get('restaurantSlug') ||
+    searchParams.get('tenant') ||
+    searchParams.get('slug') ||
+    searchParams.get('sucursal');
+
+  const restaurantId =
+    searchParams.get('restaurantId') || searchParams.get('restaurant_id');
+
+  if (restaurant) {
+    query.set('restaurant', restaurant);
+  }
+
+  if (restaurantId) {
+    query.set('restaurantId', restaurantId);
+  }
+
+  return query.toString();
+}
+
+function RetiroPageContent() {
   const [data, setData] = useState<PublicRetiroResponse | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -92,15 +117,30 @@ export default function RetiroPage() {
   const [preparingPage, setPreparingPage] = useState(0);
   const [readyPage, setReadyPage] = useState(0);
 
+    const searchParams = useSearchParams();
+
+  const retiroQueryString = useMemo(
+    () => buildRetiroQueryString(searchParams),
+    [searchParams]
+  );
+
+  const retiroApiPath = useMemo(
+    () =>
+      retiroQueryString
+        ? `/api/public/retiro?${retiroQueryString}`
+        : '/api/public/retiro',
+    [retiroQueryString]
+  );
+
   useEffect(() => {
     let activo = true;
 
     async function cargar() {
       try {
-        const res = await fetch('/api/public/retiro', {
-          method: 'GET',
-          cache: 'no-store',
-        });
+        const res = await fetch(retiroApiPath, {
+  method: 'GET',
+  cache: 'no-store',
+});
 
         const body = await res.json().catch(() => null);
 
@@ -423,5 +463,22 @@ const clockInterval = setInterval(() => setNow(new Date()), CLOCK_INTERVAL_MS);
         )}
       </div>
     </main>
+  );
+}
+
+export default function RetiroPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex h-screen items-center justify-center bg-slate-950 text-white">
+          <div className="text-center">
+            <p className="text-2xl font-bold">Cargando pantalla de retiro...</p>
+            <p className="mt-2 text-sm text-slate-400">Esperá un momento.</p>
+          </div>
+        </main>
+      }
+    >
+      <RetiroPageContent />
+    </Suspense>
   );
 }

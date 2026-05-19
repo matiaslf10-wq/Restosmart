@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { getRestaurantContext } from '@/lib/tenant';
 
@@ -16,6 +16,15 @@ type PedidoRow = {
 };
 
 type LocalConfigRow = {
+  nombre_local?: string | null;
+  business_mode?: string | null;
+};
+
+type RestaurantRow = {
+  id: string | number;
+  slug?: string | null;
+  nombre?: string | null;
+  name?: string | null;
   nombre_local?: string | null;
   business_mode?: string | null;
 };
@@ -56,18 +65,113 @@ function normalizeBusinessMode(value: unknown): 'restaurant' | 'takeaway' {
   return normalizeText(value) === 'takeaway' ? 'takeaway' : 'restaurant';
 }
 
-export async function GET() {
+function getRestaurantSlugFromRequest(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+
+  return (
+    searchParams.get('restaurant') ||
+    searchParams.get('restaurantSlug') ||
+    searchParams.get('tenant') ||
+    searchParams.get('slug') ||
+    searchParams.get('sucursal') ||
+    ''
+  ).trim();
+}
+
+function getRestaurantIdFromRequest(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+
+  return (
+    searchParams.get('restaurantId') ||
+    searchParams.get('restaurant_id') ||
+    ''
+  ).trim();
+}
+
+async function resolveRestaurantFromRequest(
+  request: NextRequest
+): Promise<RestaurantRow | null> {
+  const restaurantId = getRestaurantIdFromRequest(request);
+  const restaurantSlug = getRestaurantSlugFromRequest(request);
+
+  if (restaurantId) {
+    const result = await supabaseAdmin
+      .from('restaurants')
+      .select('*')
+      .eq('id', restaurantId)
+      .maybeSingle();
+
+    if (result.error) {
+      throw new Error(
+        `No se pudo resolver la sucursal por ID: ${result.error.message}`
+      );
+    }
+
+    return (result.data as RestaurantRow | null) ?? null;
+  }
+
+  if (restaurantSlug) {
+    const result = await supabaseAdmin
+      .from('restaurants')
+      .select('*')
+      .eq('slug', restaurantSlug)
+      .maybeSingle();
+
+    if (result.error) {
+      throw new Error(
+        `No se pudo resolver la sucursal por slug: ${result.error.message}`
+      );
+    }
+
+    return (result.data as RestaurantRow | null) ?? null;
+  }
+
+  const fallback = await getRestaurantContext().catch(() => null);
+
+  if (!fallback?.id) {
+    return null;
+  }
+
+  return fallback as RestaurantRow;
+}
+
+function getRestaurantDisplayName(
+  restaurant: RestaurantRow | null,
+  config: LocalConfigRow | null
+) {
+  return (
+    config?.nombre_local?.trim() ||
+    restaurant?.nombre_local?.trim() ||
+    restaurant?.nombre?.trim() ||
+    restaurant?.name?.trim() ||
+    restaurant?.slug?.trim() ||
+    'RestoSmart'
+  );
+}
+
+export async function GET(request: NextRequest) {
   try {
-    const restaurant = await getRestaurantContext().catch(() => null);
+    const restaurant = await resolveRestaurantFromRequest(request);
+
+    if (!restaurant?.id) {
+      return NextResponse.json(
+        {
+          error:
+            'Falta indicar la sucursal. Usá /retiro?restaurant=slug-de-la-sucursal o /retiro?restaurantId=id-de-la-sucursal.',
+        },
+        { status: 400 }
+      );
+    }
 
     const configQuery = supabaseAdmin
       .from('configuracion_local')
       .select('nombre_local, business_mode')
+      .eq('restaurant_id', restaurant.id)
       .order('id', { ascending: true })
       .limit(1)
       .maybeSingle();
 
-    let pedidosQuery = supabaseAdmin
+    const pedidosQuery = supabaseAdmin
       .from('pedidos')
       .select(
         `
@@ -80,13 +184,10 @@ export async function GET() {
           cliente_nombre
         `
       )
+      .eq('restaurant_id', restaurant.id)
       .in('estado', ['pendiente', 'en_preparacion', 'listo'])
       .order('creado_en', { ascending: false })
       .limit(60);
-
-    if (restaurant?.id != null) {
-      pedidosQuery = pedidosQuery.eq('restaurant_id', restaurant.id);
-    }
 
     const [configResult, pedidosResult] = await Promise.all([
       configQuery,
@@ -112,7 +213,10 @@ export async function GET() {
     }
 
     const config = (configResult.data ?? null) as LocalConfigRow | null;
-    const businessMode = normalizeBusinessMode(config?.business_mode);
+
+    const businessMode = normalizeBusinessMode(
+      config?.business_mode ?? restaurant?.business_mode
+    );
 
     const pedidos = ((pedidosResult.data ?? []) as PedidoRow[]).filter(
       isTakeawayPedido
@@ -146,10 +250,7 @@ export async function GET() {
     return NextResponse.json(
       {
         local: {
-          nombre:
-            config?.nombre_local?.trim() ||
-            restaurant?.slug ||
-            'RestoSmart',
+          nombre: getRestaurantDisplayName(restaurant, config),
           slug: restaurant?.slug ?? null,
           business_mode: businessMode,
         },
@@ -165,7 +266,9 @@ export async function GET() {
     return NextResponse.json(
       {
         error:
-          'Ocurrió un error inesperado al cargar la pantalla pública de retiro.',
+          error instanceof Error
+            ? error.message
+            : 'Ocurrió un error inesperado al cargar la pantalla pública de retiro.',
       },
       { status: 500 }
     );
