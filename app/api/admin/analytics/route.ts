@@ -67,6 +67,7 @@ type PedidoAnalyticsRow = {
   mesa_id: number | null;
   tipo_servicio: string | null;
   origen: string | null;
+  total: number | null;
   items_pedido: unknown[] | null;
 };
 
@@ -232,6 +233,30 @@ function getProductoMarcaId(item: unknown): string | null {
   return normalizeNonEmptyString(producto?.marca_id);
 }
 
+function getSubtotalItemsPedido(pedido: PedidoAnalyticsRow): number {
+  const items: unknown[] = Array.isArray(pedido.items_pedido)
+    ? pedido.items_pedido
+    : [];
+
+  return safeRound(
+    items.reduce((accItem: number, item: unknown) => {
+      const cantidad = getItemCantidad(item);
+      const precio = getProductoPrecio(item);
+      return accItem + cantidad * precio;
+    }, 0)
+  );
+}
+
+function getIngresosPedido(pedido: PedidoAnalyticsRow): number {
+  const total = Number(pedido.total);
+
+  if (Number.isFinite(total) && total > 0) {
+    return safeRound(total);
+  }
+
+  return getSubtotalItemsPedido(pedido);
+}
+
 function getPedidoCanal(
   pedido: Pick<PedidoAnalyticsRow, 'mesa_id' | 'tipo_servicio' | 'origen'>
 ): CanalCode {
@@ -322,14 +347,15 @@ function buildPedidosQuery(isoDesde: string, isoHasta: string) {
   return supabaseAdmin
     .from('pedidos')
     .select(
-      `
-      id,
-      estado,
-      creado_en,
-      mesa_id,
-      tipo_servicio,
-      origen,
-      items_pedido (
+  `
+  id,
+  estado,
+  creado_en,
+  mesa_id,
+  tipo_servicio,
+  origen,
+  total,
+  items_pedido (
         cantidad,
         producto:productos (
           id,
@@ -620,15 +646,17 @@ const tenantId = access.tenantId ?? null;
 
     const pedidosRango = pedidosResult.data;
 
-    console.log('ANALYTICS DEBUG PEDIDOS', {
-      restaurantId,
-      tenantId,
-      desde,
-      hasta,
-      scopeUsed: pedidosResult.scopeUsed,
-      pedidosCount: pedidosRango.length,
-      firstPedido: pedidosRango[0] ?? null,
-    });
+    if (process.env.NODE_ENV !== 'production') {
+  console.log('ANALYTICS DEBUG PEDIDOS', {
+    restaurantId,
+    tenantId,
+    desde,
+    hasta,
+    scopeUsed: pedidosResult.scopeUsed,
+    pedidosCount: pedidosRango.length,
+    firstPedido: pedidosRango[0] ?? null,
+  });
+}
 
     const lista = (pedidosRango ?? []) as unknown as PedidoAnalyticsRow[];
 
@@ -642,24 +670,13 @@ const tenantId = access.tenantId ?? null;
       isCancelledStatus(pedido.estado)
     ).length;
 
-    const ingresos = lista
-      .filter((pedido) => isClosedStatus(pedido.estado))
-      .reduce((accPedido: number, pedido) => {
-        const items: unknown[] = Array.isArray(pedido.items_pedido)
-          ? pedido.items_pedido
-          : [];
-
-        const subtotalPedido: number = items.reduce(
-          (accItem: number, item: unknown) => {
-            const cantidad = getItemCantidad(item);
-            const precio = getProductoPrecio(item);
-            return accItem + cantidad * precio;
-          },
-          0
-        );
-
-        return accPedido + subtotalPedido;
-      }, 0);
+    const ingresos = safeRound(
+  lista
+    .filter((pedido) => isClosedStatus(pedido.estado))
+    .reduce((accPedido: number, pedido) => {
+      return accPedido + getIngresosPedido(pedido);
+    }, 0)
+);
 
     const ticketPromedio =
       pedidosCerrados > 0 ? safeRound(ingresos / pedidosCerrados) : null;
@@ -736,13 +753,9 @@ const tenantId = access.tenantId ?? null;
           ? pedido.items_pedido
           : [];
 
-        const subtotalPedido = items.reduce((accItem: number, item: unknown) => {
-          return accItem + getItemCantidad(item) * getProductoPrecio(item);
-        }, 0);
-
         canalesBase[canal].ingresos = safeRound(
-          canalesBase[canal].ingresos + subtotalPedido
-        );
+  canalesBase[canal].ingresos + getIngresosPedido(pedido)
+);
       }
     }
 
@@ -775,15 +788,7 @@ const tenantId = access.tenantId ?? null;
       if (isClosedStatus(pedido.estado)) {
         row.cerrados += 1;
 
-        const items: unknown[] = Array.isArray(pedido.items_pedido)
-          ? pedido.items_pedido
-          : [];
-
-        const subtotalPedido = items.reduce((accItem: number, item: unknown) => {
-          return accItem + getItemCantidad(item) * getProductoPrecio(item);
-        }, 0);
-
-        row.ingresos = safeRound(row.ingresos + subtotalPedido);
+        row.ingresos = safeRound(row.ingresos + getIngresosPedido(pedido));
       }
 
       if (isCancelledStatus(pedido.estado)) {
