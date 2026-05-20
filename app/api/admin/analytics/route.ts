@@ -619,6 +619,62 @@ const tenantId = access.tenantId ?? null;
   const isoDesde = toIsoStartOfDayAR(desde);
   const isoHasta = toIsoEndOfDayAR(hasta);
 
+  if (request.nextUrl.searchParams.get('debug') === '1') {
+  const scopedCountResult = restaurantId
+    ? await supabaseAdmin
+        .from('pedidos')
+        .select('id', { count: 'exact', head: true })
+        .eq('restaurant_id', restaurantId)
+        .gte('creado_en', isoDesde)
+        .lte('creado_en', isoHasta)
+    : null;
+
+  const unscopedCountResult = await supabaseAdmin
+    .from('pedidos')
+    .select('id', { count: 'exact', head: true })
+    .gte('creado_en', isoDesde)
+    .lte('creado_en', isoHasta);
+
+  const latestPedidosResult = await supabaseAdmin
+    .from('pedidos')
+    .select(
+      `
+      id,
+      creado_en,
+      estado,
+      mesa_id,
+      restaurant_id,
+      origen,
+      tipo_servicio,
+      total
+    `
+    )
+    .order('creado_en', { ascending: false })
+    .limit(15);
+
+  return NextResponse.json(
+    {
+      ok: true,
+      debug: {
+        desde,
+        hasta,
+        isoDesde,
+        isoHasta,
+        restaurantId,
+        accessRestaurant: access.restaurant,
+        accessTenantId: access.tenantId,
+        scopedCount: scopedCountResult?.count ?? null,
+        scopedError: scopedCountResult?.error?.message ?? null,
+        unscopedCount: unscopedCountResult.count ?? null,
+        unscopedError: unscopedCountResult.error?.message ?? null,
+        latestPedidos: latestPedidosResult.data ?? [],
+        latestPedidosError: latestPedidosResult.error?.message ?? null,
+      },
+    },
+    { status: 200 }
+  );
+}
+
   try {
     const pedidosResult = await loadPedidosRango(
   isoDesde,
