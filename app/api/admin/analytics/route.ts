@@ -78,6 +78,17 @@ type MarcaRow = {
   logo_url: string | null;
 };
 
+type AnalyticsRestaurantScope = {
+  restaurantIds: string[];
+  scopeUsed: string;
+};
+
+type RestaurantScopeRow = {
+  id: string | number;
+  slug: string | null;
+  owner_tenant_id: string | null;
+};
+
 const CLOSED_STATUSES = new Set(['cerrado', 'entregado', 'finalizado']);
 const CANCELLED_STATUSES = new Set(['cancelado', 'cancelada']);
 
@@ -370,27 +381,110 @@ function buildPedidosQuery(isoDesde: string, isoHasta: string) {
     .lte('creado_en', isoHasta);
 }
 
+function normalizeId(value: unknown): string | null {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
+async function getRestaurantIdsForTenant(
+  tenantId: string | null,
+  accessRestaurantId: string | null
+): Promise<string[]> {
+  const ids = new Set<string>();
+
+  if (accessRestaurantId) {
+    ids.add(accessRestaurantId);
+  }
+
+  if (!tenantId) {
+    return Array.from(ids);
+  }
+
+  const [byOwner, bySlug] = await Promise.all([
+    supabaseAdmin
+      .from('restaurants')
+      .select('id, slug, owner_tenant_id')
+      .eq('owner_tenant_id', tenantId),
+
+    supabaseAdmin
+      .from('restaurants')
+      .select('id, slug, owner_tenant_id')
+      .eq('slug', tenantId),
+  ]);
+
+  if (byOwner.error) {
+    console.error('analytics restaurants by owner_tenant_id error:', byOwner.error);
+  }
+
+  if (bySlug.error) {
+    console.error('analytics restaurants by slug error:', bySlug.error);
+  }
+
+  const rows = [
+    ...(((byOwner.data ?? []) as RestaurantScopeRow[])),
+    ...(((bySlug.data ?? []) as RestaurantScopeRow[])),
+  ];
+
+  for (const row of rows) {
+    const id = normalizeId(row.id);
+    if (id) ids.add(id);
+  }
+
+  return Array.from(ids);
+}
+
+async function resolveAnalyticsRestaurantScope(params: {
+  requestedRestaurantId: string | null;
+  accessRestaurantId: string | null;
+  tenantId: string | null;
+}): Promise<AnalyticsRestaurantScope> {
+  if (params.requestedRestaurantId) {
+    return {
+      restaurantIds: [params.requestedRestaurantId],
+      scopeUsed: 'restaurant_id_explicit',
+    };
+  }
+
+  const tenantRestaurantIds = await getRestaurantIdsForTenant(
+    params.tenantId,
+    params.accessRestaurantId
+  );
+
+  if (tenantRestaurantIds.length > 0) {
+    return {
+      restaurantIds: tenantRestaurantIds,
+      scopeUsed: 'tenant_restaurants',
+    };
+  }
+
+  return {
+    restaurantIds: [],
+    scopeUsed: 'empty_scope',
+  };
+}
+
 async function loadPedidosRango(
   isoDesde: string,
   isoHasta: string,
-  restaurantId: string | null
+  restaurantIds: string[],
+  scopeUsed: string
 ) {
-  if (restaurantId) {
-    const byRestaurant = await buildPedidosQuery(isoDesde, isoHasta).eq(
+  if (restaurantIds.length > 0) {
+    const byRestaurants = await buildPedidosQuery(isoDesde, isoHasta).in(
       'restaurant_id',
-      restaurantId
+      restaurantIds
     );
 
-    if (!byRestaurant.error) {
+    if (!byRestaurants.error) {
       return {
-        data: byRestaurant.data ?? [],
-        scopeUsed: 'restaurant_id',
+        data: byRestaurants.data ?? [],
+        scopeUsed,
       };
     }
 
     console.error(
-      'analytics pedidos by restaurant_id error:',
-      byRestaurant.error
+      'analytics pedidos by restaurant_ids error:',
+      byRestaurants.error
     );
   }
 
@@ -585,20 +679,24 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const restaurantId =
-  access.restaurant?.id ?? requestedContext.restaurantId ?? null;
-const tenantId = access.tenantId ?? null;
+  const requestedRestaurantId = normalizeId(requestedContext.restaurantId);
+const accessRestaurantId = normalizeId(access.restaurant?.id);
+const tenantId = normalizeId(access.tenantId);
 
-  if (!restaurantId && !tenantId) {
-    return NextResponse.json(
-      {
-        error:
-          'No se pudo resolver el contexto del restaurante para cargar analytics.',
-      },
-      { status: 400 }
-    );
-  }
+const analyticsScope = await resolveAnalyticsRestaurantScope({
+  requestedRestaurantId,
+  accessRestaurantId,
+  tenantId,
+});
 
+if (analyticsScope.restaurantIds.length === 0) {
+  return NextResponse.json(
+    {
+      error: 'No se pudo resolver ningún restaurante para cargar analytics.',
+    },
+    { status: 400 }
+  );
+}
   const defaults = getDefaultDateRange();
   const desdeParam = request.nextUrl.searchParams.get('desde');
   const hastaParam = request.nextUrl.searchParams.get('hasta');
@@ -620,11 +718,12 @@ const tenantId = access.tenantId ?? null;
   const isoHasta = toIsoEndOfDayAR(hasta);
 
   if (request.nextUrl.searchParams.get('debug') === '1') {
-  const scopedCountResult = restaurantId
+  const scopedCountResult =
+  analyticsScope.restaurantIds.length > 0
     ? await supabaseAdmin
         .from('pedidos')
         .select('id', { count: 'exact', head: true })
-        .eq('restaurant_id', restaurantId)
+        .in('restaurant_id', analyticsScope.restaurantIds)
         .gte('creado_en', isoDesde)
         .lte('creado_en', isoHasta)
     : null;
@@ -656,20 +755,24 @@ const tenantId = access.tenantId ?? null;
     {
       ok: true,
       debug: {
-        desde,
-        hasta,
-        isoDesde,
-        isoHasta,
-        restaurantId,
-        accessRestaurant: access.restaurant,
-        accessTenantId: access.tenantId,
-        scopedCount: scopedCountResult?.count ?? null,
-        scopedError: scopedCountResult?.error?.message ?? null,
-        unscopedCount: unscopedCountResult.count ?? null,
-        unscopedError: unscopedCountResult.error?.message ?? null,
-        latestPedidos: latestPedidosResult.data ?? [],
-        latestPedidosError: latestPedidosResult.error?.message ?? null,
-      },
+  desde,
+  hasta,
+  isoDesde,
+  isoHasta,
+  requestedRestaurantId,
+  accessRestaurantId,
+  tenantId,
+  analyticsRestaurantIds: analyticsScope.restaurantIds,
+  analyticsScopeUsed: analyticsScope.scopeUsed,
+  accessRestaurant: access.restaurant,
+  accessTenantId: access.tenantId,
+  scopedCount: scopedCountResult?.count ?? null,
+  scopedError: scopedCountResult?.error?.message ?? null,
+  unscopedCount: unscopedCountResult.count ?? null,
+  unscopedError: unscopedCountResult.error?.message ?? null,
+  latestPedidos: latestPedidosResult.data ?? [],
+  latestPedidosError: latestPedidosResult.error?.message ?? null,
+}
     },
     { status: 200 }
   );
@@ -679,15 +782,18 @@ const tenantId = access.tenantId ?? null;
     const pedidosResult = await loadPedidosRango(
   isoDesde,
   isoHasta,
-  restaurantId
+  analyticsScope.restaurantIds,
+  analyticsScope.scopeUsed
 );
 
     const pedidosRango = pedidosResult.data;
 
     if (process.env.NODE_ENV !== 'production') {
   console.log('ANALYTICS DEBUG PEDIDOS', {
-    restaurantId,
+    requestedRestaurantId,
+    accessRestaurantId,
     tenantId,
+    analyticsRestaurantIds: analyticsScope.restaurantIds,
     desde,
     hasta,
     scopeUsed: pedidosResult.scopeUsed,
