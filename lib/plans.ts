@@ -169,8 +169,7 @@ export function getCapabilityMap(
   return {
     analytics: canAccessAnalytics(plan),
     delivery: hasAddon(addons, 'whatsapp_delivery'),
-    waiter_mode:
-      businessMode === 'restaurant' && hasFeature(plan, 'waiter_mode'),
+    waiter_mode: hasFeatureInContext(plan, businessMode, 'waiter_mode'),
     stock_control: hasFeature(plan, 'stock_control'),
     multi_brand: hasAddon(addons, 'multi_brand'),
   };

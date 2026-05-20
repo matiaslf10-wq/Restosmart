@@ -3,11 +3,13 @@ import 'server-only';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
   type AddonKey,
+  type BusinessMode,
   type CapabilityMap,
   type FeatureKey,
   type PlanCode,
   getCapabilityMap,
-  getFeaturesForPlan,
+  getFeaturesForContext,
+  normalizeBusinessMode,
   normalizePlan,
 } from '@/lib/plans';
 
@@ -33,13 +35,19 @@ type TenantAddonRow = {
   enabled: boolean | null;
 };
 
+type LocalConfigRow = {
+  business_mode: string | null;
+};
+
 export type AdminAccessSnapshot = {
   tenantId: string;
   plan: PlanCode;
+  businessMode: BusinessMode;
   restaurant: {
     id: string;
     slug: string;
     plan: PlanCode;
+    businessMode: BusinessMode;
     owner_tenant_id?: string | null;
     estado?: RestaurantStatus | string | null;
   } | null;
@@ -79,15 +87,17 @@ function getDefaultAddons(): Record<AddonKey, boolean> {
 
 export function getFallbackAdminAccess(): AdminAccessSnapshot {
   const plan: PlanCode = 'esencial';
+  const businessMode: BusinessMode = 'restaurant';
   const addons = getDefaultAddons();
 
   return {
     tenantId: DEFAULT_TENANT_ID,
     plan,
+    businessMode,
     restaurant: null,
     addons,
-    features: getFeaturesForPlan(plan),
-    capabilities: getCapabilityMap(plan, addons),
+    features: getFeaturesForContext(plan, businessMode),
+    capabilities: getCapabilityMap(plan, addons, businessMode),
   };
 }
 
@@ -222,18 +232,51 @@ async function getTenantAddonsByTenantId(tenantId: string) {
   return addons;
 }
 
+async function getBusinessModeByRestaurantId(
+  restaurantId: string | null
+): Promise<BusinessMode> {
+  if (!restaurantId) {
+    return 'restaurant';
+  }
+
+  const result = await supabaseAdmin
+    .from('configuracion_local')
+    .select('business_mode')
+    .eq('restaurant_id', restaurantId)
+    .order('id', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (result.error) {
+    console.error(
+      'No se pudo leer business_mode desde configuracion_local:',
+      result.error
+    );
+
+    return 'restaurant';
+  }
+
+  const row = (result.data as LocalConfigRow | null) ?? null;
+
+  return normalizeBusinessMode(row?.business_mode);
+}
+
 export async function resolveAdminAccess(
   options: AdminAccessResolutionOptions = {}
 ): Promise<AdminAccessSnapshot> {
   const restaurant = await resolveRestaurant(options);
   const requestedTenantSlug = normalizeNonEmptyString(options.tenantSlug);
   const tenantId = getTenantIdFromRestaurant(restaurant, requestedTenantSlug);
+
   const plan = await resolveTenantPlan({
     tenantId,
     fallbackRestaurant: restaurant,
   });
 
-  const [connection, tenantAddons] = await Promise.all([
+  const restaurantId = restaurant?.id == null ? null : String(restaurant.id);
+
+  const [businessMode, connection, tenantAddons] = await Promise.all([
+    getBusinessModeByRestaurantId(restaurantId),
     getWhatsAppConnectionByTenantId(tenantId),
     getTenantAddonsByTenantId(tenantId),
   ]);
@@ -247,17 +290,19 @@ export async function resolveAdminAccess(
   return {
     tenantId,
     plan,
+    businessMode,
     restaurant: restaurant
       ? {
           id: String(restaurant.id),
           slug: restaurant.slug?.trim() || tenantId,
           plan,
+          businessMode,
           owner_tenant_id: restaurant.owner_tenant_id ?? tenantId,
           estado: restaurant.estado ?? 'activo',
         }
       : null,
     addons,
-    features: getFeaturesForPlan(plan),
-    capabilities: getCapabilityMap(plan, addons),
+    features: getFeaturesForContext(plan, businessMode),
+    capabilities: getCapabilityMap(plan, addons, businessMode),
   };
 }
