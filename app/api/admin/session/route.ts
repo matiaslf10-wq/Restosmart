@@ -5,13 +5,8 @@ import {
   resolveAdminAccess,
   type AdminAccessResolutionOptions,
 } from '@/lib/adminAccess';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
-  canAccessAnalytics,
   formatBusinessModeLabel,
-  getFeaturesForContext,
-  hasAddon,
-  normalizeBusinessMode,
   type BusinessMode,
 } from '@/lib/plans';
 
@@ -29,10 +24,6 @@ type PublicOrderingMeta = {
   takeaway_ready_screen_path: string | null;
   table_qr_enabled: boolean;
   takeaway_enabled: boolean;
-};
-
-type BusinessModeRow = {
-  business_mode?: string | null;
 };
 
 function getPublicOrderingMeta(businessMode: BusinessMode): PublicOrderingMeta {
@@ -94,6 +85,8 @@ function extractRequestedTenantContext(
     request.nextUrl.searchParams.get('tenant'),
     request.nextUrl.searchParams.get('tenantSlug'),
     request.nextUrl.searchParams.get('slug'),
+    request.nextUrl.searchParams.get('restaurant'),
+    request.nextUrl.searchParams.get('restaurantSlug'),
     request.headers.get('x-tenant-id'),
     request.headers.get('x-tenant-slug'),
     request.cookies.get('tenant')?.value,
@@ -120,75 +113,6 @@ function extractRequestedTenantContext(
   };
 }
 
-async function tryReadBusinessModeByRestaurantId(restaurantId: string | null) {
-  if (!restaurantId) return null;
-
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('configuracion_local')
-      .select('business_mode')
-      .eq('restaurant_id', restaurantId)
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      console.error(
-        'GET /api/admin/session business_mode by restaurant_id read error:',
-        error
-      );
-      return null;
-    }
-
-    return normalizeBusinessMode((data as BusinessModeRow | null)?.business_mode);
-  } catch (error) {
-    console.error(
-      'GET /api/admin/session business_mode by restaurant_id unexpected error:',
-      error
-    );
-    return null;
-  }
-}
-
-async function readFallbackBusinessMode() {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('configuracion_local')
-      .select('business_mode')
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      console.error(
-        'GET /api/admin/session business_mode fallback read error:',
-        error
-      );
-      return normalizeBusinessMode(undefined);
-    }
-
-    return normalizeBusinessMode((data as BusinessModeRow | null)?.business_mode);
-  } catch (error) {
-    console.error(
-      'GET /api/admin/session business_mode fallback unexpected error:',
-      error
-    );
-    return normalizeBusinessMode(undefined);
-  }
-}
-
-async function resolveBusinessModeContext(params: {
-  restaurantId?: string | null;
-}): Promise<BusinessMode> {
-  const byRestaurantId = await tryReadBusinessModeByRestaurantId(
-    params.restaurantId ?? null
-  );
-
-  if (byRestaurantId) return byRestaurantId;
-
-  return await readFallbackBusinessMode();
-}
-
 export async function GET(request: NextRequest) {
   const auth = requireAdminAuth(request);
 
@@ -204,23 +128,19 @@ export async function GET(request: NextRequest) {
     access = await resolveAdminAccess(requestedContext);
   } catch (error) {
     console.error('GET /api/admin/session access resolution error:', error);
+
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json(
+        {
+          error: 'No se pudo resolver el acceso del restaurante.',
+        },
+        { status: 500 }
+      );
+    }
   }
 
-  const businessMode = await resolveBusinessModeContext({
-    restaurantId: access.restaurant?.id ?? requestedContext.restaurantId ?? null,
-  });
-
+  const businessMode = access.businessMode;
   const publicOrdering = getPublicOrderingMeta(businessMode);
-  const features = getFeaturesForContext(access.plan, businessMode);
-
-  const capabilities = {
-    ...access.capabilities,
-    analytics: canAccessAnalytics(access.plan),
-    delivery: hasAddon(access.addons, 'whatsapp_delivery'),
-    waiter_mode:
-      businessMode === 'restaurant' && !!access.capabilities?.waiter_mode,
-    multi_brand: hasAddon(access.addons, 'multi_brand'),
-  };
 
   return NextResponse.json(
     {
@@ -228,18 +148,20 @@ export async function GET(request: NextRequest) {
       session: {
         ...auth.session,
         tenantId: access.tenantId,
+        plan: access.plan,
+        business_mode: businessMode,
+        businessMode,
+        addons: access.addons,
+        features: access.features,
+        capabilities: access.capabilities,
+        public_ordering: publicOrdering,
         restaurant: access.restaurant
           ? {
               ...access.restaurant,
               business_mode: businessMode,
+              businessMode,
             }
-          : access.restaurant,
-        plan: access.plan,
-        addons: access.addons,
-        features,
-        capabilities,
-        business_mode: businessMode,
-        public_ordering: publicOrdering,
+          : null,
       },
     },
     { status: 200 }

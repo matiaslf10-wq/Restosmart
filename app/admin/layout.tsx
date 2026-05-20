@@ -57,6 +57,35 @@ function AdminLayoutContent({
   const [sessionData, setSessionData] =
     useState<AdminSessionPayload | null>(null);
 
+    const restaurantScopeQuery = useMemo(() => {
+  const params = new URLSearchParams();
+
+  const restaurantId =
+    searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
+
+  const restaurantSlug =
+    searchParams.get('restaurant') ??
+    searchParams.get('restaurantSlug') ??
+    searchParams.get('tenant') ??
+    searchParams.get('tenantSlug') ??
+    searchParams.get('slug');
+
+  if (restaurantId) {
+    params.set('restaurantId', restaurantId);
+  } else if (restaurantSlug) {
+    params.set('restaurant', restaurantSlug);
+  }
+
+  return params.toString();
+}, [searchParams]);
+
+function scopedHref(path: string) {
+  if (!restaurantScopeQuery) return path;
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}${restaurantScopeQuery}`;
+}
+
   useEffect(() => {
     let active = true;
 
@@ -70,10 +99,15 @@ function AdminLayoutContent({
       }
 
       try {
-        const res = await fetch('/api/admin/session', {
-          method: 'GET',
-          cache: 'no-store',
-        });
+        const sessionUrl = restaurantScopeQuery
+  ? `/api/admin/session?${restaurantScopeQuery}`
+  : '/api/admin/session';
+
+const res = await fetch(sessionUrl, {
+  method: 'GET',
+  cache: 'no-store',
+  credentials: 'include',
+});
 
         if (!active) return;
 
@@ -155,7 +189,7 @@ const marcasBlocked =
     return () => {
       active = false;
     };
-  }, [pathname, router]);
+  }, [pathname, router, restaurantScopeQuery]);
 
   async function logout() {
     try {
@@ -187,34 +221,7 @@ const multiBrandEnabled =
   );
   const businessModeLabel = formatBusinessModeLabel(businessMode);
 
-  const restaurantScopeQuery = useMemo(() => {
-  const params = new URLSearchParams();
-
-  const restaurantId =
-    searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
-
-  const restaurantSlug =
-    searchParams.get('restaurant') ??
-    searchParams.get('restaurantSlug') ??
-    searchParams.get('tenant') ??
-    searchParams.get('tenantSlug') ??
-    searchParams.get('slug');
-
-  if (restaurantId) {
-    params.set('restaurantId', restaurantId);
-  } else if (restaurantSlug) {
-    params.set('restaurant', restaurantSlug);
-  }
-
-  return params.toString();
-}, [searchParams]);
-
-function scopedHref(path: string) {
-  if (!restaurantScopeQuery) return path;
-
-  const separator = path.includes('?') ? '&' : '?';
-  return `${path}${separator}${restaurantScopeQuery}`;
-}
+  
 
   const navItems = useMemo<NavItem[]>(() => {
   return [
@@ -289,14 +296,19 @@ function scopedHref(path: string) {
   restaurantScopeQuery,
 ]);
 
-  const isActive = (href: string) => {
-    if (href === '/admin') return pathname === '/admin';
-    if (href === '/inicio') return pathname === '/inicio';
-    if (href === '/cocina') return pathname === '/cocina';
-    if (href === '/mostrador') return pathname === '/mostrador';
-    if (href === '/pedir') return pathname === '/pedir';
-    return pathname === href || pathname.startsWith(`${href}/`);
-  };
+  const getHrefPath = (href: string) => href.split('?')[0] || href;
+
+const isActive = (href: string) => {
+  const hrefPath = getHrefPath(href);
+
+  if (hrefPath === '/admin') return pathname === '/admin';
+  if (hrefPath === '/inicio') return pathname === '/inicio';
+  if (hrefPath === '/cocina') return pathname === '/cocina';
+  if (hrefPath === '/mostrador') return pathname === '/mostrador';
+  if (hrefPath === '/pedir') return pathname === '/pedir';
+
+  return pathname === hrefPath || pathname.startsWith(`${hrefPath}/`);
+};
 
   if (checking) {
     return (
