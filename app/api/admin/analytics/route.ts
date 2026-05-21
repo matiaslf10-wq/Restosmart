@@ -49,6 +49,15 @@ type RowSerieDiaria = {
   ingresos: number;
 };
 
+type RowHeatmapDiaHora = {
+  dia: number;
+  dia_label: string;
+  hora: number;
+  pedidos: number;
+  cerrados: number;
+  ingresos: number;
+};
+
 type RowTiemposPedido = {
   pedido_id: number;
   mesa_id: number;
@@ -352,6 +361,84 @@ function buildDateRangeList(desde: string, hasta: string) {
   }
 
   return result;
+}
+
+const HEATMAP_DAYS = [
+  { dia: 0, label: 'Lunes' },
+  { dia: 1, label: 'Martes' },
+  { dia: 2, label: 'Miércoles' },
+  { dia: 3, label: 'Jueves' },
+  { dia: 4, label: 'Viernes' },
+  { dia: 5, label: 'Sábado' },
+  { dia: 6, label: 'Domingo' },
+];
+
+const WEEKDAY_TO_INDEX: Record<string, number> = {
+  Mon: 0,
+  Tue: 1,
+  Wed: 2,
+  Thu: 3,
+  Fri: 4,
+  Sat: 5,
+  Sun: 6,
+};
+
+function getDayHourBucketAR(value: string) {
+  const date = new Date(value);
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    weekday: 'short',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+
+  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? 'Mon';
+  const hourText = parts.find((part) => part.type === 'hour')?.value ?? '0';
+
+  return {
+    dia: WEEKDAY_TO_INDEX[weekday] ?? 0,
+    hora: Number(hourText),
+  };
+}
+
+function buildHeatmapDiaHora(lista: PedidoAnalyticsRow[]): RowHeatmapDiaHora[] {
+  const map = new Map<string, RowHeatmapDiaHora>();
+
+  for (const day of HEATMAP_DAYS) {
+    for (let hora = 0; hora < 24; hora += 1) {
+      const key = `${day.dia}-${hora}`;
+
+      map.set(key, {
+        dia: day.dia,
+        dia_label: day.label,
+        hora,
+        pedidos: 0,
+        cerrados: 0,
+        ingresos: 0,
+      });
+    }
+  }
+
+  for (const pedido of lista) {
+    const bucket = getDayHourBucketAR(pedido.creado_en);
+    const key = `${bucket.dia}-${bucket.hora}`;
+    const row = map.get(key);
+
+    if (!row) continue;
+
+    row.pedidos += 1;
+
+    if (isClosedStatus(pedido.estado)) {
+      row.cerrados += 1;
+      row.ingresos = safeRound(row.ingresos + getIngresosPedido(pedido));
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.dia !== b.dia) return a.dia - b.dia;
+    return a.hora - b.hora;
+  });
 }
 
 function buildPedidosQuery(isoDesde: string, isoHasta: string) {
@@ -893,14 +980,10 @@ if (analyticsScope.restaurantIds.length === 0) {
       canalesBase[canal].cantidad += 1;
 
       if (isClosedStatus(pedido.estado)) {
-        const items: unknown[] = Array.isArray(pedido.items_pedido)
-          ? pedido.items_pedido
-          : [];
-
-        canalesBase[canal].ingresos = safeRound(
-  canalesBase[canal].ingresos + getIngresosPedido(pedido)
-);
-      }
+  canalesBase[canal].ingresos = safeRound(
+    canalesBase[canal].ingresos + getIngresosPedido(pedido)
+  );
+}
     }
 
     const canales: RowCanal[] = [
@@ -941,10 +1024,12 @@ if (analyticsScope.restaurantIds.length === 0) {
     }
 
     const serieDiaria: RowSerieDiaria[] = Array.from(
-      serieDiariaBase.values()
-    ).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  serieDiariaBase.values()
+).sort((a, b) => a.fecha.localeCompare(b.fecha));
 
-    let tiempos: RowTiemposPedido[] = [];
+const heatmapDiaHora = buildHeatmapDiaHora(lista);
+
+let tiempos: RowTiemposPedido[] = [];
 
     try {
       const tiemposData = await loadTiemposRango(
@@ -976,11 +1061,12 @@ if (analyticsScope.restaurantIds.length === 0) {
             ticketPromedio,
           },
           pedidosHora,
-          topProductos,
-          ventasPorMarca,
-          canales,
-          serieDiaria,
-          tiempos,
+topProductos,
+ventasPorMarca,
+canales,
+serieDiaria,
+heatmapDiaHora,
+tiempos,
         },
       },
       { status: 200 }
