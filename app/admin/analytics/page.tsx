@@ -42,6 +42,15 @@ type RowSerieDiaria = {
   ingresos: number;
 };
 
+type RowHeatmapDiaHora = {
+  dia: number;
+  dia_label: string;
+  hora: number;
+  pedidos: number;
+  cerrados: number;
+  ingresos: number;
+};
+
 type RangeKpis = {
   pedidosTotal: number;
   pedidosCerrados: number;
@@ -220,6 +229,39 @@ function buildCsvLine(values: unknown[]) {
 function getTrendBarWidth(value: number, max: number) {
   if (max <= 0) return '0%';
   return `${Math.max((value / max) * 100, 6)}%`;
+}
+
+const HEATMAP_HOURS = Array.from({ length: 24 }, (_, index) => index);
+
+const HEATMAP_DAYS = [
+  { dia: 0, label: 'Lunes' },
+  { dia: 1, label: 'Martes' },
+  { dia: 2, label: 'Miércoles' },
+  { dia: 3, label: 'Jueves' },
+  { dia: 4, label: 'Viernes' },
+  { dia: 5, label: 'Sábado' },
+  { dia: 6, label: 'Domingo' },
+];
+
+function getHeatmapCellStyle(value: number, max: number) {
+  if (max <= 0 || value <= 0) {
+    return {
+      backgroundColor: '#f8fafc',
+      color: '#94a3b8',
+    };
+  }
+
+  const intensity = Math.min(value / max, 1);
+  const alpha = 0.12 + intensity * 0.78;
+
+  return {
+    backgroundColor: `rgba(79, 70, 229, ${alpha})`,
+    color: intensity > 0.45 ? '#ffffff' : '#312e81',
+  };
+}
+
+function formatHourLabel(hour: number) {
+  return `${String(hour).padStart(2, '0')}h`;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -406,6 +448,7 @@ export default function AdminAnalyticsPage() {
   const [canales, setCanales] = useState<RowCanal[]>([]);
   const [ventasPorMarca, setVentasPorMarca] = useState<RowMarca[]>([]);
   const [serieDiaria, setSerieDiaria] = useState<RowSerieDiaria[]>([]);
+  const [heatmapDiaHora, setHeatmapDiaHora] = useState<RowHeatmapDiaHora[]>([]);
   const [tiempos, setTiempos] = useState<RowTiemposPedido[]>([]);
   const [kpiPedidosTotal, setKpiPedidosTotal] = useState(0);
   const [kpiPedidosCerrados, setKpiPedidosCerrados] = useState(0);
@@ -464,7 +507,8 @@ export default function AdminAnalyticsPage() {
       setCanales((data?.canales ?? []) as RowCanal[]);
       setVentasPorMarca(normalizeMarcaRows(data?.ventasPorMarca));
       setSerieDiaria((data?.serieDiaria ?? []) as RowSerieDiaria[]);
-      setTiempos((data?.tiempos ?? []) as RowTiemposPedido[]);
+setHeatmapDiaHora((data?.heatmapDiaHora ?? []) as RowHeatmapDiaHora[]);
+setTiempos((data?.tiempos ?? []) as RowTiemposPedido[]);
 
       setKpiPedidosTotal(currentKpis.pedidosTotal);
       setKpiPedidosCerrados(currentKpis.pedidosCerrados);
@@ -828,6 +872,40 @@ export default function AdminAnalyticsPage() {
     return serieDiaria.reduce((max, row) => Math.max(max, row.ingresos), 0);
   }, [serieDiaria]);
 
+  const heatmapMap = useMemo(() => {
+  return new Map(
+    heatmapDiaHora.map((row) => [`${row.dia}-${row.hora}`, row])
+  );
+}, [heatmapDiaHora]);
+
+const maxHeatmapPedidos = useMemo(() => {
+  return heatmapDiaHora.reduce((max, row) => Math.max(max, row.pedidos), 0);
+}, [heatmapDiaHora]);
+
+const maxHeatmapIngresos = useMemo(() => {
+  return heatmapDiaHora.reduce((max, row) => Math.max(max, row.ingresos), 0);
+}, [heatmapDiaHora]);
+
+const heatmapHoraPico = useMemo(() => {
+  if (heatmapDiaHora.length === 0) return null;
+
+  return heatmapDiaHora.reduce<RowHeatmapDiaHora | null>((max, row) => {
+    if (row.pedidos <= 0) return max;
+    if (!max) return row;
+    return row.pedidos > max.pedidos ? row : max;
+  }, null);
+}, [heatmapDiaHora]);
+
+const heatmapIngresoPico = useMemo(() => {
+  if (heatmapDiaHora.length === 0) return null;
+
+  return heatmapDiaHora.reduce<RowHeatmapDiaHora | null>((max, row) => {
+    if (row.ingresos <= 0) return max;
+    if (!max) return row;
+    return row.ingresos > max.ingresos ? row : max;
+  }, null);
+}, [heatmapDiaHora]);
+
   const exportarCsv = useCallback(() => {
     const lines: string[] = [];
 
@@ -916,6 +994,25 @@ export default function AdminAnalyticsPage() {
     }
     lines.push('');
 
+    lines.push(buildCsvLine(['Mapa de calor por día y hora']));
+lines.push(buildCsvLine(['Día', 'Hora', 'Pedidos', 'Cerrados', 'Ingresos']));
+
+for (const row of heatmapDiaHora) {
+  if (row.pedidos === 0 && row.ingresos === 0) continue;
+
+  lines.push(
+    buildCsvLine([
+      row.dia_label,
+      formatHourLabel(row.hora),
+      row.pedidos,
+      row.cerrados,
+      formatCurrency(row.ingresos),
+    ])
+  );
+}
+
+lines.push('');
+
     lines.push(buildCsvLine(['Top productos']));
     lines.push(buildCsvLine(['Producto', 'Unidades', 'Ingresos']));
     for (const row of topProductos) {
@@ -983,10 +1080,11 @@ export default function AdminAnalyticsPage() {
     deltaTicketProm,
     deltaCancelacion,
     canales,
-    ventasPorMarca,
-    pedidosHora,
-    topProductos,
-    outliers,
+ventasPorMarca,
+pedidosHora,
+heatmapDiaHora,
+topProductos,
+outliers,
     getCanalDeltaPedidos,
     getCanalDeltaIngresos,
     getMarcaDeltaPedidos,
@@ -1450,6 +1548,16 @@ export default function AdminAnalyticsPage() {
       ingresos: row.ingresos,
     }));
 
+    const heatmapRows = heatmapDiaHora
+  .filter((row) => row.pedidos > 0 || row.ingresos > 0)
+  .map((row) => ({
+    dia: row.dia_label,
+    hora: formatHourLabel(row.hora),
+    pedidos: row.pedidos,
+    cerrados: row.cerrados,
+    ingresos: row.ingresos,
+  }));
+
     const wsResumen = utils.json_to_sheet(resumenRows);
     const wsCanales = utils.json_to_sheet(canalesRows);
     const wsMarcas = utils.json_to_sheet(marcasRows);
@@ -1457,11 +1565,13 @@ export default function AdminAnalyticsPage() {
     const wsProductos = utils.json_to_sheet(productosRows);
     const wsOutliers = utils.json_to_sheet(outliersRows);
     const wsSerieDiaria = utils.json_to_sheet(serieDiariaRows);
+    const wsHeatmap = utils.json_to_sheet(heatmapRows);
 
     utils.book_append_sheet(wb, wsResumen, 'Resumen');
     utils.book_append_sheet(wb, wsCanales, 'Canales');
     utils.book_append_sheet(wb, wsMarcas, 'Marcas');
     utils.book_append_sheet(wb, wsSerieDiaria, 'Tendencia');
+    utils.book_append_sheet(wb, wsHeatmap, 'Mapa calor');
     utils.book_append_sheet(wb, wsPedidosHora, 'Pedidos por hora');
     utils.book_append_sheet(wb, wsProductos, 'Top productos');
     utils.book_append_sheet(wb, wsOutliers, 'Outliers');
@@ -1484,6 +1594,7 @@ export default function AdminAnalyticsPage() {
     canales,
     ventasPorMarca,
     pedidosHora,
+    heatmapDiaHora,
     topProductos,
     outliers,
     serieDiaria,
@@ -2076,6 +2187,141 @@ export default function AdminAnalyticsPage() {
                 </div>
               )}
             </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+  <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+    <div>
+      <h2 className="font-semibold text-slate-900">
+        Mapa de calor por día y hora
+      </h2>
+      <p className="text-sm text-slate-500">
+        Detecta cuándo se concentra la demanda y en qué franjas se generan más ingresos.
+      </p>
+    </div>
+
+    <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+        <span className="block text-slate-500">Mayor demanda</span>
+        <strong className="text-slate-900">
+          {heatmapHoraPico
+            ? `${heatmapHoraPico.dia_label} ${formatHourLabel(
+                heatmapHoraPico.hora
+              )} · ${heatmapHoraPico.pedidos} pedidos`
+            : 'Sin datos'}
+        </strong>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+        <span className="block text-slate-500">Mayor ingreso</span>
+        <strong className="text-slate-900">
+          {heatmapIngresoPico
+            ? `${heatmapIngresoPico.dia_label} ${formatHourLabel(
+                heatmapIngresoPico.hora
+              )} · ${formatCurrency(heatmapIngresoPico.ingresos)}`
+            : 'Sin datos'}
+        </strong>
+      </div>
+    </div>
+  </div>
+
+  {heatmapDiaHora.length === 0 || maxHeatmapPedidos === 0 ? (
+    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+      Sin datos suficientes para construir el mapa de calor.
+    </div>
+  ) : (
+    <div className="overflow-x-auto">
+      <div className="min-w-[980px]">
+        <div
+          className="grid gap-1"
+          style={{
+            gridTemplateColumns: '110px repeat(24, minmax(32px, 1fr))',
+          }}
+        >
+          <div />
+
+          {HEATMAP_HOURS.map((hour) => (
+            <div
+              key={hour}
+              className="text-center text-[11px] font-medium text-slate-400"
+            >
+              {formatHourLabel(hour)}
+            </div>
+          ))}
+
+          {HEATMAP_DAYS.map((day) => (
+            <div key={day.dia} className="contents">
+              <div className="flex items-center pr-2 text-sm font-semibold text-slate-700">
+                {day.label}
+              </div>
+
+              {HEATMAP_HOURS.map((hour) => {
+                const row =
+                  heatmapMap.get(`${day.dia}-${hour}`) ?? {
+                    dia: day.dia,
+                    dia_label: day.label,
+                    hora: hour,
+                    pedidos: 0,
+                    cerrados: 0,
+                    ingresos: 0,
+                  };
+
+                const style = getHeatmapCellStyle(
+                  row.pedidos,
+                  maxHeatmapPedidos
+                );
+
+                return (
+                  <div
+                    key={`${day.dia}-${hour}`}
+                    title={`${day.label} ${formatHourLabel(hour)} · ${
+                      row.pedidos
+                    } pedidos · ${formatCurrency(
+                      row.ingresos
+                    )} ingresos cerrados`}
+                    className="flex h-9 items-center justify-center rounded-lg border border-white text-[11px] font-bold"
+                    style={style}
+                  >
+                    {row.pedidos > 0 ? row.pedidos : ''}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            Cada celda muestra cantidad de pedidos. Pasá el mouse para ver ingresos cerrados.
+          </p>
+
+          <div className="flex items-center gap-2">
+            <span>Baja demanda</span>
+            <span className="h-3 w-8 rounded-full bg-slate-100" />
+            <span
+              className="h-3 w-8 rounded-full"
+              style={{ backgroundColor: 'rgba(79, 70, 229, 0.45)' }}
+            />
+            <span
+              className="h-3 w-8 rounded-full"
+              style={{ backgroundColor: 'rgba(79, 70, 229, 0.9)' }}
+            />
+            <span>Alta demanda</span>
+          </div>
+        </div>
+
+        {maxHeatmapIngresos > 0 ? (
+          <p className="mt-2 text-xs text-slate-500">
+            Mayor ingreso por franja: {heatmapIngresoPico?.dia_label}{' '}
+            {heatmapIngresoPico
+              ? formatHourLabel(heatmapIngresoPico.hora)
+              : ''}{' '}
+            con {formatCurrency(heatmapIngresoPico?.ingresos ?? 0)}.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  )}
+</section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
