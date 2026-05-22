@@ -295,17 +295,6 @@ function getPedidoCanal(
   const tipoServicio = normalizeText(pedido.tipo_servicio);
   const origen = normalizeText(pedido.origen);
 
-  const isDelivery =
-    pedido.mesa_id === 0 ||
-    tipoServicio === 'delivery' ||
-    tipoServicio === 'envio' ||
-    origen.includes('delivery') ||
-    origen.includes('envio');
-
-  if (isDelivery) {
-    return 'delivery';
-  }
-
   const isTakeaway =
     tipoServicio === 'takeaway' ||
     tipoServicio === 'take_away' ||
@@ -320,6 +309,16 @@ function getPedidoCanal(
 
   if (isTakeaway) {
     return 'takeaway';
+  }
+
+  const isDelivery =
+    tipoServicio === 'delivery' ||
+    tipoServicio === 'envio' ||
+    origen.includes('delivery') ||
+    origen.includes('envio');
+
+  if (isDelivery) {
+    return 'delivery';
   }
 
   return 'salon';
