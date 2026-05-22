@@ -24,6 +24,8 @@ type RowCanal = {
   ingresos: number;
 };
 
+type CanalFilter = 'todos' | RowCanal['canal'];
+
 type RowMarca = {
   marca_id: string | null;
   marca_nombre: string;
@@ -440,6 +442,8 @@ export default function AdminAnalyticsPage() {
   const [desde, setDesde] = useState(sevenDaysAgoStr);
   const [hasta, setHasta] = useState(todayStr);
 
+  const [canalFiltro, setCanalFiltro] = useState<CanalFilter>('todos');
+
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -473,9 +477,13 @@ export default function AdminAnalyticsPage() {
 
     try {
       const params = new URLSearchParams({
-        desde,
-        hasta,
-      });
+  desde,
+  hasta,
+});
+
+if (canalFiltro !== 'todos') {
+  params.set('canal', canalFiltro);
+}
 
       const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
         method: 'GET',
@@ -519,9 +527,13 @@ setTiempos((data?.tiempos ?? []) as RowTiemposPedido[]);
       const previousRange = getPreviousComparableRange(desde, hasta);
 
       const previousParams = new URLSearchParams({
-        desde: previousRange.desde,
-        hasta: previousRange.hasta,
-      });
+  desde: previousRange.desde,
+  hasta: previousRange.hasta,
+});
+
+if (canalFiltro !== 'todos') {
+  previousParams.set('canal', canalFiltro);
+}
 
       const previousRes = await fetch(
         `/api/admin/analytics?${previousParams.toString()}`,
@@ -1718,6 +1730,20 @@ outliers,
                 className="rounded-lg border border-slate-300 bg-white px-2 py-1"
               />
             </label>
+
+            <label className="text-sm">
+  <span className="block text-xs text-slate-500">Canal</span>
+  <select
+    value={canalFiltro}
+    onChange={(e) => setCanalFiltro(e.target.value as CanalFilter)}
+    className="rounded-lg border border-slate-300 bg-white px-2 py-1"
+  >
+    <option value="todos">Todos</option>
+    <option value="salon">Salón</option>
+    <option value="takeaway">Take Away</option>
+    <option value="delivery">Delivery</option>
+  </select>
+</label>
 
             <button
               onClick={cargar}

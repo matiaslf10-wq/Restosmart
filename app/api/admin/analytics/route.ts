@@ -13,6 +13,8 @@ export const dynamic = 'force-dynamic';
 
 type CanalCode = 'salon' | 'takeaway' | 'delivery';
 
+type CanalFilter = CanalCode | 'todos';
+
 type RowPedidosHora = {
   hora: string;
   pedidos: number;
@@ -203,6 +205,16 @@ function safeRound(value: number) {
 
 function normalizeText(value: unknown) {
   return String(value ?? '').trim().toLowerCase();
+}
+
+function normalizeCanalFilter(value: unknown): CanalFilter {
+  const raw = normalizeText(value);
+
+  if (raw === 'salon') return 'salon';
+  if (raw === 'takeaway') return 'takeaway';
+  if (raw === 'delivery') return 'delivery';
+
+  return 'todos';
 }
 
 function isClosedStatus(value: unknown) {
@@ -788,6 +800,10 @@ if (analyticsScope.restaurantIds.length === 0) {
   const desdeParam = request.nextUrl.searchParams.get('desde');
   const hastaParam = request.nextUrl.searchParams.get('hasta');
 
+  const canalFiltro = normalizeCanalFilter(
+  request.nextUrl.searchParams.get('canal')
+);
+
   const desde = isValidDateInput(desdeParam) ? desdeParam : defaults.desde;
   const hasta = isValidDateInput(hastaParam) ? hastaParam : defaults.hasta;
 
@@ -889,9 +905,14 @@ if (analyticsScope.restaurantIds.length === 0) {
   });
 }
 
-    const lista = (pedidosRango ?? []) as unknown as PedidoAnalyticsRow[];
+    const listaBase = (pedidosRango ?? []) as unknown as PedidoAnalyticsRow[];
 
-    const pedidosTotal = lista.length;
+const lista =
+  canalFiltro === 'todos'
+    ? listaBase
+    : listaBase.filter((pedido) => getPedidoCanal(pedido) === canalFiltro);
+
+const pedidosTotal = lista.length;
 
     const pedidosCerrados = lista.filter((pedido) =>
       isClosedStatus(pedido.estado)
@@ -1048,11 +1069,12 @@ let tiempos: RowTiemposPedido[] = [];
         ok: true,
         data: {
           range: {
-            desde,
-            hasta,
-            isoDesde,
-            isoHasta,
-          },
+  desde,
+  hasta,
+  isoDesde,
+  isoHasta,
+  canal: canalFiltro,
+},
           kpis: {
             pedidosTotal,
             pedidosCerrados,
