@@ -26,6 +26,15 @@ type RowCanal = {
 
 type CanalFilter = 'todos' | RowCanal['canal'];
 
+type RestaurantFilter = 'todos' | string;
+
+type RestaurantOption = {
+  id: string;
+  slug: string;
+  label: string;
+  owner_tenant_id: string | null;
+};
+
 type RowMarca = {
   marca_id: string | null;
   marca_nombre: string;
@@ -444,6 +453,13 @@ export default function AdminAnalyticsPage() {
 
   const [canalFiltro, setCanalFiltro] = useState<CanalFilter>('todos');
 
+  const [restaurantFiltro, setRestaurantFiltro] =
+  useState<RestaurantFilter>('todos');
+
+const [restaurantOptions, setRestaurantOptions] = useState<RestaurantOption[]>(
+  []
+);
+
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -485,6 +501,10 @@ if (canalFiltro !== 'todos') {
   params.set('canal', canalFiltro);
 }
 
+if (restaurantFiltro !== 'todos') {
+  params.set('restaurantId', restaurantFiltro);
+}
+
       const res = await fetch(`/api/admin/analytics?${params.toString()}`, {
         method: 'GET',
         cache: 'no-store',
@@ -498,6 +518,8 @@ if (canalFiltro !== 'todos') {
       }
 
       const data = payload?.data;
+
+      setRestaurantOptions((data?.restaurants ?? []) as RestaurantOption[]);
 
       const currentKpis: RangeKpis = {
         pedidosTotal: Number(data?.kpis?.pedidosTotal ?? 0),
@@ -533,6 +555,10 @@ setTiempos((data?.tiempos ?? []) as RowTiemposPedido[]);
 
 if (canalFiltro !== 'todos') {
   previousParams.set('canal', canalFiltro);
+}
+
+if (restaurantFiltro !== 'todos') {
+  previousParams.set('restaurantId', restaurantFiltro);
 }
 
       const previousRes = await fetch(
@@ -1732,6 +1758,22 @@ outliers,
             </label>
 
             <label className="text-sm">
+  <span className="block text-xs text-slate-500">Sucursal</span>
+  <select
+    value={restaurantFiltro}
+    onChange={(e) => setRestaurantFiltro(e.target.value as RestaurantFilter)}
+    className="rounded-lg border border-slate-300 bg-white px-2 py-1"
+  >
+    <option value="todos">Todas</option>
+    {restaurantOptions.map((restaurant) => (
+      <option key={restaurant.id} value={restaurant.id}>
+        {restaurant.label}
+      </option>
+    ))}
+  </select>
+</label>
+
+            <label className="text-sm">
   <span className="block text-xs text-slate-500">Canal</span>
   <select
     value={canalFiltro}
@@ -1770,6 +1812,21 @@ outliers,
             </button>
           </div>
         </header>
+
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+  Vista actual:{' '}
+  <strong className="text-slate-900">
+    {restaurantFiltro === 'todos'
+      ? 'Todas las sucursales'
+      : restaurantOptions.find((item) => item.id === restaurantFiltro)?.label ??
+        `Sucursal ${restaurantFiltro}`}
+  </strong>
+  {' · '}
+  Canal:{' '}
+  <strong className="text-slate-900">
+    {canalFiltro === 'todos' ? 'Todos' : formatCanalLabel(canalFiltro)}
+  </strong>
+</div>
 
         {rangoInvalido && (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">

@@ -100,6 +100,13 @@ type RestaurantScopeRow = {
   owner_tenant_id: string | null;
 };
 
+type RestaurantOption = {
+  id: string;
+  slug: string;
+  label: string;
+  owner_tenant_id: string | null;
+};
+
 const CLOSED_STATUSES = new Set(['cerrado', 'entregado', 'finalizado']);
 const CANCELLED_STATUSES = new Set(['cancelado', 'cancelada']);
 
@@ -511,7 +518,10 @@ async function getRestaurantIdsForTenant(
   ]);
 
   if (byOwner.error) {
-    console.error('analytics restaurants by owner_tenant_id error:', byOwner.error);
+    console.error(
+      'analytics restaurants by owner_tenant_id error:',
+      byOwner.error
+    );
   }
 
   if (bySlug.error) {
@@ -519,8 +529,8 @@ async function getRestaurantIdsForTenant(
   }
 
   const rows = [
-    ...(((byOwner.data ?? []) as RestaurantScopeRow[])),
-    ...(((bySlug.data ?? []) as RestaurantScopeRow[])),
+    ...((byOwner.data ?? []) as RestaurantScopeRow[]),
+    ...((bySlug.data ?? []) as RestaurantScopeRow[]),
   ];
 
   for (const row of rows) {
@@ -529,6 +539,86 @@ async function getRestaurantIdsForTenant(
   }
 
   return Array.from(ids);
+}
+
+async function getRestaurantOptionsForTenant(
+  tenantId: string | null,
+  accessRestaurantId: string | null
+): Promise<RestaurantOption[]> {
+  const rowsById = new Map<string, RestaurantScopeRow>();
+
+  if (accessRestaurantId) {
+    const result = await supabaseAdmin
+      .from('restaurants')
+      .select('id, slug, owner_tenant_id')
+      .eq('id', accessRestaurantId)
+      .maybeSingle();
+
+    if (!result.error && result.data) {
+      const row = result.data as RestaurantScopeRow;
+      const id = normalizeId(row.id);
+
+      if (id) {
+        rowsById.set(id, row);
+      }
+    }
+  }
+
+  if (tenantId) {
+    const [byOwner, bySlug] = await Promise.all([
+      supabaseAdmin
+        .from('restaurants')
+        .select('id, slug, owner_tenant_id')
+        .eq('owner_tenant_id', tenantId),
+
+      supabaseAdmin
+        .from('restaurants')
+        .select('id, slug, owner_tenant_id')
+        .eq('slug', tenantId),
+    ]);
+
+    if (byOwner.error) {
+      console.error(
+        'analytics restaurant options by owner_tenant_id error:',
+        byOwner.error
+      );
+    }
+
+    if (bySlug.error) {
+      console.error(
+        'analytics restaurant options by slug error:',
+        bySlug.error
+      );
+    }
+
+    const rows = [
+      ...((byOwner.data ?? []) as RestaurantScopeRow[]),
+      ...((bySlug.data ?? []) as RestaurantScopeRow[]),
+    ];
+
+    for (const row of rows) {
+      const id = normalizeId(row.id);
+
+      if (id) {
+        rowsById.set(id, row);
+      }
+    }
+  }
+
+  return Array.from(rowsById.values())
+    .map((row) => {
+      const id = normalizeId(row.id) ?? '';
+      const slug = normalizeNonEmptyString(row.slug) ?? `sucursal-${id}`;
+
+      return {
+        id,
+        slug,
+        label: `${id} · ${slug}`,
+        owner_tenant_id: normalizeNonEmptyString(row.owner_tenant_id),
+      };
+    })
+    .filter((row) => row.id.length > 0)
+    .sort((a, b) => Number(a.id) - Number(b.id));
 }
 
 async function resolveAnalyticsRestaurantScope(params: {
@@ -786,6 +876,11 @@ const analyticsScope = await resolveAnalyticsRestaurantScope({
   accessRestaurantId,
   tenantId,
 });
+
+const restaurantOptions = await getRestaurantOptionsForTenant(
+  tenantId,
+  accessRestaurantId
+);
 
 if (analyticsScope.restaurantIds.length === 0) {
   return NextResponse.json(
@@ -1067,14 +1162,18 @@ let tiempos: RowTiemposPedido[] = [];
       {
         ok: true,
         data: {
-          range: {
-  desde,
-  hasta,
-  isoDesde,
-  isoHasta,
-  canal: canalFiltro,
-},
-          kpis: {
+  range: {
+    desde,
+    hasta,
+    isoDesde,
+    isoHasta,
+    canal: canalFiltro,
+    restaurantId: requestedRestaurantId,
+    restaurantIds: analyticsScope.restaurantIds,
+    scopeUsed: analyticsScope.scopeUsed,
+  },
+  restaurants: restaurantOptions,
+  kpis: {
             pedidosTotal,
             pedidosCerrados,
             pedidosCancelados,
