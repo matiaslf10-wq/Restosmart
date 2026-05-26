@@ -107,6 +107,79 @@ type RestaurantOption = {
   owner_tenant_id: string | null;
 };
 
+type StockEstado =
+  | 'ok'
+  | 'bajo'
+  | 'agotado'
+  | 'flexible'
+  | 'sin_control';
+
+type ProductoStockRow = {
+  restaurant_id: string | number | null;
+  producto_id: number | null;
+  visible_en_menu: boolean | null;
+  control_stock: boolean | null;
+  stock_actual: number | null;
+  permitir_sin_stock: boolean | null;
+  productos:
+    | {
+        id: number;
+        nombre: string;
+        categoria: string | null;
+        precio: number | null;
+        disponible: boolean | null;
+      }
+    | {
+        id: number;
+        nombre: string;
+        categoria: string | null;
+        precio: number | null;
+        disponible: boolean | null;
+      }[]
+    | null;
+};
+
+type StockProductoReport = {
+  restaurant_id: string;
+  restaurant_label: string;
+  producto_id: number;
+  producto_nombre: string;
+  categoria: string | null;
+  visible_en_menu: boolean;
+  disponible: boolean;
+  control_stock: boolean;
+  stock_actual: number;
+  permitir_sin_stock: boolean;
+  estado: StockEstado;
+};
+
+type StockSucursalReport = {
+  restaurant_id: string;
+  restaurant_label: string;
+  total_productos: number;
+  controlados: number;
+  agotados: number;
+  bajos: number;
+  flexibles: number;
+  sin_control: number;
+  ok: number;
+  productos: StockProductoReport[];
+};
+
+type StockControlReport = {
+  resumen: {
+    total_productos: number;
+    controlados: number;
+    agotados: number;
+    bajos: number;
+    flexibles: number;
+    sin_control: number;
+    ok: number;
+  };
+  sucursales: StockSucursalReport[];
+  criticos: StockProductoReport[];
+};
+
 const CLOSED_STATUSES = new Set(['cerrado', 'entregado', 'finalizado']);
 const CANCELLED_STATUSES = new Set(['cancelado', 'cancelada']);
 
@@ -841,6 +914,243 @@ async function loadTiemposRango(
   return tiemposResult.data ?? [];
 }
 
+const STOCK_BAJO_THRESHOLD = 5;
+
+function getProductoFromStockRow(row: ProductoStockRow) {
+  if (Array.isArray(row.productos)) {
+    return row.productos[0] ?? null;
+  }
+
+  return row.productos ?? null;
+}
+
+function getStockEstado(params: {
+  control_stock: boolean;
+  stock_actual: number;
+  permitir_sin_stock: boolean;
+}): StockEstado {
+  if (!params.control_stock) return 'sin_control';
+  if (params.permitir_sin_stock) return 'flexible';
+  if (params.stock_actual <= 0) return 'agotado';
+  if (params.stock_actual <= STOCK_BAJO_THRESHOLD) return 'bajo';
+  return 'ok';
+}
+
+function buildRestaurantLabelMap(restaurants: RestaurantOption[]) {
+  return new Map(
+    restaurants.map((restaurant) => [
+      String(restaurant.id),
+      restaurant.label || restaurant.slug || `Sucursal ${restaurant.id}`,
+    ])
+  );
+}
+
+async function loadStockControlReport(params: {
+  restaurantIds: string[];
+  restaurantOptions: RestaurantOption[];
+}): Promise<StockControlReport> {
+  const empty: StockControlReport = {
+    resumen: {
+      total_productos: 0,
+      controlados: 0,
+      agotados: 0,
+      bajos: 0,
+      flexibles: 0,
+      sin_control: 0,
+      ok: 0,
+    },
+    sucursales: [],
+    criticos: [],
+  };
+
+  if (params.restaurantIds.length === 0) {
+    return empty;
+  }
+
+  const labelMap = buildRestaurantLabelMap(params.restaurantOptions);
+
+  const { data, error } = await supabaseAdmin
+    .from('producto_restaurantes')
+    .select(
+      `
+      restaurant_id,
+      producto_id,
+      visible_en_menu,
+      control_stock,
+      stock_actual,
+      permitir_sin_stock,
+      productos (
+        id,
+        nombre,
+        categoria,
+        precio,
+        disponible
+      )
+    `
+    )
+    .in('restaurant_id', params.restaurantIds)
+    .order('restaurant_id', { ascending: true })
+    .order('producto_id', { ascending: true });
+
+  if (error) {
+    console.error('analytics stock control read error:', error);
+    return empty;
+  }
+
+  const rows = ((data ?? []) as unknown as ProductoStockRow[])
+    .map((row): StockProductoReport | null => {
+      const producto = getProductoFromStockRow(row);
+      const restaurantId = String(row.restaurant_id ?? '').trim();
+      const productoId = Number(row.producto_id ?? producto?.id ?? 0);
+
+      if (!restaurantId || !productoId || !producto) {
+        return null;
+      }
+
+      const controlStock = row.control_stock === true;
+      const permitirSinStock = row.permitir_sin_stock === true;
+      const stockActual = Math.max(Number(row.stock_actual ?? 0), 0);
+      const estado = getStockEstado({
+        control_stock: controlStock,
+        stock_actual: stockActual,
+        permitir_sin_stock: permitirSinStock,
+      });
+
+      return {
+        restaurant_id: restaurantId,
+        restaurant_label: labelMap.get(restaurantId) ?? `Sucursal ${restaurantId}`,
+        producto_id: productoId,
+        producto_nombre: producto.nombre ?? `Producto ${productoId}`,
+        categoria: producto.categoria ?? null,
+        visible_en_menu: row.visible_en_menu === true,
+        disponible: producto.disponible !== false,
+        control_stock: controlStock,
+        stock_actual: stockActual,
+        permitir_sin_stock: permitirSinStock,
+        estado,
+      };
+    })
+    .filter((row): row is StockProductoReport => row !== null);
+
+  const sucursalesMap = new Map<string, StockSucursalReport>();
+
+  for (const restaurantId of params.restaurantIds) {
+    const id = String(restaurantId);
+    sucursalesMap.set(id, {
+      restaurant_id: id,
+      restaurant_label: labelMap.get(id) ?? `Sucursal ${id}`,
+      total_productos: 0,
+      controlados: 0,
+      agotados: 0,
+      bajos: 0,
+      flexibles: 0,
+      sin_control: 0,
+      ok: 0,
+      productos: [],
+    });
+  }
+
+  for (const row of rows) {
+    const sucursal =
+      sucursalesMap.get(row.restaurant_id) ??
+      ({
+        restaurant_id: row.restaurant_id,
+        restaurant_label: row.restaurant_label,
+        total_productos: 0,
+        controlados: 0,
+        agotados: 0,
+        bajos: 0,
+        flexibles: 0,
+        sin_control: 0,
+        ok: 0,
+        productos: [],
+      } satisfies StockSucursalReport);
+
+    sucursal.total_productos += 1;
+    sucursal.productos.push(row);
+
+    if (row.control_stock) sucursal.controlados += 1;
+
+    if (row.estado === 'agotado') sucursal.agotados += 1;
+    if (row.estado === 'bajo') sucursal.bajos += 1;
+    if (row.estado === 'flexible') sucursal.flexibles += 1;
+    if (row.estado === 'sin_control') sucursal.sin_control += 1;
+    if (row.estado === 'ok') sucursal.ok += 1;
+
+    sucursalesMap.set(row.restaurant_id, sucursal);
+  }
+
+  const sucursales = Array.from(sucursalesMap.values()).map((sucursal) => ({
+    ...sucursal,
+    productos: sucursal.productos.sort((a, b) => {
+      const order: Record<StockEstado, number> = {
+        agotado: 0,
+        bajo: 1,
+        flexible: 2,
+        ok: 3,
+        sin_control: 4,
+      };
+
+      if (order[a.estado] !== order[b.estado]) {
+        return order[a.estado] - order[b.estado];
+      }
+
+      return a.producto_nombre.localeCompare(b.producto_nombre);
+    }),
+  }));
+
+  const resumen = sucursales.reduce(
+    (acc, sucursal) => {
+      acc.total_productos += sucursal.total_productos;
+      acc.controlados += sucursal.controlados;
+      acc.agotados += sucursal.agotados;
+      acc.bajos += sucursal.bajos;
+      acc.flexibles += sucursal.flexibles;
+      acc.sin_control += sucursal.sin_control;
+      acc.ok += sucursal.ok;
+      return acc;
+    },
+    {
+      total_productos: 0,
+      controlados: 0,
+      agotados: 0,
+      bajos: 0,
+      flexibles: 0,
+      sin_control: 0,
+      ok: 0,
+    }
+  );
+
+  const criticos = rows
+    .filter((row) => row.estado === 'agotado' || row.estado === 'bajo')
+    .sort((a, b) => {
+      const estadoOrder: Record<StockEstado, number> = {
+        agotado: 0,
+        bajo: 1,
+        flexible: 2,
+        ok: 3,
+        sin_control: 4,
+      };
+
+      if (estadoOrder[a.estado] !== estadoOrder[b.estado]) {
+        return estadoOrder[a.estado] - estadoOrder[b.estado];
+      }
+
+      if (a.stock_actual !== b.stock_actual) {
+        return a.stock_actual - b.stock_actual;
+      }
+
+      return a.producto_nombre.localeCompare(b.producto_nombre);
+    })
+    .slice(0, 30);
+
+  return {
+    resumen,
+    sucursales,
+    criticos,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const auth = requireAdminAuth(request);
 
@@ -858,14 +1168,17 @@ export async function GET(request: NextRequest) {
     console.error('GET /api/admin/analytics access resolution error:', error);
   }
 
-  if (!canAccessAnalytics(access.plan)) {
-    return NextResponse.json(
-      {
-        error: 'Analytics avanzados disponibles solo en el plan Intelligence.',
-      },
-      { status: 403 }
-    );
-  }
+  const canAccessReports =
+  access.plan === 'pro' || access.plan === 'intelligence';
+
+if (!canAccessReports) {
+  return NextResponse.json(
+    {
+      error: 'Reportes disponibles desde el plan Pro.',
+    },
+    { status: 403 }
+  );
+}
 
   const requestedRestaurantId = normalizeId(requestedContext.restaurantId);
 const accessRestaurantId = normalizeId(access.restaurant?.id);
@@ -881,6 +1194,11 @@ const restaurantOptions = await getRestaurantOptionsForTenant(
   tenantId,
   accessRestaurantId
 );
+
+const stockControl = await loadStockControlReport({
+  restaurantIds: analyticsScope.restaurantIds,
+  restaurantOptions,
+});
 
 if (analyticsScope.restaurantIds.length === 0) {
   return NextResponse.json(
@@ -1173,6 +1491,7 @@ let tiempos: RowTiemposPedido[] = [];
     scopeUsed: analyticsScope.scopeUsed,
   },
   restaurants: restaurantOptions,
+  stockControl,
   kpis: {
             pedidosTotal,
             pedidosCerrados,

@@ -48,6 +48,54 @@ type RestaurantOption = {
   owner_tenant_id: string | null;
 };
 
+type StockEstado =
+  | 'ok'
+  | 'bajo'
+  | 'agotado'
+  | 'flexible'
+  | 'sin_control';
+
+type StockProductoReport = {
+  restaurant_id: string;
+  restaurant_label: string;
+  producto_id: number;
+  producto_nombre: string;
+  categoria: string | null;
+  visible_en_menu: boolean;
+  disponible: boolean;
+  control_stock: boolean;
+  stock_actual: number;
+  permitir_sin_stock: boolean;
+  estado: StockEstado;
+};
+
+type StockSucursalReport = {
+  restaurant_id: string;
+  restaurant_label: string;
+  total_productos: number;
+  controlados: number;
+  agotados: number;
+  bajos: number;
+  flexibles: number;
+  sin_control: number;
+  ok: number;
+  productos: StockProductoReport[];
+};
+
+type StockControlReport = {
+  resumen: {
+    total_productos: number;
+    controlados: number;
+    agotados: number;
+    bajos: number;
+    flexibles: number;
+    sin_control: number;
+    ok: number;
+  };
+  sucursales: StockSucursalReport[];
+  criticos: StockProductoReport[];
+};
+
 type RowMarca = {
   marca_id: string | null;
   marca_nombre: string;
@@ -239,6 +287,44 @@ function formatCanalLabel(canal: RowCanal['canal']) {
     default:
       return 'Salón';
   }
+}
+
+function formatStockEstadoLabel(estado: StockEstado) {
+  switch (estado) {
+    case 'agotado':
+      return 'Agotado';
+    case 'bajo':
+      return 'Stock bajo';
+    case 'flexible':
+      return 'Flexible';
+    case 'sin_control':
+      return 'Sin control';
+    case 'ok':
+    default:
+      return 'OK';
+  }
+}
+
+function getStockEstadoClass(estado: StockEstado) {
+  switch (estado) {
+    case 'agotado':
+      return 'border-rose-200 bg-rose-50 text-rose-700';
+    case 'bajo':
+      return 'border-amber-200 bg-amber-50 text-amber-700';
+    case 'flexible':
+      return 'border-blue-200 bg-blue-50 text-blue-700';
+    case 'sin_control':
+      return 'border-slate-200 bg-slate-50 text-slate-600';
+    case 'ok':
+    default:
+      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  }
+}
+
+function buildProductosSucursalHref(restaurantId: string) {
+  const params = new URLSearchParams();
+  params.set('restaurantId', restaurantId);
+  return `/admin/productos?${params.toString()}`;
 }
 
 function escapeCsvCell(value: unknown) {
@@ -548,6 +634,10 @@ const [restaurantOptions, setRestaurantOptions] = useState<RestaurantOption[]>(
   []
 );
 
+const [stockControl, setStockControl] = useState<StockControlReport | null>(
+  null
+);
+
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -608,6 +698,8 @@ if (restaurantFiltro !== 'todos') {
       const data = payload?.data;
 
       setRestaurantOptions((data?.restaurants ?? []) as RestaurantOption[]);
+
+      setStockControl((data?.stockControl ?? null) as StockControlReport | null);
 
       const currentKpis: RangeKpis = {
         pedidosTotal: Number(data?.kpis?.pedidosTotal ?? 0),
@@ -2099,6 +2191,198 @@ Los analytics avanzados forman parte de <strong>Intelligence</strong>.
       >
         Ver Intelligence
       </a>
+    </div>
+  </section>
+) : null}
+
+{!loading && stockControl ? (
+  <section className="rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <h2 className="text-lg font-bold text-slate-900">
+          Control de stock por sucursal
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Vista operativa disponible desde Pro. Separa productos agotados, bajos,
+          flexibles y sin control según la sucursal seleccionada.
+        </p>
+      </div>
+
+      <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+        Pro · stock por sucursal
+      </span>
+    </div>
+
+    <div className="grid gap-3 md:grid-cols-5">
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <p className="text-xs text-slate-500">Productos</p>
+        <p className="mt-1 text-2xl font-bold text-slate-900">
+          {stockControl.resumen.total_productos}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+        <p className="text-xs text-emerald-700">OK</p>
+        <p className="mt-1 text-2xl font-bold text-emerald-900">
+          {stockControl.resumen.ok}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-xs text-amber-700">Stock bajo</p>
+        <p className="mt-1 text-2xl font-bold text-amber-900">
+          {stockControl.resumen.bajos}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+        <p className="text-xs text-rose-700">Agotados</p>
+        <p className="mt-1 text-2xl font-bold text-rose-900">
+          {stockControl.resumen.agotados}
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <p className="text-xs text-slate-500">Sin control</p>
+        <p className="mt-1 text-2xl font-bold text-slate-900">
+          {stockControl.resumen.sin_control}
+        </p>
+      </div>
+    </div>
+
+    {stockControl.criticos.length > 0 ? (
+      <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <h3 className="font-semibold text-amber-950">
+          Productos críticos
+        </h3>
+
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {stockControl.criticos.slice(0, 8).map((producto) => (
+            <div
+              key={`critico-${producto.restaurant_id}-${producto.producto_id}`}
+              className="rounded-xl border border-white/70 bg-white p-3"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-slate-900">
+                    {producto.producto_nombre}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {producto.restaurant_label}
+                    {producto.categoria ? ` · ${producto.categoria}` : ''}
+                  </p>
+                </div>
+
+                <span
+                  className={`rounded-full border px-2 py-1 text-xs font-semibold ${getStockEstadoClass(
+                    producto.estado
+                  )}`}
+                >
+                  {formatStockEstadoLabel(producto.estado)}
+                </span>
+              </div>
+
+              <p className="mt-2 text-sm text-slate-700">
+                Stock actual:{' '}
+                <strong>{producto.stock_actual}</strong>
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    ) : null}
+
+    <div className="mt-5 grid gap-4">
+      {stockControl.sucursales.map((sucursal) => (
+        <article
+          key={sucursal.restaurant_id}
+          className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+        >
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h3 className="text-base font-bold text-slate-900">
+                {sucursal.restaurant_label}
+              </h3>
+              <p className="mt-1 text-sm text-slate-600">
+                {sucursal.total_productos} productos · {sucursal.controlados}{' '}
+                con control de stock · {sucursal.agotados} agotados ·{' '}
+                {sucursal.bajos} bajos
+              </p>
+            </div>
+
+            <a
+              href={buildProductosSucursalHref(sucursal.restaurant_id)}
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Editar stock
+            </a>
+          </div>
+
+          {sucursal.productos.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-600">
+              Esta sucursal no tiene productos asociados.
+            </p>
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="py-2 pr-4">Producto</th>
+                    <th className="py-2 pr-4">Categoría</th>
+                    <th className="py-2 pr-4">Stock</th>
+                    <th className="py-2 pr-4">Estado</th>
+                    <th className="py-2">Menú</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {sucursal.productos.slice(0, 12).map((producto) => (
+                    <tr
+                      key={`${sucursal.restaurant_id}-${producto.producto_id}`}
+                      className="border-t"
+                    >
+                      <td className="py-2 pr-4 font-medium text-slate-900">
+                        {producto.producto_nombre}
+                      </td>
+
+                      <td className="py-2 pr-4 text-slate-600">
+                        {producto.categoria ?? '—'}
+                      </td>
+
+                      <td className="py-2 pr-4 font-semibold">
+                        {producto.control_stock
+                          ? producto.stock_actual
+                          : '—'}
+                      </td>
+
+                      <td className="py-2 pr-4">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${getStockEstadoClass(
+                            producto.estado
+                          )}`}
+                        >
+                          {formatStockEstadoLabel(producto.estado)}
+                        </span>
+                      </td>
+
+                      <td className="py-2 text-slate-600">
+                        {producto.visible_en_menu ? 'Visible' : 'Oculto'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {sucursal.productos.length > 12 ? (
+                <p className="mt-3 text-xs text-slate-500">
+                  Se muestran 12 productos. Para editar el stock completo, entrá
+                  a Menú / Productos de esta sucursal.
+                </p>
+              ) : null}
+            </div>
+          )}
+        </article>
+      ))}
     </div>
   </section>
 ) : null}
