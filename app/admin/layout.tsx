@@ -137,7 +137,8 @@ const multiBrandEnabled =
           plan === 'pro' || plan === 'intelligence';
 
         const analyticsBlocked =
-          pathname.startsWith('/admin/analytics') && !capabilities.analytics;
+  pathname.startsWith('/admin/analytics') &&
+  !(plan === 'pro' || plan === 'intelligence' || !!capabilities.analytics);
 
         const deliveryBlocked =
           pathname.startsWith('/admin/delivery') && !capabilities.delivery;
@@ -253,11 +254,6 @@ const multiBrandEnabled =
       visible: true,
     },
     {
-      href: scopedHref('/admin/operaciones'),
-      label: 'Gestión operativa',
-      visible: hasOperationalManagement,
-    },
-    {
       href: scopedHref('/admin/mesas'),
       label: 'Mesas / QR',
       visible: businessMode === 'restaurant',
@@ -283,10 +279,10 @@ const multiBrandEnabled =
       visible: !!capabilities.delivery,
     },
     {
-      href: scopedHref('/admin/analytics'),
-      label: 'Analytics',
-      visible: !!capabilities.analytics,
-    },
+  href: scopedHref('/admin/analytics'),
+  label: 'Reportes',
+  visible: hasOperationalManagement || !!capabilities.analytics,
+},
   ].filter((item) => item.visible);
 }, [
   businessMode,

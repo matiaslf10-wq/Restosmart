@@ -534,6 +534,7 @@ export default function AdminAnalyticsPage() {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [canViewAnalytics, setCanViewAnalytics] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
+  const [canViewAdvancedAnalytics, setCanViewAdvancedAnalytics] = useState(false);
 
   const [desde, setDesde] = useState(sevenDaysAgoStr);
   const [hasta, setHasta] = useState(todayStr);
@@ -721,17 +722,22 @@ if (restaurantFiltro !== 'todos') {
         if (!active) return;
 
         const plan = (session?.plan ?? 'esencial') as PlanCode;
-        const enabled =
-          typeof session?.capabilities?.analytics === 'boolean'
-            ? session.capabilities.analytics
-            : canAccessAnalytics(plan);
 
-        setCurrentPlan(plan);
-        setCanViewAnalytics(enabled);
+const advancedEnabled =
+  typeof session?.capabilities?.analytics === 'boolean'
+    ? session.capabilities.analytics
+    : canAccessAnalytics(plan);
 
-        if (enabled) {
-          await cargar();
-        }
+const reportsEnabled =
+  plan === 'pro' || plan === 'intelligence' || advancedEnabled;
+
+setCurrentPlan(plan);
+setCanViewAnalytics(reportsEnabled);
+setCanViewAdvancedAnalytics(advancedEnabled);
+
+if (reportsEnabled) {
+  await cargar();
+}
       } catch (error) {
         console.error('No se pudo verificar acceso a analytics', error);
         if (!active) return;
@@ -1887,17 +1893,17 @@ if (productoOportunidadPrincipal) {
         <div className="mx-auto max-w-4xl">
           <div className="rounded-3xl border border-blue-200 bg-white p-8 shadow-sm">
             <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              Disponible en Intelligence
+               Disponible en Pro e Intelligence
             </span>
 
             <h1 className="mt-4 text-3xl font-bold text-slate-900">
-              Analytics avanzados
+              Reportes operativos y analytics
             </h1>
 
             <p className="mt-3 leading-relaxed text-slate-600">
               Tu plan actual es <strong>{formatPlanLabel(currentPlan)}</strong>.
-              Los reportes avanzados, KPIs ejecutivos y análisis de rendimiento
-              forman parte de <strong>Intelligence</strong>.
+              Los reportes operativos están disponibles desde <strong>Pro</strong>.
+Los analytics avanzados forman parte de <strong>Intelligence</strong>.
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -1954,14 +1960,14 @@ if (productoOportunidadPrincipal) {
           <div>
             <div className="mb-2">
               <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
-                Intelligence activo
-              </span>
+  {canViewAdvancedAnalytics ? 'Intelligence activo' : 'Pro activo'}
+</span>
             </div>
 
-            <h1 className="text-2xl font-bold text-slate-900">Analytics</h1>
-            <p className="text-sm text-slate-600">
-              KPIs operativos, marcas y lectura ejecutiva basados en pedidos reales.
-            </p>
+            <h1 className="text-2xl font-bold text-slate-900">Reportes</h1>
+<p className="text-sm text-slate-600">
+  Gestión operativa y lectura del negocio según el plan activo.
+</p>
           </div>
 
           <div className="flex flex-wrap items-end gap-2">
@@ -2069,9 +2075,58 @@ if (productoOportunidadPrincipal) {
         )}
 
         {loading ? (
-          <p className="text-slate-600">Cargando analytics…</p>
-        ) : (
-          <>
+  <p className="text-slate-600">Cargando reportes…</p>
+) : !canViewAdvancedAnalytics ? (
+  <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div>
+        <h2 className="text-lg font-bold text-blue-950">
+          Reportes operativos Pro
+        </h2>
+        <p className="mt-1 text-sm leading-relaxed text-blue-900">
+          En Pro centralizamos la gestión operativa: actividad reciente, estado
+          de pedidos, operación por canal e historial. Los analytics ejecutivos,
+          mapa de calor, matriz de productos y comparativas avanzadas se activan
+          en Intelligence.
+        </p>
+      </div>
+
+      <a
+        href="/#precios"
+        className="rounded-xl bg-blue-900 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+      >
+        Ver Intelligence
+      </a>
+    </div>
+  </section>
+) : (
+  <>
+          {!canViewAdvancedAnalytics ? (
+  <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div>
+        <h2 className="text-lg font-bold text-blue-950">
+          Reportes operativos Pro
+        </h2>
+        <p className="mt-1 text-sm leading-relaxed text-blue-900">
+          En Pro centralizamos la gestión operativa: actividad reciente, estado
+          de pedidos, operación por canal e historial. Los analytics ejecutivos,
+          mapa de calor, matriz de productos y comparativas avanzadas se activan
+          en Intelligence.
+        </p>
+      </div>
+
+      <a
+        href="/#precios"
+        className="rounded-xl bg-blue-900 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+      >
+        Ver Intelligence
+      </a>
+    </div>
+  </section>
+) : null}
+{canViewAdvancedAnalytics ? (
+  <>
             <section className="grid gap-3 xl:grid-cols-5">
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -3139,7 +3194,7 @@ if (productoOportunidadPrincipal) {
                   </table>
                 </div>
               )}
-            </section>
+             </section>
           </>
         )}
       </div>
