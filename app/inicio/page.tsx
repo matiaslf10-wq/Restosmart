@@ -157,9 +157,9 @@ function QuickAccessCard({
 
   if (href.startsWith('mailto:')) {
     return (
-      <a href={href} className={className}>
+      <Link href={href} className={className}>
         {content}
-      </a>
+      </Link>
     );
   }
 
