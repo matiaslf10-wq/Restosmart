@@ -390,7 +390,6 @@ const [actualizandoAddonKey, setActualizandoAddonKey] =
 const multiBrandAddonEnabled =
   !!addons.multi_brand || !!capabilities.multi_brand;
 
-const analyticsEnabled = !!capabilities.analytics;
   const tenantLabel =
   requestedTenant ||
   (requestedRestaurantId ? `Sucursal ${requestedRestaurantId}` : null) ||
@@ -428,14 +427,6 @@ const analyticsEnabled = !!capabilities.analytics;
     () => getPublicOrderingMeta(localForm.business_mode),
     [localForm.business_mode]
   );
-
-  const analyticsHint = useMemo(() => {
-    if (analyticsEnabled) {
-      return 'Tu plan actual ya incluye analytics avanzados.';
-    }
-
-    return 'Podés dejar cargados estos datos ahora, pero los analytics avanzados se aprovechan en Intelligence.';
-  }, [analyticsEnabled]);
 
   const takeawayQrTitle =
     localForm.business_mode === 'takeaway'
@@ -1836,66 +1827,6 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
               </div>
             </div>
           )}
-        </section>
-
-        <section className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-medium">Integraciones de la sucursal</h2>
-              <p className="mt-1 text-sm text-neutral-600">{analyticsHint}</p>
-            </div>
-
-            {!analyticsEnabled ? (
-              <Link
-                href="/#precios"
-                className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
-              >
-                Desbloquear analytics
-              </Link>
-            ) : null}
-          </div>
-
-          {!analyticsEnabled ? (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Tu plan actual no incluye analytics avanzados. Igual podés dejar
-              preparada la configuración.
-            </div>
-          ) : null}
-
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <label className="grid gap-2">
-              <span className="text-sm font-medium">Google Analytics ID</span>
-              <input
-                type="text"
-                value={localForm.google_analytics_id}
-                onChange={(e) =>
-                  updateLocal('google_analytics_id', e.target.value)
-                }
-                className="rounded-xl border px-3 py-2"
-                placeholder="G-XXXXXXXXXX"
-              />
-            </label>
-
-            <label className="grid gap-2">
-              <span className="text-sm font-medium">
-                Google Analytics Property ID
-              </span>
-              <input
-                type="text"
-                value={localForm.google_analytics_property_id}
-                onChange={(e) =>
-                  updateLocal('google_analytics_property_id', e.target.value)
-                }
-                className="rounded-xl border px-3 py-2"
-                placeholder="123456789"
-              />
-            </label>
-          </div>
-
-          <p className="mt-3 text-sm text-neutral-600">
-            Más adelante acá podemos sumar Mercado Pago, WhatsApp Business,
-            PedidosYa y Rappi para esta sucursal.
-          </p>
         </section>
 
         <div className="flex gap-3">
