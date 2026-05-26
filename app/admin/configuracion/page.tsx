@@ -929,8 +929,8 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
                 Multimarca {multiBrandAddonEnabled ? 'activo' : 'no activo'}
               </span>
               <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold text-blue-900">
-                Analytics {analyticsEnabled ? 'activo' : 'bloqueado'}
-              </span>
+  Reportes {capabilities.analytics ? 'Intelligence' : plan === 'pro' ? 'Pro' : 'bloqueados'}
+</span>
             </div>
           </div>
 
