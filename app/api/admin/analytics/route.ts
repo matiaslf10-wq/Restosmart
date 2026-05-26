@@ -100,6 +100,56 @@ type RestaurantScopeRow = {
   owner_tenant_id: string | null;
 };
 
+type PredictiveStockLevel = 'critico' | 'riesgo';
+
+type PredictiveStockAlert = {
+  restaurant_id: string;
+  restaurant_label: string;
+  producto_id: number;
+  producto_nombre: string;
+  categoria: string | null;
+  stock_actual: number;
+  demanda_esperada: number;
+  faltante_estimado: number;
+  fecha_objetivo: string;
+  dia_objetivo: string;
+  dias_hasta_objetivo: number;
+  muestras_historicas: number;
+  nivel: PredictiveStockLevel;
+  lectura: string;
+};
+
+type PedidoStockHistoryRow = {
+  id: number;
+  restaurant_id: string | number | null;
+  creado_en: string;
+  estado: string | null;
+  items_pedido: unknown[] | null;
+};
+
+type ProductoStockPredictiveRow = {
+  restaurant_id: string | number | null;
+  producto_id: number | null;
+  control_stock: boolean | null;
+  stock_actual: number | null;
+  permitir_sin_stock: boolean | null;
+  visible_en_menu: boolean | null;
+  productos:
+    | {
+        id: number;
+        nombre: string;
+        categoria: string | null;
+        disponible: boolean | null;
+      }
+    | {
+        id: number;
+        nombre: string;
+        categoria: string | null;
+        disponible: boolean | null;
+      }[]
+    | null;
+};
+
 type RestaurantOption = {
   id: string;
   slug: string;
@@ -464,6 +514,9 @@ const HEATMAP_DAYS = [
   { dia: 6, label: 'Domingo' },
 ];
 
+const PREDICTIVE_HISTORY_DAYS = 56;
+const PREDICTIVE_LOOKAHEAD_DAYS = 7;
+
 const WEEKDAY_TO_INDEX: Record<string, number> = {
   Mon: 0,
   Tue: 1,
@@ -473,6 +526,291 @@ const WEEKDAY_TO_INDEX: Record<string, number> = {
   Sat: 5,
   Sun: 6,
 };
+
+const WEEKDAY_LABELS = [
+  'lunes',
+  'martes',
+  'miércoles',
+  'jueves',
+  'viernes',
+  'sábado',
+  'domingo',
+];
+
+function addDaysToLocalDate(localDate: string, days: number) {
+  const date = new Date(`${localDate}T00:00:00-03:00`);
+  date.setDate(date.getDate() + days);
+  return formatArDate(date);
+}
+
+function getWeekdayIndexAR(value: string | Date) {
+  const date = typeof value === 'string' ? new Date(value) : value;
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    weekday: 'short',
+  }).formatToParts(date);
+
+  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? 'Mon';
+
+  return WEEKDAY_TO_INDEX[weekday] ?? 0;
+}
+
+function getProductoFromPredictiveStockRow(row: ProductoStockPredictiveRow) {
+  if (Array.isArray(row.productos)) {
+    return row.productos[0] ?? null;
+  }
+
+  return row.productos ?? null;
+}
+
+function getHistoryItemProductoId(item: unknown): number {
+  const record = asRecord(item);
+  if (!record) return 0;
+
+  const directId = Number(record.producto_id ?? 0);
+  if (directId > 0) return directId;
+
+  const producto = asRecord(record.producto);
+  return Number(producto?.id ?? 0);
+}
+
+function getDemandKey(params: {
+  restaurantId: string;
+  productoId: number;
+  weekday: number;
+}) {
+  return `${params.restaurantId}:${params.productoId}:${params.weekday}`;
+}
+
+function buildRestaurantLabelMap(restaurants: RestaurantOption[]) {
+  return new Map(
+    restaurants.map((restaurant) => [
+      String(restaurant.id),
+      restaurant.label || restaurant.slug || `Sucursal ${restaurant.id}`,
+    ])
+  );
+}
+
+function getPredictionLevel(params: {
+  stockActual: number;
+  demandaEsperada: number;
+}): PredictiveStockLevel | null {
+  if (params.demandaEsperada <= 0) return null;
+
+  if (params.stockActual <= 0) return 'critico';
+
+  const cobertura = params.stockActual / params.demandaEsperada;
+
+  if (cobertura < 0.5) return 'critico';
+  if (cobertura < 0.9) return 'riesgo';
+
+  return null;
+}
+
+async function loadPredictiveStockAlerts(params: {
+  restaurantIds: string[];
+  restaurantOptions: RestaurantOption[];
+}): Promise<PredictiveStockAlert[]> {
+  if (params.restaurantIds.length === 0) return [];
+
+  const today = formatArDate(new Date());
+  const historyStart = addDaysToLocalDate(today, -PREDICTIVE_HISTORY_DAYS);
+  const historyEnd = today;
+
+  const labelMap = buildRestaurantLabelMap(params.restaurantOptions);
+
+  const weekdayOccurrences = new Map<number, number>();
+
+  for (let index = 1; index <= PREDICTIVE_HISTORY_DAYS; index += 1) {
+    const date = addDaysToLocalDate(today, -index);
+    const weekday = getWeekdayIndexAR(`${date}T12:00:00-03:00`);
+    weekdayOccurrences.set(weekday, (weekdayOccurrences.get(weekday) ?? 0) + 1);
+  }
+
+  const stockResult = await supabaseAdmin
+    .from('producto_restaurantes')
+    .select(
+      `
+      restaurant_id,
+      producto_id,
+      control_stock,
+      stock_actual,
+      permitir_sin_stock,
+      visible_en_menu,
+      productos (
+        id,
+        nombre,
+        categoria,
+        disponible
+      )
+    `
+    )
+    .in('restaurant_id', params.restaurantIds)
+    .eq('control_stock', true)
+    .order('restaurant_id', { ascending: true })
+    .order('producto_id', { ascending: true });
+
+  if (stockResult.error) {
+    console.error('predictive stock current stock read error:', stockResult.error);
+    return [];
+  }
+
+  const pedidosResult = await supabaseAdmin
+    .from('pedidos')
+    .select(
+      `
+      id,
+      restaurant_id,
+      creado_en,
+      estado,
+      items_pedido (
+        cantidad,
+        producto_id
+      )
+    `
+    )
+    .in('restaurant_id', params.restaurantIds)
+    .gte('creado_en', toIsoStartOfDayAR(historyStart))
+    .lt('creado_en', toIsoStartOfDayAR(historyEnd));
+
+  if (pedidosResult.error) {
+    console.error('predictive stock pedidos history read error:', pedidosResult.error);
+    return [];
+  }
+
+  const demandMap = new Map<string, number>();
+
+  const pedidosHistoricos =
+    (pedidosResult.data ?? []) as unknown as PedidoStockHistoryRow[];
+
+  for (const pedido of pedidosHistoricos) {
+    if (!isClosedStatus(pedido.estado)) continue;
+
+    const restaurantId = String(pedido.restaurant_id ?? '').trim();
+    if (!restaurantId) continue;
+
+    const weekday = getWeekdayIndexAR(pedido.creado_en);
+
+    const items = Array.isArray(pedido.items_pedido)
+      ? pedido.items_pedido
+      : [];
+
+    for (const item of items) {
+      const productoId = getHistoryItemProductoId(item);
+      const cantidad = getItemCantidad(item);
+
+      if (productoId <= 0 || cantidad <= 0) continue;
+
+      const key = getDemandKey({
+        restaurantId,
+        productoId,
+        weekday,
+      });
+
+      demandMap.set(key, (demandMap.get(key) ?? 0) + cantidad);
+    }
+  }
+
+  const stockRows =
+    (stockResult.data ?? []) as unknown as ProductoStockPredictiveRow[];
+
+  const alerts: PredictiveStockAlert[] = [];
+
+  for (const stockRow of stockRows) {
+    const restaurantId = String(stockRow.restaurant_id ?? '').trim();
+    const producto = getProductoFromPredictiveStockRow(stockRow);
+    const productoId = Number(stockRow.producto_id ?? producto?.id ?? 0);
+
+    if (!restaurantId || productoId <= 0 || !producto) continue;
+
+    if (stockRow.permitir_sin_stock === true) {
+      continue;
+    }
+
+    if (producto.disponible === false || stockRow.visible_en_menu === false) {
+      continue;
+    }
+
+    const stockActual = Math.max(Number(stockRow.stock_actual ?? 0), 0);
+
+    for (let offset = 0; offset < PREDICTIVE_LOOKAHEAD_DAYS; offset += 1) {
+      const targetDate = addDaysToLocalDate(today, offset);
+      const weekday = getWeekdayIndexAR(`${targetDate}T12:00:00-03:00`);
+      const occurrences = weekdayOccurrences.get(weekday) ?? 0;
+
+      if (occurrences <= 0) continue;
+
+      const key = getDemandKey({
+        restaurantId,
+        productoId,
+        weekday,
+      });
+
+      const historicalUnits = demandMap.get(key) ?? 0;
+      const demandaEsperada = Math.ceil(historicalUnits / occurrences);
+
+      if (demandaEsperada <= 0) continue;
+
+      const level = getPredictionLevel({
+        stockActual,
+        demandaEsperada,
+      });
+
+      if (!level) continue;
+
+      const faltanteEstimado = Math.max(demandaEsperada - stockActual, 0);
+      const diaObjetivo = WEEKDAY_LABELS[weekday] ?? 'día próximo';
+      const restaurantLabel =
+        labelMap.get(restaurantId) ?? `Sucursal ${restaurantId}`;
+
+      alerts.push({
+        restaurant_id: restaurantId,
+        restaurant_label: restaurantLabel,
+        producto_id: productoId,
+        producto_nombre: producto.nombre ?? `Producto ${productoId}`,
+        categoria: producto.categoria ?? null,
+        stock_actual: stockActual,
+        demanda_esperada: demandaEsperada,
+        faltante_estimado: faltanteEstimado,
+        fecha_objetivo: targetDate,
+        dia_objetivo: diaObjetivo,
+        dias_hasta_objetivo: offset,
+        muestras_historicas: occurrences,
+        nivel: level,
+        lectura:
+          level === 'critico'
+            ? `Stock crítico: el stock actual no alcanza para cubrir la demanda histórica promedio del ${diaObjetivo}.`
+            : `Stock en riesgo: el stock actual queda justo frente a la demanda histórica promedio del ${diaObjetivo}.`,
+      });
+
+      break;
+    }
+  }
+
+  return alerts
+    .sort((a, b) => {
+      const levelOrder: Record<PredictiveStockLevel, number> = {
+        critico: 0,
+        riesgo: 1,
+      };
+
+      if (levelOrder[a.nivel] !== levelOrder[b.nivel]) {
+        return levelOrder[a.nivel] - levelOrder[b.nivel];
+      }
+
+      if (a.dias_hasta_objetivo !== b.dias_hasta_objetivo) {
+        return a.dias_hasta_objetivo - b.dias_hasta_objetivo;
+      }
+
+      if (b.faltante_estimado !== a.faltante_estimado) {
+        return b.faltante_estimado - a.faltante_estimado;
+      }
+
+      return a.producto_nombre.localeCompare(b.producto_nombre);
+    })
+    .slice(0, 30);
+}
 
 function getDayHourBucketAR(value: string) {
   const date = new Date(value);
@@ -1195,6 +1533,14 @@ const restaurantOptions = await getRestaurantOptionsForTenant(
   accessRestaurantId
 );
 
+const predictiveStockAlerts =
+  access.plan === 'intelligence'
+    ? await loadPredictiveStockAlerts({
+        restaurantIds: analyticsScope.restaurantIds,
+        restaurantOptions,
+      })
+    : [];
+
 const stockControl = await loadStockControlReport({
   restaurantIds: analyticsScope.restaurantIds,
   restaurantOptions,
@@ -1492,6 +1838,7 @@ let tiempos: RowTiemposPedido[] = [];
   },
   restaurants: restaurantOptions,
   stockControl,
+  predictiveStockAlerts,
   kpis: {
             pedidosTotal,
             pedidosCerrados,

@@ -48,6 +48,25 @@ type RestaurantOption = {
   owner_tenant_id: string | null;
 };
 
+type PredictiveStockLevel = 'critico' | 'riesgo';
+
+type PredictiveStockAlert = {
+  restaurant_id: string;
+  restaurant_label: string;
+  producto_id: number;
+  producto_nombre: string;
+  categoria: string | null;
+  stock_actual: number;
+  demanda_esperada: number;
+  faltante_estimado: number;
+  fecha_objetivo: string;
+  dia_objetivo: string;
+  dias_hasta_objetivo: number;
+  muestras_historicas: number;
+  nivel: PredictiveStockLevel;
+  lectura: string;
+};
+
 type StockEstado =
   | 'ok'
   | 'bajo'
@@ -287,6 +306,30 @@ function formatCanalLabel(canal: RowCanal['canal']) {
     default:
       return 'Salón';
   }
+}
+
+function getPredictiveStockClass(level: PredictiveStockLevel) {
+  switch (level) {
+    case 'critico':
+      return {
+        card: 'border-rose-300 bg-rose-50',
+        badge: 'border-rose-300 bg-rose-100 text-rose-800',
+        title: 'Riesgo crítico',
+      };
+    case 'riesgo':
+    default:
+      return {
+        card: 'border-amber-300 bg-amber-50',
+        badge: 'border-amber-300 bg-amber-100 text-amber-800',
+        title: 'Stock en riesgo',
+      };
+  }
+}
+
+function formatDiasHastaObjetivo(days: number) {
+  if (days === 0) return 'hoy';
+  if (days === 1) return 'mañana';
+  return `en ${days} días`;
 }
 
 function formatStockEstadoLabel(estado: StockEstado) {
@@ -634,6 +677,10 @@ const [restaurantOptions, setRestaurantOptions] = useState<RestaurantOption[]>(
   []
 );
 
+const [predictiveStockAlerts, setPredictiveStockAlerts] = useState<
+  PredictiveStockAlert[]
+>([]);
+
 const [stockControl, setStockControl] = useState<StockControlReport | null>(
   null
 );
@@ -698,6 +745,10 @@ if (restaurantFiltro !== 'todos') {
       const data = payload?.data;
 
       setRestaurantOptions((data?.restaurants ?? []) as RestaurantOption[]);
+
+      setPredictiveStockAlerts(
+  (data?.predictiveStockAlerts ?? []) as PredictiveStockAlert[]
+);
 
       setStockControl((data?.stockControl ?? null) as StockControlReport | null);
 
@@ -2389,7 +2440,116 @@ Los analytics avanzados forman parte de <strong>Intelligence</strong>.
 
 {!loading && canViewAdvancedAnalytics ? (
   <>
-            <section className="grid gap-3 xl:grid-cols-5">
+    <section className="rounded-2xl border border-violet-200 bg-white p-5">
+      <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">
+            Stock inteligente
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-600">
+            Alertas predictivas basadas en stock actual y ventas históricas por día de semana.
+          </p>
+        </div>
+
+        <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+          Intelligence · predicción de stock
+        </span>
+      </div>
+
+      {predictiveStockAlerts.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+          No se detectaron riesgos predictivos de stock para los próximos 7 días.
+        </div>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {predictiveStockAlerts.slice(0, 10).map((alerta) => {
+            const meta = getPredictiveStockClass(alerta.nivel);
+
+            return (
+              <article
+                key={`${alerta.restaurant_id}-${alerta.producto_id}-${alerta.fecha_objetivo}`}
+                className={`rounded-2xl border p-4 ${meta.card}`}
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.badge}`}
+                    >
+                      {meta.title}
+                    </span>
+
+                    <h3 className="mt-3 text-base font-bold text-slate-900">
+                      {alerta.producto_nombre}
+                    </h3>
+
+                    <p className="mt-1 text-xs text-slate-600">
+                      {alerta.restaurant_label}
+                      {alerta.categoria ? ` · ${alerta.categoria}` : ''}
+                    </p>
+                  </div>
+
+                  <a
+                    href={buildProductosSucursalHref(alerta.restaurant_id)}
+                    className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                  >
+                    Editar stock
+                  </a>
+                </div>
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-xl border border-white/70 bg-white/80 p-3">
+                    <p className="text-[11px] text-slate-500">Stock actual</p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">
+                      {alerta.stock_actual}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/70 bg-white/80 p-3">
+                    <p className="text-[11px] text-slate-500">
+                      Demanda esperada
+                    </p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">
+                      {alerta.demanda_esperada}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/70 bg-white/80 p-3">
+                    <p className="text-[11px] text-slate-500">
+                      Faltante estimado
+                    </p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">
+                      {alerta.faltante_estimado}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="mt-3 text-sm leading-relaxed text-slate-700">
+                  Se acerca el {alerta.dia_objetivo}{' '}
+                  ({formatDiasHastaObjetivo(alerta.dias_hasta_objetivo)}).
+                  Históricamente se venden aproximadamente{' '}
+                  <strong>{alerta.demanda_esperada}</strong> unidades y hoy hay{' '}
+                  <strong>{alerta.stock_actual}</strong> en stock.
+                </p>
+
+                <p className="mt-2 text-sm font-medium text-slate-800">
+                  Recomendación: reponer al menos{' '}
+                  <strong>{alerta.faltante_estimado}</strong> unidad
+                  {alerta.faltante_estimado === 1 ? '' : 'es'}.
+                </p>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  Base histórica: últimas 8 semanas · {alerta.muestras_historicas}{' '}
+                  ocurrencias comparables de {alerta.dia_objetivo}.
+                </p>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+
+    <section className="grid gap-3 xl:grid-cols-5">
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Canal líder
