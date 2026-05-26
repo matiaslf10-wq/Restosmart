@@ -583,15 +583,6 @@ function getDemandKey(params: {
   return `${params.restaurantId}:${params.productoId}:${params.weekday}`;
 }
 
-function buildRestaurantLabelMap(restaurants: RestaurantOption[]) {
-  return new Map(
-    restaurants.map((restaurant) => [
-      String(restaurant.id),
-      restaurant.label || restaurant.slug || `Sucursal ${restaurant.id}`,
-    ])
-  );
-}
-
 function getPredictionLevel(params: {
   stockActual: number;
   demandaEsperada: number;
