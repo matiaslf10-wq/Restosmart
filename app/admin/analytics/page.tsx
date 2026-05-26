@@ -2076,32 +2076,9 @@ Los analytics avanzados forman parte de <strong>Intelligence</strong>.
 
         {loading ? (
   <p className="text-slate-600">Cargando reportes…</p>
-) : !canViewAdvancedAnalytics ? (
-  <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-      <div>
-        <h2 className="text-lg font-bold text-blue-950">
-          Reportes operativos Pro
-        </h2>
-        <p className="mt-1 text-sm leading-relaxed text-blue-900">
-          En Pro centralizamos la gestión operativa: actividad reciente, estado
-          de pedidos, operación por canal e historial. Los analytics ejecutivos,
-          mapa de calor, matriz de productos y comparativas avanzadas se activan
-          en Intelligence.
-        </p>
-      </div>
+) : null}
 
-      <a
-        href="/#precios"
-        className="rounded-xl bg-blue-900 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-      >
-        Ver Intelligence
-      </a>
-    </div>
-  </section>
-) : (
-  <>
-          {!canViewAdvancedAnalytics ? (
+{!loading && !canViewAdvancedAnalytics ? (
   <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
       <div>
@@ -2125,7 +2102,8 @@ Los analytics avanzados forman parte de <strong>Intelligence</strong>.
     </div>
   </section>
 ) : null}
-{canViewAdvancedAnalytics ? (
+
+{!loading && canViewAdvancedAnalytics ? (
   <>
             <section className="grid gap-3 xl:grid-cols-5">
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -3195,8 +3173,8 @@ Los analytics avanzados forman parte de <strong>Intelligence</strong>.
                 </div>
               )}
              </section>
-          </>
-        )}
+                    </>
+        ) : null}
       </div>
     </main>
   );
