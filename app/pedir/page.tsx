@@ -87,6 +87,10 @@ function normalizePublicSlug(value: unknown) {
   return text.length > 0 ? text : null;
 }
 
+function normalizePhoneInput(value: string) {
+  return value.replace(/[^\d+]/g, '').trim();
+}
+
 function isRestaurantClosedForOrdering(value: unknown) {
   const estado = String(value ?? '').trim().toLowerCase();
 
@@ -252,6 +256,8 @@ const pedidosEndpoint = useMemo(
 
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [clienteNombre, setClienteNombre] = useState('');
+  const [clienteTelefono, setClienteTelefono] = useState('');
+const [notificarWhatsapp, setNotificarWhatsapp] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
@@ -563,6 +569,13 @@ if (!hasRestaurantScope) {
       return;
     }
 
+    const telefonoNormalizado = normalizePhoneInput(clienteTelefono);
+
+if (notificarWhatsapp && !telefonoNormalizado) {
+  setError('Ingresá un celular para poder avisarte por WhatsApp.');
+  return;
+}
+
     if (carrito.length === 0) {
       setError('El carrito está vacío.');
       return;
@@ -575,6 +588,8 @@ if (!hasRestaurantScope) {
 
       const nombreRetiro = clienteNombre.trim();
 
+      const quiereAvisoWhatsapp = notificarWhatsapp && !!telefonoNormalizado;
+
       const items = carrito.map((item) => ({
         producto_id: item.producto.id,
         cantidad: item.cantidad,
@@ -582,17 +597,19 @@ if (!hasRestaurantScope) {
       }));
 
       const payload = {
-        total,
-        forma_pago: formaPago,
-        origen: 'takeaway_web',
-        tipo_servicio: 'takeaway',
-        medio_pago: formaPago,
-        estado_pago: formaPago === 'efectivo' ? 'aprobado' : 'pendiente',
-        efectivo_aprobado: formaPago === 'efectivo',
-        paga_efectivo: formaPago === 'efectivo',
-        cliente_nombre: nombreRetiro,
-        items,
-      };
+  total,
+  forma_pago: formaPago,
+  origen: 'takeaway_web',
+  tipo_servicio: 'takeaway',
+  medio_pago: formaPago,
+  estado_pago: formaPago === 'efectivo' ? 'aprobado' : 'pendiente',
+  efectivo_aprobado: formaPago === 'efectivo',
+  paga_efectivo: formaPago === 'efectivo',
+  cliente_nombre: nombreRetiro,
+  cliente_telefono: telefonoNormalizado || null,
+  notificar_whatsapp: quiereAvisoWhatsapp,
+  items,
+};
 
       const res = await fetch(pedidosEndpoint, {
         method: 'POST',
@@ -611,13 +628,19 @@ if (!hasRestaurantScope) {
       const pedido = body.pedido as PedidoCreado;
 
       setCarrito([]);
-      setClienteNombre('');
-      await cargarProductos();
+setClienteNombre('');
+setClienteTelefono('');
+setNotificarWhatsapp(false);
+await cargarProductos();
       setMensaje(
-        formaPago === 'efectivo'
-          ? `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado para pagar al retirar.`
-          : `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado con pago virtual pendiente.`
-      );
+  formaPago === 'efectivo'
+    ? `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado para pagar al retirar.${
+        quiereAvisoWhatsapp ? ' El local podrá avisarte por WhatsApp cuando esté listo.' : ''
+      }`
+    : `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado con pago virtual pendiente.${
+        quiereAvisoWhatsapp ? ' El local podrá avisarte por WhatsApp cuando esté listo.' : ''
+      }`
+);
     } catch (err) {
       console.error(err);
       setError(
@@ -713,10 +736,37 @@ if (!hasRestaurantScope) {
                   />
                 </label>
 
+                <label className="grid gap-2">
+  <span className="text-sm font-medium text-slate-700">
+    Celular para aviso por WhatsApp
+  </span>
+  <input
+    type="tel"
+    value={clienteTelefono}
+    onChange={(e) => setClienteTelefono(e.target.value)}
+    className="rounded-xl border px-3 py-2"
+    placeholder="Ej: 11 2345 6789"
+  />
+  <span className="text-xs text-slate-500">
+    Opcional. Lo usamos para que el local pueda avisarte cuando el pedido esté listo.
+  </span>
+</label>
+
+<label className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+  <input
+    type="checkbox"
+    checked={notificarWhatsapp}
+    onChange={(e) => setNotificarWhatsapp(e.target.checked)}
+    className="mt-1"
+  />
+  <span className="text-sm text-emerald-900">
+    Quiero que me avisen por WhatsApp cuando mi pedido esté listo.
+  </span>
+</label>
+
                 <p className="text-xs text-slate-500">
-                  Este nombre se guarda dentro del pedido y se usa para
-                  identificarlo cuando esté listo.
-                </p>
+  El nombre identifica el pedido en mostrador. El celular es opcional y sirve para avisarte cuando esté listo.
+</p>
               </div>
             </div>
 

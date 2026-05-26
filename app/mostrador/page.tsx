@@ -43,6 +43,8 @@ type Pedido = {
   origen?: string | null;
   tipo_servicio?: string | null;
   cliente_nombre?: string | null;
+  cliente_telefono?: string | null;
+notificar_whatsapp?: boolean | null;
   medio_pago?: string | null;
   estado_pago?: string | null;
   forma_pago?: 'efectivo' | 'virtual' | null;
@@ -919,6 +921,8 @@ setCurrentRestaurantLabel(restaurantLabel || 'Sucursal no identificada');
         origen: p.origen ?? null,
         tipo_servicio: p.tipo_servicio ?? null,
         cliente_nombre: p.cliente_nombre ?? null,
+        cliente_telefono: p.cliente_telefono ?? null,
+notificar_whatsapp: p.notificar_whatsapp ?? false,
         medio_pago: p.medio_pago ?? null,
         estado_pago: p.estado_pago ?? null,
         forma_pago: p.forma_pago ?? null,
@@ -2501,6 +2505,13 @@ const { error: updateError } = await cerrarQuery;
                           <h3 className="mt-1 text-sm font-bold leading-tight text-slate-900">
                             {getTakeawayLabel(pedido)}
                           </h3>
+
+                          {pedido.cliente_telefono ? (
+  <p className="mt-0.5 text-[11px] font-medium text-emerald-700">
+    WhatsApp: {pedido.cliente_telefono}
+    {pedido.notificar_whatsapp ? ' · Avisar cuando esté listo' : ''}
+  </p>
+) : null}
 
                           <p className="mt-0.5 text-[11px] text-slate-600">
                             {pedido.codigo_publico || `Pedido #${pedido.id}`}

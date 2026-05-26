@@ -53,6 +53,7 @@ type CreatePedidoBody = {
   paga_efectivo?: boolean | null;
   cliente_nombre?: string | null;
   cliente_telefono?: string | null;
+  notificar_whatsapp?: boolean | null;
   direccion_entrega?: string | null;
   items: PedidoItemInput[];
 };
@@ -787,7 +788,9 @@ export async function GET(request: NextRequest) {
           origen,
           tipo_servicio,
           cliente_nombre,
-          medio_pago,
+cliente_telefono,
+notificar_whatsapp,
+medio_pago,
           estado_pago,
           forma_pago,
           paga_efectivo,
@@ -933,12 +936,27 @@ const businessMode = await resolveBusinessMode(restaurant);
     const clienteTelefono = normalizeOptionalText(body?.cliente_telefono);
     const direccionEntrega = normalizeOptionalText(body?.direccion_entrega);
 
+    const notificarWhatsapp =
+  typeof body?.notificar_whatsapp === 'boolean'
+    ? body.notificar_whatsapp
+    : false;
+
     if (tipoServicio === 'takeaway' && !clienteNombre) {
       return NextResponse.json(
         { error: 'cliente_nombre es obligatorio para take away.' },
         { status: 400 }
       );
     }
+
+    if (notificarWhatsapp && !clienteTelefono) {
+  return NextResponse.json(
+    {
+      error:
+        'Para avisarte por WhatsApp necesitamos que indiques un número de celular.',
+    },
+    { status: 400 }
+  );
+}
 
     if (tipoServicio === 'delivery' && !direccionEntrega) {
       return NextResponse.json(
@@ -1071,8 +1089,9 @@ const mesaResolution = await resolveMesaIdForPedido(
       ? body.efectivo_aprobado
       : formaPago === 'efectivo',
   cliente_nombre: clienteNombre,
-  cliente_telefono: clienteTelefono,
-  direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
+cliente_telefono: clienteTelefono,
+notificar_whatsapp: notificarWhatsapp && !!clienteTelefono,
+direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
 };
 
     const { data: pedido, error: pedidoError } = await supabaseAdmin
