@@ -18,6 +18,19 @@ type RowTopProductos = {
   ingresos: number;
 };
 
+type ProductoMatrizSegmento =
+  | 'estrella'
+  | 'traccionador'
+  | 'oportunidad'
+  | 'revisar';
+
+type ProductoMatrizRow = RowTopProductos & {
+  ingresoPorUnidad: number;
+  segmento: ProductoMatrizSegmento;
+  segmentoLabel: string;
+  lectura: string;
+};
+
 type RowCanal = {
   canal: 'salon' | 'takeaway' | 'delivery';
   cantidad: number;
@@ -375,6 +388,80 @@ function formatShortDeltaLabel(prefix: string, delta: number | null) {
 
   const sign = delta > 0 ? '+' : '';
   return `${prefix}: ${sign}${delta}%`;
+}
+
+function median(values: number[]) {
+  const sorted = values
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+
+  if (sorted.length === 0) return 0;
+
+  const middle = Math.floor(sorted.length / 2);
+
+  if (sorted.length % 2 === 0) {
+    return safeRound((sorted[middle - 1] + sorted[middle]) / 2);
+  }
+
+  return sorted[middle];
+}
+
+function getProductoMatrizMeta(segmento: ProductoMatrizSegmento) {
+  switch (segmento) {
+    case 'estrella':
+      return {
+        label: 'Estrella',
+        title: 'Alta venta + alto ingreso',
+        className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+        badgeClassName: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+        lectura:
+          'Producto fuerte: conviene sostener stock, visibilidad y disponibilidad.',
+      };
+    case 'traccionador':
+      return {
+        label: 'Traccionador',
+        title: 'Alta venta + bajo ingreso',
+        className: 'border-blue-200 bg-blue-50 text-blue-800',
+        badgeClassName: 'bg-blue-100 text-blue-700 border-blue-200',
+        lectura:
+          'Mueve volumen, pero deja menos ingreso. Puede servir para combos o upselling.',
+      };
+    case 'oportunidad':
+      return {
+        label: 'Oportunidad',
+        title: 'Baja venta + alto ingreso',
+        className: 'border-amber-200 bg-amber-50 text-amber-800',
+        badgeClassName: 'bg-amber-100 text-amber-700 border-amber-200',
+        lectura:
+          'Tiene buen valor, pero baja salida. Conviene destacarlo o probar promoción.',
+      };
+    case 'revisar':
+    default:
+      return {
+        label: 'Revisar',
+        title: 'Baja venta + bajo ingreso',
+        className: 'border-slate-200 bg-slate-50 text-slate-700',
+        badgeClassName: 'bg-slate-100 text-slate-600 border-slate-200',
+        lectura:
+          'Producto débil en el período. Conviene revisar precio, visibilidad o permanencia.',
+      };
+  }
+}
+
+function classifyProductoMatriz(params: {
+  unidades: number;
+  ingresos: number;
+  medianaUnidades: number;
+  medianaIngresos: number;
+}): ProductoMatrizSegmento {
+  const highVenta = params.unidades >= params.medianaUnidades;
+  const highIngreso = params.ingresos >= params.medianaIngresos;
+
+  if (highVenta && highIngreso) return 'estrella';
+  if (highVenta && !highIngreso) return 'traccionador';
+  if (!highVenta && highIngreso) return 'oportunidad';
+
+  return 'revisar';
 }
 
 function getExecutiveSignalClasses(estado: ExecutiveSignalRow['estado']) {
@@ -757,6 +844,87 @@ if (restaurantFiltro !== 'todos') {
     return topProductos.length > 0 ? topProductos[0] : null;
   }, [topProductos]);
 
+  const matrizProductos = useMemo<ProductoMatrizRow[]>(() => {
+  const productosConActividad = topProductos.filter(
+    (producto) => producto.unidades > 0 || producto.ingresos > 0
+  );
+
+  if (productosConActividad.length === 0) return [];
+
+  const medianaUnidades = median(
+    productosConActividad.map((producto) => producto.unidades)
+  );
+
+  const medianaIngresos = median(
+    productosConActividad.map((producto) => producto.ingresos)
+  );
+
+  return productosConActividad
+    .map((producto) => {
+      const segmento = classifyProductoMatriz({
+        unidades: producto.unidades,
+        ingresos: producto.ingresos,
+        medianaUnidades,
+        medianaIngresos,
+      });
+
+      const meta = getProductoMatrizMeta(segmento);
+
+      return {
+        ...producto,
+        ingresoPorUnidad:
+          producto.unidades > 0
+            ? safeRound(producto.ingresos / producto.unidades)
+            : 0,
+        segmento,
+        segmentoLabel: meta.label,
+        lectura: meta.lectura,
+      };
+    })
+    .sort((a, b) => {
+      const order: Record<ProductoMatrizSegmento, number> = {
+        estrella: 0,
+        oportunidad: 1,
+        traccionador: 2,
+        revisar: 3,
+      };
+
+      if (order[a.segmento] !== order[b.segmento]) {
+        return order[a.segmento] - order[b.segmento];
+      }
+
+      if (b.ingresos !== a.ingresos) return b.ingresos - a.ingresos;
+      return b.unidades - a.unidades;
+    });
+}, [topProductos]);
+
+const productosPorSegmento = useMemo(() => {
+  const map = new Map<ProductoMatrizSegmento, ProductoMatrizRow[]>();
+
+  for (const segmento of [
+    'estrella',
+    'oportunidad',
+    'traccionador',
+    'revisar',
+  ] as ProductoMatrizSegmento[]) {
+    map.set(segmento, []);
+  }
+
+  for (const producto of matrizProductos) {
+    map.get(producto.segmento)?.push(producto);
+  }
+
+  return map;
+}, [matrizProductos]);
+
+const productoEstrellaPrincipal = useMemo(() => {
+  return productosPorSegmento.get('estrella')?.[0] ?? null;
+}, [productosPorSegmento]);
+
+const productoOportunidadPrincipal = useMemo(() => {
+  return productosPorSegmento.get('oportunidad')?.[0] ?? null;
+}, [productosPorSegmento]);
+
   const canalLider = useMemo(() => {
   const canalesConActividad = canales.filter(
     (canal) => canal.cantidad > 0 || canal.ingresos > 0
@@ -1064,6 +1232,33 @@ lines.push('');
     }
     lines.push('');
 
+    lines.push(buildCsvLine(['Matriz de productos']));
+lines.push(
+  buildCsvLine([
+    'Producto',
+    'Segmento',
+    'Unidades',
+    'Ingresos',
+    'Ingreso por unidad',
+    'Lectura',
+  ])
+);
+
+for (const row of matrizProductos) {
+  lines.push(
+    buildCsvLine([
+      row.producto_nombre,
+      row.segmentoLabel,
+      row.unidades,
+      formatCurrency(row.ingresos),
+      formatCurrency(row.ingresoPorUnidad),
+      row.lectura,
+    ])
+  );
+}
+
+lines.push('');
+
     lines.push(buildCsvLine(['Outliers']));
     lines.push(
       buildCsvLine([
@@ -1122,6 +1317,7 @@ ventasPorMarca,
 pedidosHora,
 heatmapDiaHora,
 topProductos,
+matrizProductos,
 outliers,
     getCanalDeltaPedidos,
     getCanalDeltaIngresos,
@@ -1185,6 +1381,18 @@ outliers,
       );
     }
 
+    if (productoEstrellaPrincipal) {
+  items.push(
+    `${productoEstrellaPrincipal.producto_nombre} aparece como producto estrella: combina alta venta con alto ingreso.`
+  );
+}
+
+if (productoOportunidadPrincipal) {
+  items.push(
+    `${productoOportunidadPrincipal.producto_nombre} aparece como oportunidad: genera buen ingreso, pero todavía tiene baja salida relativa.`
+  );
+}
+
     if (horaPico) {
       items.push(
         `La franja con mayor demanda fue ${formatHourBucket(horaPico.hora)}, con ${horaPico.pedidos} pedidos.`
@@ -1230,7 +1438,15 @@ outliers,
     }
 
     return items.slice(0, 4);
-  }, [horaPico, porcentajeCancelacion, productoLider, marcaLider, promTotal]);
+  }, [
+  horaPico,
+  porcentajeCancelacion,
+  productoLider,
+  productoEstrellaPrincipal,
+  productoOportunidadPrincipal,
+  marcaLider,
+  promTotal,
+]);
 
   const resumenComparativo = useMemo(() => {
     const items: string[] = [];
@@ -1568,6 +1784,15 @@ outliers,
       ingresos: row.ingresos,
     }));
 
+    const matrizProductosRows = matrizProductos.map((row) => ({
+  producto: row.producto_nombre,
+  segmento: row.segmentoLabel,
+  unidades: row.unidades,
+  ingresos: row.ingresos,
+  ingreso_por_unidad: row.ingresoPorUnidad,
+  lectura: row.lectura,
+}));
+
     const outliersRows = outliers.map((row) => ({
       pedido: row.pedido_id,
       mesa: row.mesa_id,
@@ -1601,6 +1826,7 @@ outliers,
     const wsMarcas = utils.json_to_sheet(marcasRows);
     const wsPedidosHora = utils.json_to_sheet(pedidosHoraRows);
     const wsProductos = utils.json_to_sheet(productosRows);
+    const wsMatrizProductos = utils.json_to_sheet(matrizProductosRows);
     const wsOutliers = utils.json_to_sheet(outliersRows);
     const wsSerieDiaria = utils.json_to_sheet(serieDiariaRows);
     const wsHeatmap = utils.json_to_sheet(heatmapRows);
@@ -1612,6 +1838,7 @@ outliers,
     utils.book_append_sheet(wb, wsHeatmap, 'Mapa calor');
     utils.book_append_sheet(wb, wsPedidosHora, 'Pedidos por hora');
     utils.book_append_sheet(wb, wsProductos, 'Top productos');
+    utils.book_append_sheet(wb, wsMatrizProductos, 'Matriz productos');
     utils.book_append_sheet(wb, wsOutliers, 'Outliers');
 
     writeFileXLSX(wb, `analytics-${desde}-a-${hasta}.xlsx`);
@@ -1634,6 +1861,7 @@ outliers,
     pedidosHora,
     heatmapDiaHora,
     topProductos,
+    matrizProductos,
     outliers,
     serieDiaria,
     getCanalDeltaPedidos,
@@ -2691,6 +2919,166 @@ outliers,
                 </div>
               )}
             </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+  <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+    <div>
+      <h2 className="font-semibold text-slate-900">
+        Matriz inteligente de productos
+      </h2>
+      <p className="text-sm text-slate-500">
+        Clasifica productos según unidades vendidas e ingresos del período filtrado.
+      </p>
+    </div>
+
+    <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+      Intelligence · decisión de menú
+    </span>
+  </div>
+
+  {matrizProductos.length === 0 ? (
+    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+      Sin datos suficientes para construir la matriz de productos.
+    </div>
+  ) : (
+    <div className="space-y-4">
+      <div className="grid gap-3 lg:grid-cols-2">
+        {(
+          [
+            'estrella',
+            'oportunidad',
+            'traccionador',
+            'revisar',
+          ] as ProductoMatrizSegmento[]
+        ).map((segmento) => {
+          const meta = getProductoMatrizMeta(segmento);
+          const productos = productosPorSegmento.get(segmento) ?? [];
+
+          return (
+            <article
+              key={segmento}
+              className={`rounded-2xl border p-4 ${meta.className}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-bold">{meta.label}</h3>
+                  <p className="mt-1 text-xs opacity-80">{meta.title}</p>
+                </div>
+
+                <span className="rounded-full border bg-white/70 px-2 py-1 text-xs font-semibold">
+                  {productos.length}
+                </span>
+              </div>
+
+              {productos.length === 0 ? (
+                <p className="mt-4 text-sm opacity-80">
+                  No hay productos en este cuadrante para el rango seleccionado.
+                </p>
+              ) : (
+                <div className="mt-4 space-y-2">
+                  {productos.slice(0, 5).map((producto) => (
+                    <div
+                      key={`${segmento}-${producto.producto_id}-${producto.producto_nombre}`}
+                      className="rounded-xl border border-white/70 bg-white/75 p-3"
+                    >
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="font-semibold text-slate-900">
+                            {producto.producto_nombre}
+                          </div>
+
+                          <div className="mt-1 text-xs text-slate-600">
+                            {producto.unidades} unidades ·{' '}
+                            {formatCurrency(producto.ingresos)} ·{' '}
+                            {formatCurrency(producto.ingresoPorUnidad)} por unidad
+                          </div>
+                        </div>
+
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold ${meta.badgeClassName}`}
+                        >
+                          {producto.segmentoLabel}
+                        </span>
+                      </div>
+
+                      <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                        {producto.lectura}
+                      </p>
+                    </div>
+                  ))}
+
+                  {productos.length > 5 ? (
+                    <p className="text-xs opacity-75">
+                      +{productos.length - 5} producto
+                      {productos.length - 5 === 1 ? '' : 's'} más en este cuadrante.
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="text-left text-slate-500">
+              <th className="py-2 pr-4">Producto</th>
+              <th className="py-2 pr-4">Segmento</th>
+              <th className="py-2 pr-4">Unidades</th>
+              <th className="py-2 pr-4">Ingresos</th>
+              <th className="py-2">Ingreso/unidad</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {matrizProductos.map((producto) => {
+              const meta = getProductoMatrizMeta(producto.segmento);
+
+              return (
+                <tr
+                  key={`tabla-matriz-${producto.producto_id}-${producto.producto_nombre}`}
+                  className="border-t"
+                >
+                  <td className="py-2 pr-4 font-medium text-slate-900">
+                    {producto.producto_nombre}
+                  </td>
+
+                  <td className="py-2 pr-4">
+                    <span
+                      className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${meta.badgeClassName}`}
+                    >
+                      {producto.segmentoLabel}
+                    </span>
+                  </td>
+
+                  <td className="py-2 pr-4 font-semibold">
+                    {producto.unidades}
+                  </td>
+
+                  <td className="py-2 pr-4 font-semibold">
+                    {formatCurrency(producto.ingresos)}
+                  </td>
+
+                  <td className="py-2 font-semibold">
+                    {formatCurrency(producto.ingresoPorUnidad)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="text-xs leading-relaxed text-slate-500">
+        La clasificación compara cada producto contra la mediana de unidades e ingresos
+        del período filtrado. No reemplaza un análisis de costos, pero ayuda a decidir
+        qué destacar, combinar, promocionar o revisar.
+      </p>
+    </div>
+  )}
+</section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
