@@ -227,7 +227,6 @@ const multiBrandEnabled =
   const navItems = useMemo<NavItem[]>(() => {
   return [
     { href: '/inicio', label: 'Inicio', visible: true },
-    { href: '/admin', label: 'Dashboard', visible: true },
     {
       href: '/admin/restaurantes',
       label: 'Restaurantes',
@@ -269,10 +268,10 @@ const multiBrandEnabled =
       visible: businessMode === 'takeaway',
     },
     {
-      href: scopedHref('/admin/configuracion'),
-      label: 'Configuración',
-      visible: true,
-    },
+  href: scopedHref('/admin/configuracion'),
+  label: 'Administración',
+  visible: true,
+},
     {
       href: scopedHref('/admin/delivery'),
       label: 'Delivery',
