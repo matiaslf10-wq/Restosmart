@@ -206,7 +206,6 @@ function normalizeRestaurantOptionsResponse(
       if (!row) return null;
 
       const id = String(row.id ?? '').trim();
-
       if (!id) return null;
 
       return {
@@ -236,65 +235,6 @@ function normalizeRestaurantOptionsResponse(
     .sort((a: RestaurantOption, b: RestaurantOption) => {
       return Number(a.id) - Number(b.id);
     });
-}
-
-function buildMostradorHrefForRestaurant(restaurantId: string) {
-  const params = new URLSearchParams();
-  params.set('restaurantId', restaurantId);
-  return `/mostrador?${params.toString()}`;
-}
-
-function getRestaurantOptionName(restaurant: RestaurantOption) {
-  return (
-    restaurant.nombre_local?.trim() ||
-    restaurant.slug?.trim() ||
-    `Sucursal ${restaurant.id}`
-  );
-}
-
-function normalizeRestaurantOptionsResponse(payload: unknown): RestaurantOption[] {
-  const record = asRecord(payload);
-
-  const rawRows =
-    (Array.isArray(record?.restaurants) && record?.restaurants) ||
-    (Array.isArray(record?.data) && record?.data) ||
-    (Array.isArray(payload) && payload) ||
-    [];
-
-  return rawRows
-    .map((item): RestaurantOption | null => {
-      const row = asRecord(item);
-      if (!row) return null;
-
-      const id = String(row.id ?? '').trim();
-
-      if (!id) return null;
-
-      return {
-        id,
-        slug:
-          typeof row.slug === 'string' && row.slug.trim()
-            ? row.slug.trim()
-            : null,
-        nombre_local:
-          typeof row.nombre_local === 'string' && row.nombre_local.trim()
-            ? row.nombre_local.trim()
-            : null,
-        direccion:
-          typeof row.direccion === 'string' && row.direccion.trim()
-            ? row.direccion.trim()
-            : null,
-        business_mode:
-          typeof row.business_mode === 'string' ? row.business_mode : null,
-        estado:
-          typeof row.estado === 'string' && row.estado.trim()
-            ? row.estado.trim()
-            : 'activo',
-      };
-    })
-    .filter((item): item is RestaurantOption => item !== null)
-    .filter((item) => normalizeText(item.estado) !== 'cerrado')
-    .sort((a, b) => Number(a.id) - Number(b.id));
 }
 
 function buildMostradorHrefForRestaurant(restaurantId: string) {
