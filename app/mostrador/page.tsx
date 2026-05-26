@@ -123,6 +123,17 @@ type FiltroEstado = 'todos' | 'pendiente' | 'en_preparacion' | 'listo';
 
 type ManualOrderMode = 'salon' | 'takeaway';
 
+type RestaurantStatus = 'activo' | 'pausado' | 'cerrado';
+
+type RestaurantOption = {
+  id: string;
+  slug: string | null;
+  nombre_local: string | null;
+  direccion: string | null;
+  business_mode: BusinessMode | string | null;
+  estado: RestaurantStatus | string | null;
+};
+
 function formatMoney(value: number | string | null | undefined) {
   const num = Number(value ?? 0);
 
@@ -158,6 +169,138 @@ function formatTime(value: string) {
 
 function normalizeText(value: unknown) {
   return String(value ?? '').trim().toLowerCase();
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function getRestaurantOptionName(restaurant: RestaurantOption) {
+  return (
+    restaurant.nombre_local?.trim() ||
+    restaurant.slug?.trim() ||
+    `Sucursal ${restaurant.id}`
+  );
+}
+
+function normalizeRestaurantOptionsResponse(
+  payload: unknown
+): RestaurantOption[] {
+  const record = asRecord(payload);
+
+  const rawRows: unknown[] = Array.isArray(record?.restaurants)
+    ? record.restaurants
+    : Array.isArray(record?.data)
+      ? record.data
+      : Array.isArray(payload)
+        ? payload
+        : [];
+
+  return rawRows
+    .map((item: unknown): RestaurantOption | null => {
+      const row = asRecord(item);
+      if (!row) return null;
+
+      const id = String(row.id ?? '').trim();
+
+      if (!id) return null;
+
+      return {
+        id,
+        slug:
+          typeof row.slug === 'string' && row.slug.trim()
+            ? row.slug.trim()
+            : null,
+        nombre_local:
+          typeof row.nombre_local === 'string' && row.nombre_local.trim()
+            ? row.nombre_local.trim()
+            : null,
+        direccion:
+          typeof row.direccion === 'string' && row.direccion.trim()
+            ? row.direccion.trim()
+            : null,
+        business_mode:
+          typeof row.business_mode === 'string' ? row.business_mode : null,
+        estado:
+          typeof row.estado === 'string' && row.estado.trim()
+            ? row.estado.trim()
+            : 'activo',
+      };
+    })
+    .filter((item): item is RestaurantOption => item !== null)
+    .filter((item: RestaurantOption) => normalizeText(item.estado) !== 'cerrado')
+    .sort((a: RestaurantOption, b: RestaurantOption) => {
+      return Number(a.id) - Number(b.id);
+    });
+}
+
+function buildMostradorHrefForRestaurant(restaurantId: string) {
+  const params = new URLSearchParams();
+  params.set('restaurantId', restaurantId);
+  return `/mostrador?${params.toString()}`;
+}
+
+function getRestaurantOptionName(restaurant: RestaurantOption) {
+  return (
+    restaurant.nombre_local?.trim() ||
+    restaurant.slug?.trim() ||
+    `Sucursal ${restaurant.id}`
+  );
+}
+
+function normalizeRestaurantOptionsResponse(payload: unknown): RestaurantOption[] {
+  const record = asRecord(payload);
+
+  const rawRows =
+    (Array.isArray(record?.restaurants) && record?.restaurants) ||
+    (Array.isArray(record?.data) && record?.data) ||
+    (Array.isArray(payload) && payload) ||
+    [];
+
+  return rawRows
+    .map((item): RestaurantOption | null => {
+      const row = asRecord(item);
+      if (!row) return null;
+
+      const id = String(row.id ?? '').trim();
+
+      if (!id) return null;
+
+      return {
+        id,
+        slug:
+          typeof row.slug === 'string' && row.slug.trim()
+            ? row.slug.trim()
+            : null,
+        nombre_local:
+          typeof row.nombre_local === 'string' && row.nombre_local.trim()
+            ? row.nombre_local.trim()
+            : null,
+        direccion:
+          typeof row.direccion === 'string' && row.direccion.trim()
+            ? row.direccion.trim()
+            : null,
+        business_mode:
+          typeof row.business_mode === 'string' ? row.business_mode : null,
+        estado:
+          typeof row.estado === 'string' && row.estado.trim()
+            ? row.estado.trim()
+            : 'activo',
+      };
+    })
+    .filter((item): item is RestaurantOption => item !== null)
+    .filter((item) => normalizeText(item.estado) !== 'cerrado')
+    .sort((a, b) => Number(a.id) - Number(b.id));
+}
+
+function buildMostradorHrefForRestaurant(restaurantId: string) {
+  const params = new URLSearchParams();
+  params.set('restaurantId', restaurantId);
+  return `/mostrador?${params.toString()}`;
 }
 
 function getStockDisponible(producto: Producto) {
@@ -512,6 +655,16 @@ function MostradorPageContent() {
   return params.toString();
 }, [searchParams]);
 
+const hasRestaurantScope = useMemo(() => {
+  return Boolean(
+    searchParams.get('restaurantId') ??
+      searchParams.get('restaurant_id') ??
+      searchParams.get('restaurantSlug') ??
+      searchParams.get('restaurant') ??
+      searchParams.get('slug')
+  );
+}, [searchParams]);
+
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [currentPlan, setCurrentPlan] = useState<PlanCode>('esencial');
   const [businessMode, setBusinessMode] = useState<BusinessMode>('restaurant');
@@ -523,6 +676,14 @@ function MostradorPageContent() {
 const [currentRestaurantLabel, setCurrentRestaurantLabel] = useState(
   'Sucursal no identificada'
 );
+
+const [restaurantOptions, setRestaurantOptions] = useState<RestaurantOption[]>(
+  []
+);
+const [loadingRestaurantOptions, setLoadingRestaurantOptions] = useState(false);
+const [restaurantOptionsError, setRestaurantOptionsError] = useState<
+  string | null
+>(null);
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [mesasMap, setMesasMap] = useState<Record<number, MesaRef>>({});
@@ -669,6 +830,58 @@ setBusinessMode(
     };
   }, [router]);
 
+  useEffect(() => {
+  if (checkingAccess || hasRestaurantScope) return;
+
+  let active = true;
+
+  async function cargarSucursalesDisponibles() {
+    setLoadingRestaurantOptions(true);
+    setRestaurantOptionsError(null);
+
+    try {
+      const res = await fetch('/api/admin/restaurants', {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'include',
+      });
+
+      const body = await res.json().catch(() => null);
+
+      if (!active) return;
+
+      if (!res.ok) {
+        throw new Error(
+          body?.error || 'No se pudieron cargar las sucursales disponibles.'
+        );
+      }
+
+      setRestaurantOptions(normalizeRestaurantOptionsResponse(body));
+    } catch (error) {
+      console.error('No se pudieron cargar sucursales para mostrador:', error);
+
+      if (!active) return;
+
+      setRestaurantOptions([]);
+      setRestaurantOptionsError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudieron cargar las sucursales disponibles.'
+      );
+    } finally {
+      if (active) {
+        setLoadingRestaurantOptions(false);
+      }
+    }
+  }
+
+  void cargarSucursalesDisponibles();
+
+  return () => {
+    active = false;
+  };
+}, [checkingAccess, hasRestaurantScope]);
+
   const primaryMode: PrimaryMode =
     businessMode === 'takeaway' ? 'takeaway' : 'salon';
 
@@ -676,6 +889,19 @@ setBusinessMode(
   const isTakeawayMode = primaryMode === 'takeaway';
 
   const cargarDatos = useCallback(async () => {
+  if (!hasRestaurantScope) {
+    setCargando(false);
+    setError(null);
+    setPedidos([]);
+    setMesasMap({});
+    setMesasList([]);
+    setProductos([]);
+    setMarcas([]);
+    setCategorias([]);
+    setCategoriaSeleccionada(null);
+    return;
+  }
+
   setCargando(true);
   setError(null);
 
@@ -880,6 +1106,7 @@ setCurrentRestaurantLabel(restaurantLabel || 'Sucursal no identificada');
 }, [
   canUseMultiBrand,
   focusMesaId,
+  hasRestaurantScope,
   manualMesaId,
   marcarPedidosComoNuevos,
   reproducirSonidoNuevoPedido,
@@ -887,16 +1114,16 @@ setCurrentRestaurantLabel(restaurantLabel || 'Sucursal no identificada');
 ]);
 
   useEffect(() => {
-    if (checkingAccess) return;
+  if (checkingAccess || !hasRestaurantScope) return;
 
+  void cargarDatos();
+
+  const interval = setInterval(() => {
     void cargarDatos();
+  }, 10000);
 
-    const interval = setInterval(() => {
-      void cargarDatos();
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [checkingAccess, cargarDatos]);
+  return () => clearInterval(interval);
+}, [checkingAccess, hasRestaurantScope, cargarDatos]);
 
   useEffect(() => {
     if (isRestaurantMode && focusMesaId != null) {
@@ -1491,6 +1718,145 @@ const { error: updateError } = await cerrarQuery;
       </main>
     );
   }
+
+  if (!hasRestaurantScope) {
+  return (
+    <main className="min-h-screen bg-slate-100 px-4 py-6">
+      <div className="mx-auto max-w-5xl space-y-4">
+        <section className="rounded-3xl border border-amber-300 bg-amber-50 p-6 shadow-sm">
+          <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+            Falta identificar la sucursal
+          </span>
+
+          <h1 className="mt-4 text-3xl font-bold text-slate-900">
+            Elegí una sucursal para abrir Mostrador
+          </h1>
+
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-700">
+            Entraste a Mostrador sin una sucursal seleccionada. Para evitar
+            mezclar pedidos, productos, stock o mesas, esta pantalla necesita
+            abrirse con contexto de sucursal.
+          </p>
+
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-700">
+            Podés volver a Inicio o elegir directamente una sucursal desde acá.
+          </p>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => router.push('/inicio')}
+              className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Volver a Inicio
+            </button>
+
+            <button
+              type="button"
+              onClick={() => router.push('/admin/restaurantes')}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Gestionar sucursales
+            </button>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">
+                Sucursales disponibles
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Abrí Mostrador con el contexto correcto.
+              </p>
+            </div>
+
+            {loadingRestaurantOptions ? (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                Cargando sucursales...
+              </span>
+            ) : (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                {restaurantOptions.length} sucursal
+                {restaurantOptions.length === 1 ? '' : 'es'}
+              </span>
+            )}
+          </div>
+
+          {restaurantOptionsError ? (
+            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {restaurantOptionsError}
+            </div>
+          ) : null}
+
+          {!loadingRestaurantOptions && restaurantOptions.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+              No hay sucursales activas disponibles para abrir Mostrador.
+            </div>
+          ) : null}
+
+          {restaurantOptions.length > 0 ? (
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {restaurantOptions.map((restaurant) => {
+                const mode = normalizeBusinessMode(restaurant.business_mode);
+                const name = getRestaurantOptionName(restaurant);
+
+                return (
+                  <article
+                    key={restaurant.id}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              mode === 'restaurant'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {formatBusinessModeLabel(mode)}
+                          </span>
+
+                          <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+                            ID {restaurant.id}
+                          </span>
+                        </div>
+
+                        <h3 className="mt-3 text-lg font-bold text-slate-900">
+                          {name}
+                        </h3>
+
+                        <p className="mt-1 text-sm text-slate-600">
+                          {restaurant.direccion?.trim() ||
+                            (mode === 'restaurant'
+                              ? 'Sucursal con operación de salón.'
+                              : 'Sucursal take away.')}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        router.push(buildMostradorHrefForRestaurant(restaurant.id))
+                      }
+                      className="mt-4 w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-600"
+                    >
+                      Abrir Mostrador de esta sucursal
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
+        </section>
+      </div>
+    </main>
+  );
+}
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6">
