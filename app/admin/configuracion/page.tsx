@@ -400,6 +400,18 @@ const analyticsEnabled = !!capabilities.analytics;
   const businessModeLabel = formatBusinessModeLabel(localForm.business_mode);
   const planChanged = selectedPlan !== plan;
 
+  const tenantContextLabel = sessionData?.tenantId ?? tenantLabel;
+
+  const sucursalContextLabel =
+    localForm.nombre_local?.trim() ||
+    sessionData?.restaurant?.slug ||
+    (requestedRestaurantId ? `Sucursal ${requestedRestaurantId}` : null) ||
+    'Sin sucursal seleccionada';
+
+  const hasSucursalContext = Boolean(
+    requestedRestaurantId || requestedTenant || sessionData?.restaurant?.id
+  );
+
   const addonCards = useMemo(
   () => addonItems.map((item) => getAddonCard(item, plan)),
   [addonItems, plan]
@@ -830,8 +842,8 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
 
       setMensaje(
         deliveryAddonEnabled
-          ? 'Configuración general guardada correctamente.'
-          : 'Configuración del local e integraciones guardadas correctamente.'
+          ? 'Configuración de la sucursal guardada correctamente.'
+          : 'Configuración de la sucursal e integraciones guardadas correctamente.'
       );
 
       setSessionData((prev) =>
@@ -870,75 +882,123 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
   if (cargando) {
     return (
       <div className="p-6">
-        <h1 className="mb-4 text-2xl font-semibold">Configuración</h1>
-        <p>Cargando configuración...</p>
+        <h1 className="mb-4 text-2xl font-semibold">Administración</h1>
+        <p>Cargando administración...</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6 p-6">
-   {requestedRestaurantId || requestedTenant ? (
-  <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-    Estás editando la configuración de la sucursal{' '}
-    <strong>
-      {localForm.nombre_local?.trim() ||
-        requestedTenant ||
-        `Sucursal ${requestedRestaurantId}`}
-    </strong>
-    . Los datos que guardes acá se aplican a este restaurante, no a todo el tenant.
-  </div>
-) : (
-  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-    Esta pantalla debería abrirse desde una sucursal específica. Volvé a{' '}
-    <strong>Inicio</strong> o <strong>Restaurantes / sucursales</strong> y entrá
-    con una URL que incluya <code>restaurantId</code>.
-  </div>
-)}
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+              Administración
+            </span>
 
-      <section className="grid gap-4 md:grid-cols-6">
-  <div className="rounded-2xl border bg-white p-4 shadow-sm">
-    <p className="text-xs uppercase tracking-wide text-neutral-500">Plan</p>
-    <p className="mt-1 text-xl font-bold">{planLabel}</p>
-  </div>
+            <h1 className="mt-3 text-2xl font-bold text-slate-900">
+              Configuración del tenant y la sucursal
+            </h1>
 
-  <div className="rounded-2xl border bg-white p-4 shadow-sm">
-    <p className="text-xs uppercase tracking-wide text-neutral-500">Tenant</p>
-    <p className="mt-1 text-xl font-bold">{tenantLabel}</p>
-  </div>
+            <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-600">
+              Esta pantalla separa los cambios globales del tenant/grupo y los
+              cambios propios de la sucursal seleccionada. Revisá cada bloque
+              antes de guardar para saber qué alcance tiene cada modificación.
+            </p>
+          </div>
 
-  <div className="rounded-2xl border bg-white p-4 shadow-sm">
-    <p className="text-xs uppercase tracking-wide text-neutral-500">
-      Modo de negocio
-    </p>
-    <p className="mt-1 text-xl font-bold">{businessModeLabel}</p>
-  </div>
+          <Link
+            href="/inicio"
+            className="inline-flex rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Volver a Inicio
+          </Link>
+        </div>
 
-  <div className="rounded-2xl border bg-white p-4 shadow-sm">
-    <p className="text-xs uppercase tracking-wide text-neutral-500">
-      Modo mozo
-    </p>
-    <p className="mt-1 text-xl font-bold">{waiterModeStatus}</p>
-  </div>
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+              Tenant / grupo
+            </p>
+            <p className="mt-1 text-xl font-bold text-blue-950">
+              {tenantContextLabel}
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-blue-900">
+              El plan, los límites comerciales y los add-ons globales afectan al
+              tenant completo. Si cambiás el plan, puede impactar en todas las
+              sucursales del grupo.
+            </p>
 
-  <div className="rounded-2xl border bg-white p-4 shadow-sm">
-    <p className="text-xs uppercase tracking-wide text-neutral-500">
-      WhatsApp Delivery
-    </p>
-    <p className="mt-1 text-xl font-bold">
-      {deliveryAddonEnabled ? 'Activo' : 'No activo'}
-    </p>
-  </div>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold text-blue-900">
+                Plan {planLabel}
+              </span>
+              <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold text-blue-900">
+                Multimarca {multiBrandAddonEnabled ? 'activo' : 'no activo'}
+              </span>
+              <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold text-blue-900">
+                Analytics {analyticsEnabled ? 'activo' : 'bloqueado'}
+              </span>
+            </div>
+          </div>
 
-  <div className="rounded-2xl border bg-white p-4 shadow-sm">
-    <p className="text-xs uppercase tracking-wide text-neutral-500">
-      Multimarca
-    </p>
-    <p className="mt-1 text-xl font-bold">
-      {multiBrandAddonEnabled ? 'Activo' : 'No activo'}
-    </p>
-  </div>
-</section>
+          <div
+            className={`rounded-2xl border p-4 ${
+              hasSucursalContext
+                ? 'border-emerald-200 bg-emerald-50'
+                : 'border-amber-200 bg-amber-50'
+            }`}
+          >
+            <p
+              className={`text-xs font-semibold uppercase tracking-wide ${
+                hasSucursalContext ? 'text-emerald-700' : 'text-amber-700'
+              }`}
+            >
+              Sucursal seleccionada
+            </p>
+
+            <p
+              className={`mt-1 text-xl font-bold ${
+                hasSucursalContext ? 'text-emerald-950' : 'text-amber-950'
+              }`}
+            >
+              {sucursalContextLabel}
+            </p>
+
+            <p
+              className={`mt-2 text-sm leading-relaxed ${
+                hasSucursalContext ? 'text-emerald-900' : 'text-amber-900'
+              }`}
+            >
+              Los datos del local, modo de operación, QR, delivery e
+              integraciones se guardan para esta sucursal. Para evitar errores,
+              conviene abrir esta pantalla desde la tarjeta de una sucursal en
+              Inicio.
+            </p>
+
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold">
+                Modo {businessModeLabel}
+              </span>
+              <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold">
+                Mozo {waiterModeStatus}
+              </span>
+              <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold">
+                WhatsApp Delivery {deliveryAddonEnabled ? 'activo' : 'no activo'}
+              </span>
+            </div>
+
+            {!hasSucursalContext ? (
+              <div className="mt-4 rounded-xl border border-amber-300 bg-white/70 px-4 py-3 text-sm text-amber-900">
+                No hay una sucursal identificada en la URL. Volvé a{' '}
+                <strong>Inicio</strong> o <strong>Restaurantes / sucursales</strong>{' '}
+                y entrá con una URL que incluya <code>restaurantId</code>.
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
 
       {mensaje ? (
         <div className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
@@ -955,11 +1015,12 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
       <section className="rounded-2xl border bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-medium">Plan y funcionalidades</h2>
+            <h2 className="text-lg font-medium">Configuración del tenant</h2>
             <p className="mt-1 text-sm text-neutral-600">
-  El plan se aplica sobre todo el tenant/grupo. En cambio, los datos del local y
-el modo de negocio se guardan por sucursal.
-</p>
+              El plan se aplica sobre todo el tenant/grupo. Los límites de
+              restaurantes, marcas, reportes y funcionalidades dependen de esta
+              configuración global.
+            </p>
           </div>
 
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -1044,11 +1105,11 @@ el modo de negocio se guardan por sucursal.
       <section className="rounded-2xl border bg-white p-5 shadow-sm">
   <div className="flex flex-wrap items-start justify-between gap-3">
     <div>
-      <h2 className="text-lg font-medium">Add-ons del local</h2>
+      <h2 className="text-lg font-medium">Add-ons y módulos comerciales</h2>
       <p className="mt-1 text-sm text-neutral-600">
-        Funcionalidades opcionales que se activan por tenant. Más adelante,
-        cada activación podrá abrir un flujo comercial con precio, condiciones,
-        aceptación y registro legal correspondiente.
+        Funcionalidades opcionales con alcance global o por sucursal según el
+        tipo de módulo. Multimarca se valida a nivel tenant; WhatsApp Delivery
+        se mantiene como add-on separado y configurable por local.
       </p>
     </div>
 
@@ -1195,9 +1256,25 @@ el modo de negocio se guardan por sucursal.
   </div>
 </section>
 
+      <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+        <span className="inline-flex rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-emerald-800">
+          Configuración de la sucursal
+        </span>
+
+        <h2 className="mt-3 text-xl font-bold text-emerald-950">
+          Datos operativos de {sucursalContextLabel}
+        </h2>
+
+        <p className="mt-2 max-w-4xl text-sm leading-relaxed text-emerald-900">
+          Los próximos bloques modifican datos propios de esta sucursal: datos
+          visibles del local, modo de operación, QR públicos, delivery e
+          integraciones. Estos cambios no modifican el plan del tenant.
+        </p>
+      </section>
+
       <form onSubmit={guardarTodo} className="grid gap-6">
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-medium">Datos del local</h2>
+          <h2 className="mb-4 text-lg font-medium">Datos de la sucursal</h2>
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2">
@@ -1592,7 +1669,7 @@ el modo de negocio se guardan por sucursal.
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-medium">Delivery y WhatsApp</h2>
+              <h2 className="text-lg font-medium">Delivery y WhatsApp de la sucursal</h2>
               <p className="mt-1 text-sm text-neutral-600">
                 Configuración operativa del canal de delivery.
               </p>
@@ -1764,7 +1841,7 @@ el modo de negocio se guardan por sucursal.
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-medium">Integraciones</h2>
+              <h2 className="text-lg font-medium">Integraciones de la sucursal</h2>
               <p className="mt-1 text-sm text-neutral-600">{analyticsHint}</p>
             </div>
 
@@ -1817,7 +1894,7 @@ el modo de negocio se guardan por sucursal.
 
           <p className="mt-3 text-sm text-neutral-600">
             Más adelante acá podemos sumar Mercado Pago, WhatsApp Business,
-            PedidosYa y Rappi.
+            PedidosYa y Rappi para esta sucursal.
           </p>
         </section>
 
@@ -1827,7 +1904,7 @@ el modo de negocio se guardan por sucursal.
             disabled={guardando}
             className="rounded-xl bg-black px-5 py-3 text-white disabled:opacity-60"
           >
-            {guardando ? 'Guardando...' : 'Guardar configuración'}
+            {guardando ? 'Guardando...' : 'Guardar configuración de sucursal'}
           </button>
         </div>
       </form>
