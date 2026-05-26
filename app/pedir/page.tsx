@@ -1,6 +1,13 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useSearchParams } from 'next/navigation';
 import type { BusinessMode } from '@/lib/plans';
 import { supabase } from '@/lib/supabaseClient';
@@ -62,8 +69,16 @@ type LocalPublicConfig = {
 
 type PedidoCreado = {
   id: number;
-  estado: string;
-  mesa_id: number;
+  estado?: string | null;
+  codigo_publico?: string | null;
+  cliente_nombre?: string | null;
+};
+
+type PedidoStatusPublico = {
+  id: number;
+  estado: string | null;
+  codigo_publico?: string | null;
+  cliente_nombre?: string | null;
 };
 
 type FormaPago = 'virtual' | 'efectivo';
@@ -85,6 +100,26 @@ function normalizeBusinessModeForPublic(value: unknown): BusinessMode {
 function normalizePublicSlug(value: unknown) {
   const text = String(value ?? '').trim();
   return text.length > 0 ? text : null;
+}
+
+function normalizeText(value: unknown) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function formatEstadoPedidoCliente(value: unknown) {
+  const estado = normalizeText(value);
+
+  if (estado === 'solicitado') return 'Pedido recibido';
+  if (estado === 'pendiente') return 'Pendiente';
+  if (estado === 'en_preparacion') return 'En preparación';
+  if (estado === 'listo') return 'Listo para retirar';
+  if (estado === 'cerrado') return 'Entregado';
+
+  return 'Pedido recibido';
+}
+
+function isPedidoListo(value: unknown) {
+  return normalizeText(value) === 'listo';
 }
 
 function normalizePhoneInput(value: string) {
@@ -262,11 +297,39 @@ const [notificarWhatsapp, setNotificarWhatsapp] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pedidoEnSeguimiento, setPedidoEnSeguimiento] =
+  useState<PedidoCreado | null>(null);
+
+const [estadoPedidoSeguimiento, setEstadoPedidoSeguimiento] =
+  useState<string | null>(null);
+
+const [pedidoListoAlertado, setPedidoListoAlertado] = useState(false);
+
+const readyAudioRef = useRef<HTMLAudioElement | null>(null);
+
 
   const businessMode = normalizeBusinessModeForPublic(
     localConfig?.business_mode
   );
   const isTakeawayMode = businessMode === 'takeaway';
+
+  useEffect(() => {
+  const audio = new Audio('/sounds/pedido-listo.mp3');
+  audio.preload = 'auto';
+  readyAudioRef.current = audio;
+}, []);
+
+const reproducirSonidoPedidoListo = useCallback(async () => {
+  const audio = readyAudioRef.current;
+  if (!audio) return;
+
+  try {
+    audio.currentTime = 0;
+    await audio.play();
+  } catch (error) {
+    console.warn('No se pudo reproducir el aviso sonoro del pedido listo:', error);
+  }
+}, []);
 
   const cargarProductos = useCallback(async () => {
     const res = await fetch(productosEndpoint, {
@@ -582,9 +645,22 @@ if (notificarWhatsapp && !telefonoNormalizado) {
     }
 
     try {
-      setEnviando(true);
-      setError(null);
-      setMensaje(null);
+  setEnviando(true);
+  setError(null);
+  setMensaje(null);
+
+  try {
+    const audio = readyAudioRef.current;
+    if (audio) {
+      audio.muted = true;
+      await audio.play().catch(() => undefined);
+      audio.pause();
+      audio.currentTime = 0;
+      audio.muted = false;
+    }
+  } catch {
+    // El navegador puede bloquear audio; no interrumpe el pedido.
+  }
 
       const nombreRetiro = clienteNombre.trim();
 
@@ -626,6 +702,9 @@ if (notificarWhatsapp && !telefonoNormalizado) {
       }
 
       const pedido = body.pedido as PedidoCreado;
+      setPedidoEnSeguimiento(pedido);
+setEstadoPedidoSeguimiento(pedido.estado ?? 'solicitado');
+setPedidoListoAlertado(false);
 
       setCarrito([]);
 setClienteNombre('');
@@ -652,6 +731,69 @@ await cargarProductos();
       setEnviando(false);
     }
   }
+
+  useEffect(() => {
+  const pedidoSeguimientoId = pedidoEnSeguimiento?.id;
+
+  if (!pedidoSeguimientoId || !hasRestaurantScope) return;
+
+  let active = true;
+
+  async function consultarEstadoPedido() {
+    try {
+      const res = await fetch(pedidosEndpoint, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      const body = await res.json().catch(() => null);
+
+      if (!active || !res.ok) return;
+
+      const pedidos = Array.isArray(body?.pedidos)
+        ? (body.pedidos as PedidoStatusPublico[])
+        : [];
+
+      const pedidoActual = pedidos.find(
+        (pedido) => Number(pedido.id) === Number(pedidoSeguimientoId)
+      );
+
+      if (!pedidoActual) return;
+
+      const nuevoEstado = pedidoActual.estado ?? null;
+      setEstadoPedidoSeguimiento(nuevoEstado);
+
+      if (isPedidoListo(nuevoEstado) && !pedidoListoAlertado) {
+        setPedidoListoAlertado(true);
+        setMensaje(
+          `✅ Tu pedido ${
+            pedidoActual.codigo_publico || `#${pedidoActual.id}`
+          } está listo para retirar.`
+        );
+        void reproducirSonidoPedidoListo();
+      }
+    } catch (error) {
+      console.warn('No se pudo consultar el estado del pedido:', error);
+    }
+  }
+
+  void consultarEstadoPedido();
+
+  const interval = setInterval(() => {
+    void consultarEstadoPedido();
+  }, 5000);
+
+  return () => {
+    active = false;
+    clearInterval(interval);
+  };
+}, [
+  hasRestaurantScope,
+  pedidoEnSeguimiento?.id,
+  pedidoListoAlertado,
+  pedidosEndpoint,
+  reproducirSonidoPedidoListo,
+]);
 
   const localNombre = localConfig?.nombre_local?.trim() || 'RestoSmart';
   const localDireccion = localConfig?.direccion?.trim() || '';
@@ -708,6 +850,76 @@ await cargarProductos();
             {mensaje}
           </div>
         ) : null}
+
+        {pedidoEnSeguimiento ? (
+  <section
+    className={`rounded-3xl border p-5 shadow-sm ${
+      pedidoListoAlertado
+        ? 'border-emerald-400 bg-emerald-50'
+        : 'border-amber-300 bg-amber-50'
+    }`}
+  >
+    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div>
+        <span
+          className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
+            pedidoListoAlertado
+              ? 'bg-emerald-600 text-white'
+              : 'bg-amber-200 text-amber-900'
+          }`}
+        >
+          {pedidoListoAlertado ? 'LISTO PARA RETIRAR' : 'PEDIDO EN CURSO'}
+        </span>
+
+        <h2 className="mt-3 text-2xl font-bold text-slate-900">
+          {pedidoListoAlertado
+            ? '¡Tu pedido ya está listo!'
+            : 'Estamos preparando tu pedido'}
+        </h2>
+
+        <p className="mt-2 text-sm leading-relaxed text-slate-700">
+          Pedido{' '}
+          <strong>
+            {pedidoEnSeguimiento.codigo_publico ||
+              `#${pedidoEnSeguimiento.id}`}
+          </strong>
+          {' · '}
+          Estado:{' '}
+          <strong>
+            {formatEstadoPedidoCliente(estadoPedidoSeguimiento)}
+          </strong>
+        </p>
+
+        <p className="mt-1 text-sm text-slate-600">
+          {pedidoListoAlertado
+            ? 'Acercate al mostrador para retirarlo.'
+            : 'Dejá esta pantalla abierta y te avisamos cuando pase a listo.'}
+        </p>
+        {pedidoListoAlertado ? (
+  <button
+    type="button"
+    onClick={() => {
+      void reproducirSonidoPedidoListo();
+    }}
+    className="mt-4 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+  >
+    Repetir aviso sonoro
+  </button>
+) : null}
+      </div>
+
+      <div
+        className={`grid h-20 w-20 place-items-center rounded-3xl text-4xl ${
+          pedidoListoAlertado
+            ? 'bg-emerald-600 text-white animate-pulse'
+            : 'bg-white text-amber-600'
+        }`}
+      >
+        {pedidoListoAlertado ? '✅' : '⏳'}
+      </div>
+    </div>
+  </section>
+) : null}
 
         {error ? (
           <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
