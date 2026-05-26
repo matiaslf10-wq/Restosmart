@@ -122,10 +122,6 @@ function isPedidoListo(value: unknown) {
   return normalizeText(value) === 'listo';
 }
 
-function normalizePhoneInput(value: string) {
-  return value.replace(/[^\d+]/g, '').trim();
-}
-
 function isRestaurantClosedForOrdering(value: unknown) {
   const estado = String(value ?? '').trim().toLowerCase();
 
@@ -291,8 +287,6 @@ const pedidosEndpoint = useMemo(
 
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [clienteNombre, setClienteNombre] = useState('');
-  const [clienteTelefono, setClienteTelefono] = useState('');
-const [notificarWhatsapp, setNotificarWhatsapp] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
@@ -314,7 +308,7 @@ const readyAudioRef = useRef<HTMLAudioElement | null>(null);
   const isTakeawayMode = businessMode === 'takeaway';
 
   useEffect(() => {
-  const audio = new Audio('/sounds/pedido-listo.mp3');
+  const audio = new Audio('/sounds/PedidoListo.mp3');
   audio.preload = 'auto';
   readyAudioRef.current = audio;
 }, []);
@@ -632,13 +626,6 @@ if (!hasRestaurantScope) {
       return;
     }
 
-    const telefonoNormalizado = normalizePhoneInput(clienteTelefono);
-
-if (notificarWhatsapp && !telefonoNormalizado) {
-  setError('Ingresá un celular para poder avisarte por WhatsApp.');
-  return;
-}
-
     if (carrito.length === 0) {
       setError('El carrito está vacío.');
       return;
@@ -664,8 +651,6 @@ if (notificarWhatsapp && !telefonoNormalizado) {
 
       const nombreRetiro = clienteNombre.trim();
 
-      const quiereAvisoWhatsapp = notificarWhatsapp && !!telefonoNormalizado;
-
       const items = carrito.map((item) => ({
         producto_id: item.producto.id,
         cantidad: item.cantidad,
@@ -682,8 +667,6 @@ if (notificarWhatsapp && !telefonoNormalizado) {
   efectivo_aprobado: formaPago === 'efectivo',
   paga_efectivo: formaPago === 'efectivo',
   cliente_nombre: nombreRetiro,
-  cliente_telefono: telefonoNormalizado || null,
-  notificar_whatsapp: quiereAvisoWhatsapp,
   items,
 };
 
@@ -708,17 +691,11 @@ setPedidoListoAlertado(false);
 
       setCarrito([]);
 setClienteNombre('');
-setClienteTelefono('');
-setNotificarWhatsapp(false);
 await cargarProductos();
       setMensaje(
   formaPago === 'efectivo'
-    ? `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado para pagar al retirar.${
-        quiereAvisoWhatsapp ? ' El local podrá avisarte por WhatsApp cuando esté listo.' : ''
-      }`
-    : `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado con pago virtual pendiente.${
-        quiereAvisoWhatsapp ? ' El local podrá avisarte por WhatsApp cuando esté listo.' : ''
-      }`
+    ? `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado para pagar al retirar.`
+    : `Pedido #${pedido.id} generado correctamente para ${nombreRetiro}. Quedó registrado con pago virtual pendiente.`
 );
     } catch (err) {
       console.error(err);
@@ -891,21 +868,18 @@ await cargarProductos();
         </p>
 
         <p className="mt-1 text-sm text-slate-600">
-          {pedidoListoAlertado
-            ? 'Acercate al mostrador para retirarlo.'
-            : 'Dejá esta pantalla abierta y te avisamos cuando pase a listo.'}
-        </p>
-        {pedidoListoAlertado ? (
-  <button
-    type="button"
-    onClick={() => {
-      void reproducirSonidoPedidoListo();
-    }}
-    className="mt-4 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-  >
-    Repetir aviso sonoro
-  </button>
+  {pedidoListoAlertado
+    ? 'Acercate al mostrador para retirarlo.'
+    : 'No cierres esta página. Cuando el local marque tu pedido como listo, te avisamos acá con un cartel y sonido.'}
+</p>
+
+{!pedidoListoAlertado ? (
+  <div className="mt-4 rounded-2xl border border-amber-300 bg-white/70 px-4 py-3 text-sm text-amber-900">
+    <strong>Importante:</strong> mantené esta pantalla abierta para recibir el aviso.
+    Si cerrás la página, no vamos a poder mostrarte la notificación sonora.
+  </div>
 ) : null}
+        
       </div>
 
       <div
@@ -948,36 +922,8 @@ await cargarProductos();
                   />
                 </label>
 
-                <label className="grid gap-2">
-  <span className="text-sm font-medium text-slate-700">
-    Celular para aviso por WhatsApp
-  </span>
-  <input
-    type="tel"
-    value={clienteTelefono}
-    onChange={(e) => setClienteTelefono(e.target.value)}
-    className="rounded-xl border px-3 py-2"
-    placeholder="Ej: 11 2345 6789"
-  />
-  <span className="text-xs text-slate-500">
-    Opcional. Lo usamos para que el local pueda avisarte cuando el pedido esté listo.
-  </span>
-</label>
-
-<label className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
-  <input
-    type="checkbox"
-    checked={notificarWhatsapp}
-    onChange={(e) => setNotificarWhatsapp(e.target.checked)}
-    className="mt-1"
-  />
-  <span className="text-sm text-emerald-900">
-    Quiero que me avisen por WhatsApp cuando mi pedido esté listo.
-  </span>
-</label>
-
                 <p className="text-xs text-slate-500">
-  El nombre identifica el pedido en mostrador. El celular es opcional y sirve para avisarte cuando esté listo.
+  Este nombre se guarda dentro del pedido y se usa para identificarlo cuando esté listo.
 </p>
               </div>
             </div>
