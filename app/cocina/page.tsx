@@ -296,37 +296,25 @@ function CocinaPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const restaurantScopeQuery = useMemo(() => {
-    const params = new URLSearchParams();
-
-    params.set('scope', 'cocina');
-
-    const restaurantId =
-      searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
-
-    const restaurantSlug =
-      searchParams.get('restaurantSlug') ??
-      searchParams.get('restaurant') ??
-      searchParams.get('tenant') ??
-      searchParams.get('tenantSlug') ??
-      searchParams.get('slug');
-
-    if (restaurantId) {
-      params.set('restaurantId', restaurantId);
-    } else if (restaurantSlug) {
-      params.set('restaurantSlug', restaurantSlug);
-    }
-
-    return params.toString();
-  }, [searchParams]);
-
   const currentRestaurantId = useMemo(() => {
-    return (
-      searchParams.get('restaurantId') ??
-      searchParams.get('restaurant_id') ??
-      null
-    );
-  }, [searchParams]);
+  return (
+    searchParams.get('restaurantId') ??
+    searchParams.get('restaurant_id') ??
+    null
+  );
+}, [searchParams]);
+
+const hasRestaurantScope = !!currentRestaurantId;
+
+const restaurantScopeQuery = useMemo(() => {
+  if (!currentRestaurantId) return '';
+
+  const params = new URLSearchParams();
+  params.set('scope', 'cocina');
+  params.set('restaurantId', currentRestaurantId);
+
+  return params.toString();
+}, [currentRestaurantId]);
 
   const pedidosEndpoint = useMemo(
     () => buildScopedHref('/api/pedidos', restaurantScopeQuery),
@@ -344,9 +332,9 @@ function CocinaPageContent() {
   );
 
   const adminHref = useMemo(
-    () => buildScopedHref('/admin', restaurantScopeQuery),
-    [restaurantScopeQuery]
-  );
+  () => buildScopedHref('/admin/configuracion', restaurantScopeQuery),
+  [restaurantScopeQuery]
+);
 
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [canUseWaiterMode, setCanUseWaiterMode] = useState(false);
@@ -475,19 +463,21 @@ function CocinaPageContent() {
   }, []);
 
   const cargarPedidos = useCallback(async () => {
+  if (!currentRestaurantId || !restaurantScopeQuery) {
+    setPedidos([]);
+    setMesasMap({});
+    setRestaurantLabel('Sucursal no identificada');
+    setError(
+      'Falta identificar la sucursal. Volvé a Inicio y abrí Cocina desde la tarjeta de una sucursal.'
+    );
+    setCargando(false);
+    return;
+  }
+
   setCargando(true);
   setError(null);
 
   try {
-    if (!currentRestaurantId && !restaurantScopeQuery.includes('restaurantSlug=')) {
-      setPedidos([]);
-      setMesasMap({});
-      setRestaurantLabel('Sucursal no identificada');
-      setError(
-        'Falta identificar la sucursal. Volvé a Inicio y abrí Cocina desde la tarjeta de una sucursal.'
-      );
-      return;
-    }
 
     const res = await fetch(pedidosEndpoint, {
       method: 'GET',
@@ -579,11 +569,11 @@ function CocinaPageContent() {
 }, [currentRestaurantId, pedidosEndpoint, restaurantScopeQuery]);
 
   useEffect(() => {
-    if (checkingAccess) return;
+  if (checkingAccess || !hasRestaurantScope) return;
 
-    void cargarPedidos();
+  void cargarPedidos();
 
-    const canalPedidos = supabase
+  const canalPedidos = supabase
       .channel('realtime-pedidos-cocina')
       .on(
         'postgres_changes',
@@ -632,7 +622,7 @@ function CocinaPageContent() {
       supabase.removeChannel(canalPedidos);
       supabase.removeChannel(canalItems);
     };
-  }, [checkingAccess, cargarPedidos, reproducirSonido]);
+ }, [checkingAccess, hasRestaurantScope, cargarPedidos, reproducirSonido]);
 
   const actualizarEstadoItemsCocina = async (
     pedido: Pedido,
@@ -717,13 +707,47 @@ const { error: pedidoError } = await pedidoUpdateQuery;
     .filter((p) => matchesKitchenFilter(p, filtroEstado))
     .sort((a, b) => b.id - a.id);
 
-  if (checkingAccess) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-50">
-        <p>Verificando acceso a cocina...</p>
-      </main>
-    );
-  }
+  if (!hasRestaurantScope) {
+  return (
+    <main className="min-h-screen bg-slate-900 text-slate-50 px-4 py-6">
+      <div className="mx-auto max-w-4xl">
+        <section className="rounded-3xl border border-amber-400/40 bg-amber-500/10 p-6 shadow-sm">
+          <span className="inline-flex rounded-full bg-amber-400/20 px-3 py-1 text-xs font-semibold text-amber-100">
+            Falta identificar la sucursal
+          </span>
+
+          <h1 className="mt-4 text-3xl font-bold">
+            Elegí una sucursal para abrir Cocina
+          </h1>
+
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-amber-50">
+            Entraste a Cocina sin una sucursal seleccionada. Para evitar mezclar
+            pedidos entre tenants o sucursales, esta pantalla necesita abrirse
+            desde Inicio o desde Mostrador con <code>restaurantId</code>.
+          </p>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => router.push('/inicio')}
+              className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+            >
+              Volver a Inicio
+            </button>
+
+            <button
+              type="button"
+              onClick={() => router.push('/admin/restaurantes')}
+              className="rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10"
+            >
+              Gestionar sucursales
+            </button>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
 
   if (cargando) {
     return (
