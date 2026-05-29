@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {
   useEffect,
   useMemo,
@@ -255,17 +256,47 @@ function getInitialRequestedTenant() {
   );
 }
 
+function getInitialRequestedRestaurantId() {
+  if (typeof window === 'undefined') return null;
+
+  const params = new URLSearchParams(window.location.search);
+
+  return normalizeNonEmptyText(
+    params.get('restaurantId') ?? params.get('restaurant_id')
+  );
+}
+
+function buildProductosHrefForRestaurant(restaurantId: string) {
+  const params = new URLSearchParams();
+  params.set('restaurantId', restaurantId);
+  return `/admin/productos?${params.toString()}`;
+}
+
 export default function AdminProductosPage() {
   const [requestedTenant] = useState<string | null>(() =>
     getInitialRequestedTenant()
   );
 
-  function buildTenantApiUrl(path: string) {
-    if (!requestedTenant) return path;
+    const [requestedRestaurantId] = useState<string | null>(() =>
+    getInitialRequestedRestaurantId()
+  );
 
-    const separator = path.includes('?') ? '&' : '?';
-    return `${path}${separator}tenant=${encodeURIComponent(requestedTenant)}`;
+  function buildTenantApiUrl(path: string) {
+  const params = new URLSearchParams();
+
+  if (requestedRestaurantId) {
+    params.set('restaurantId', requestedRestaurantId);
+  } else if (requestedTenant) {
+    params.set('tenant', requestedTenant);
   }
+
+  const query = params.toString();
+
+  if (!query) return path;
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}${query}`;
+}
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -361,10 +392,33 @@ export default function AdminProductosPage() {
 };
 
   const cargarProductos = async () => {
+  if (!requestedRestaurantId) {
+    setProductos([]);
+    return;
+  }
+
   try {
     const res = await fetch(buildTenantApiUrl('/api/productos'), {
-  cache: 'no-store',
-});
+      cache: 'no-store',
+    });
+
+    const raw = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(raw?.error || 'No se pudieron cargar los productos.');
+    }
+
+    if (!Array.isArray(raw)) {
+      throw new Error('La respuesta de /api/productos no es válida.');
+    }
+
+    setProductos(raw as Producto[]);
+  } catch (error: any) {
+    console.error('Error cargando productos:', error);
+    setMensaje(error?.message || 'No se pudieron cargar los productos.');
+    setProductos([]);
+  }
+};
     const raw = await res.json().catch(() => null);
 
     if (!res.ok) {
@@ -384,10 +438,15 @@ export default function AdminProductosPage() {
 };
 
 const cargarCategorias = async () => {
+  if (!requestedRestaurantId) {
+    setCategorias([]);
+    return;
+  }
+
   try {
     const res = await fetch(buildTenantApiUrl('/api/categorias'), {
-  cache: 'no-store',
-});
+      cache: 'no-store',
+    });
 
     if (!res.ok) {
       throw new Error('No se pudieron cargar las categorías.');
@@ -412,6 +471,11 @@ const cargarCategorias = async () => {
 };
 
 const cargarMarcas = async () => {
+  if (!requestedRestaurantId) {
+    setMarcas([]);
+    return;
+  }
+
   try {
     const res = await fetch(buildTenantApiUrl('/api/admin/marcas'), {
       method: 'GET',
@@ -465,22 +529,26 @@ const cargarRestaurantes = async () => {
     setRestaurantes(items);
 
         setForm((prev) => {
-      if (prev.restaurant_ids.length > 0) return prev;
+  if (prev.restaurant_ids.length > 0) return prev;
 
-      const restaurantIds = items.map((item) => String(item.id));
+  const restaurantIds = requestedRestaurantId
+    ? items
+        .map((item) => String(item.id))
+        .filter((id) => id === requestedRestaurantId)
+    : [];
 
-      return {
-        ...prev,
-        restaurant_ids: restaurantIds,
-        restaurant_stock: restaurantIds.reduce<Record<string, string>>(
-          (acc, restaurantId) => {
-            acc[restaurantId] = '0';
-            return acc;
-          },
-          {}
-        ),
-      };
-    });
+  return {
+    ...prev,
+    restaurant_ids: restaurantIds,
+    restaurant_stock: restaurantIds.reduce<Record<string, string>>(
+      (acc, restaurantId) => {
+        acc[restaurantId] = '0';
+        return acc;
+      },
+      {}
+    ),
+  };
+});
   } catch (error: any) {
     console.error('Error cargando sucursales:', error);
     setRestaurantes([]);
@@ -488,19 +556,29 @@ const cargarRestaurantes = async () => {
   }
 };
 
-useEffect(() => {
+  useEffect(() => {
   const cargarTodo = async () => {
     setCargando(true);
     setMensaje(null);
 
     const sessionFlags = await cargarSession();
 
+    await cargarRestaurantes();
+
+    if (!requestedRestaurantId) {
+      setProductos([]);
+      setCategorias([]);
+      setMarcas([]);
+      setFiltroMarca('todas');
+      setCargando(false);
+      return;
+    }
+
     await Promise.all([
-  cargarProductos(),
-  cargarCategorias(),
-  cargarRestaurantes(),
-  sessionFlags.multiBrandEnabled ? cargarMarcas() : Promise.resolve(),
-]);
+      cargarProductos(),
+      cargarCategorias(),
+      sessionFlags.multiBrandEnabled ? cargarMarcas() : Promise.resolve(),
+    ]);
 
     if (!sessionFlags.multiBrandEnabled) {
       setMarcas([]);
@@ -511,7 +589,7 @@ useEffect(() => {
   };
 
   void cargarTodo();
-}, []);
+}, [requestedRestaurantId]);
 
   const cargarImagenesProducto = async (productoId: number) => {
     setCargandoImagenes(true);
@@ -1199,19 +1277,63 @@ const getMarcaNombre = (producto: Producto) => {
   });
 }, [productos, filtroCategoria, filtroMarca, busqueda, multiBrandEnabled]);
 
+const selectedRestaurant = restaurantes.find(
+  (restaurant) => String(restaurant.id) === String(requestedRestaurantId)
+);
+
   return (
   <div className="space-y-6">
-    {requestedTenant ? (
-      <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-        Estás administrando productos para la sucursal{' '}
-        <strong>{requestedTenant}</strong>.
+    {requestedRestaurantId ? (
+  <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+    Estás administrando productos de la sucursal{' '}
+    <strong>
+      {selectedRestaurant?.nombre_local ||
+        selectedRestaurant?.slug ||
+        `Sucursal ${requestedRestaurantId}`}
+    </strong>
+    .
+  </div>
+) : (
+  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+    <p className="font-semibold">Falta identificar la sucursal.</p>
+    <p className="mt-1">
+      Para cargar o editar productos, abrí Menú / Productos desde una sucursal.
+    </p>
+
+    {restaurantes.length > 0 ? (
+      <div className="mt-4 grid gap-2 md:grid-cols-2">
+        {restaurantes.map((restaurant) => (
+          <Link
+            key={restaurant.id}
+            href={buildProductosHrefForRestaurant(String(restaurant.id))}
+            className="rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+          >
+            {restaurant.nombre_local ||
+              restaurant.slug ||
+              `Sucursal ${restaurant.id}`}
+            <span className="mt-1 block text-xs font-normal text-amber-800">
+              Abrir productos de esta sucursal
+            </span>
+          </Link>
+        ))}
       </div>
     ) : (
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-        Estás administrando productos del local actual. Para cargar productos de
-        una sucursal específica, entrá desde Restaurantes / sucursales.
-      </div>
+      <Link
+        href="/inicio"
+        className="mt-4 inline-flex rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+      >
+        Volver a Inicio
+      </Link>
     )}
+  </div>
+)}
+{!requestedRestaurantId ? (
+  <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+    Elegí una sucursal para continuar. No se cargan productos sin una sucursal
+    explícita para evitar mezclar información entre tenants.
+  </section>
+) : (
+  <></>
       <section className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Menú / Productos</h1>
@@ -1759,11 +1881,20 @@ const getMarcaNombre = (producto: Producto) => {
 
         {cargando && <p>Cargando productos...</p>}
 
-        {!cargando && productosFiltrados.length === 0 && (
-          <p className="text-sm text-slate-600">
-            No hay productos que coincidan con el filtro actual.
-          </p>
-        )}
+        {!cargando && productos.length === 0 ? (
+  <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-600">
+    Todavía no hay productos cargados para esta sucursal.
+    <span className="mt-1 block text-xs text-slate-500">
+      Usá el formulario superior para crear el primer producto del menú.
+    </span>
+  </div>
+) : null}
+
+{!cargando && productos.length > 0 && productosFiltrados.length === 0 ? (
+  <p className="text-sm text-slate-600">
+    No hay productos que coincidan con el filtro actual.
+  </p>
+) : null}
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {productosFiltrados.map((p) => {
@@ -1859,7 +1990,9 @@ const getMarcaNombre = (producto: Producto) => {
             );
           })}
         </div>
-      </section>
-    </div>
+            </section>
+    </>
+  )}
+</div>
   );
 }
