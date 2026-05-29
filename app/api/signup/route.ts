@@ -122,15 +122,15 @@ export async function POST(request: NextRequest) {
     const branchSlug = await buildUniqueSlug(`${tenantSlug}-principal`);
 
     const { data: tenantRestaurant, error: tenantError } = await supabaseAdmin
-      .from('restaurants')
-      .insert({
-        slug: tenantSlug,
-        plan: 'esencial',
-        owner_tenant_id: null,
-        estado: 'activo',
-      })
-      .select('id, slug')
-      .single();
+  .from('restaurants')
+  .insert({
+    slug: tenantSlug,
+    plan: 'esencial',
+    owner_tenant_id: tenantSlug,
+    estado: 'activo',
+  })
+  .select('id, slug')
+  .single();
 
     if (tenantError || !tenantRestaurant?.id) {
       throw tenantError ?? new Error('No se pudo crear el tenant.');
@@ -176,12 +176,12 @@ export async function POST(request: NextRequest) {
     const { data: adminUser, error: adminError } = await supabaseAdmin
       .from('admin_users')
       .insert({
-        email,
-        password_hash: hashPassword(password),
-        password: null,
-        activo: true,
-        tenant_id: tenantSlug,
-      })
+  email,
+  password_hash: hashPassword(password),
+  password: '',
+  activo: true,
+  tenant_id: tenantSlug,
+})
       .select('id, email, tenant_id')
       .single();
 
@@ -221,11 +221,26 @@ export async function POST(request: NextRequest) {
       email,
       tenantId: tenantSlug,
     });
-  } catch (error) {
+    } catch (error) {
     console.error('POST /api/signup', error);
 
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'object' && error && 'message' in error
+          ? String((error as { message?: unknown }).message)
+          : 'No se pudo crear la cuenta.';
+
+    const details =
+      typeof error === 'object' && error && 'details' in error
+        ? String((error as { details?: unknown }).details)
+        : null;
+
     return NextResponse.json(
-      { error: 'No se pudo crear la cuenta.' },
+      {
+        error: message,
+        details,
+      },
       { status: 500 }
     );
   }
