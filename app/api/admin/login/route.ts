@@ -11,6 +11,7 @@ type AdminUserRow = {
   password?: string | null;
   password_hash?: string | null;
   activo?: boolean | null;
+  tenant_id?: string | null;
 };
 
 export async function POST(request: NextRequest) {
@@ -84,9 +85,10 @@ export async function POST(request: NextRequest) {
     );
 
     return attachAdminSessionCookie(response, {
-      adminId: adminUser.id ?? email,
-      email: adminUser.email ?? email,
-    });
+  adminId: adminUser.id ?? email,
+  email: adminUser.email ?? email,
+  tenantId: adminUser.tenant_id ?? null,
+});
   } catch (error) {
     console.error('POST /api/admin/login', error);
 

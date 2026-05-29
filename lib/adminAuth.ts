@@ -7,6 +7,7 @@ const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 horas
 export type AdminSession = {
   adminId: string;
   email: string;
+  tenantId?: string;
   iat: number;
   exp: number;
 };
@@ -14,6 +15,7 @@ export type AdminSession = {
 type CreateSessionInput = {
   adminId: string | number;
   email: string;
+  tenantId?: string | null;
 };
 
 type VerifyPasswordInput = {
@@ -98,12 +100,13 @@ export function verifyPassword({
 export function createAdminSessionToken(input: CreateSessionInput) {
   const now = Math.floor(Date.now() / 1000);
 
-  const payload: AdminSession = {
-    adminId: String(input.adminId),
-    email: input.email,
-    iat: now,
-    exp: now + ADMIN_SESSION_TTL_SECONDS,
-  };
+ const payload: AdminSession = {
+  adminId: String(input.adminId),
+  email: input.email,
+  tenantId: input.tenantId?.trim() || undefined,
+  iat: now,
+  exp: now + ADMIN_SESSION_TTL_SECONDS,
+};
 
   const encodedPayload = toBase64Url(JSON.stringify(payload));
   const signature = signValue(encodedPayload);
@@ -163,12 +166,54 @@ export function attachAdminSessionCookie(
     maxAge: ADMIN_SESSION_TTL_SECONDS,
   });
 
+  if (input.tenantId?.trim()) {
+  response.cookies.set({
+    name: 'tenant',
+    value: input.tenantId.trim(),
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: ADMIN_SESSION_TTL_SECONDS,
+  });
+
+  response.cookies.set({
+    name: 'tenant_slug',
+    value: input.tenantId.trim(),
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: ADMIN_SESSION_TTL_SECONDS,
+  });
+}
+
   return response;
 }
 
 export function clearAdminSessionCookie(response: NextResponse) {
   response.cookies.set({
     name: ADMIN_COOKIE_NAME,
+    value: '',
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0,
+  });
+
+  response.cookies.set({
+    name: 'tenant',
+    value: '',
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0,
+  });
+
+  response.cookies.set({
+    name: 'tenant_slug',
     value: '',
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
