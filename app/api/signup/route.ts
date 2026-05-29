@@ -119,43 +119,30 @@ export async function POST(request: NextRequest) {
     }
 
     const tenantSlug = await buildUniqueSlug(normalizeSlug(negocioNombre));
-    const branchSlug = await buildUniqueSlug(`${tenantSlug}-principal`);
 
-    const { data: tenantRestaurant, error: tenantError } = await supabaseAdmin
-  .from('restaurants')
-  .insert({
-    slug: tenantSlug,
-    plan: 'esencial',
-    owner_tenant_id: tenantSlug,
-    estado: 'activo',
-  })
-  .select('id, slug')
-  .single();
+    const { data: primaryRestaurant, error: primaryRestaurantError } =
+  await supabaseAdmin
+    .from('restaurants')
+    .insert({
+      slug: tenantSlug,
+      plan: 'esencial',
+      owner_tenant_id: tenantSlug,
+      estado: 'activo',
+    })
+    .select('id, slug')
+    .single();
 
-    if (tenantError || !tenantRestaurant?.id) {
-      throw tenantError ?? new Error('No se pudo crear el tenant.');
-    }
-
-    const { data: branchRestaurant, error: branchError } = await supabaseAdmin
-      .from('restaurants')
-      .insert({
-        slug: branchSlug,
-        plan: 'esencial',
-        owner_tenant_id: tenantSlug,
-        estado: 'activo',
-      })
-      .select('id, slug')
-      .single();
-
-    if (branchError || !branchRestaurant?.id) {
-      await supabaseAdmin.from('restaurants').delete().eq('id', tenantRestaurant.id);
-      throw branchError ?? new Error('No se pudo crear la sucursal.');
-    }
+if (primaryRestaurantError || !primaryRestaurant?.id) {
+  throw (
+    primaryRestaurantError ??
+    new Error('No se pudo crear el tenant y la sucursal inicial.')
+  );
+}
 
     const { error: configError } = await supabaseAdmin
       .from('configuracion_local')
       .insert({
-        restaurant_id: branchRestaurant.id,
+        restaurant_id: primaryRestaurant.id,
         nombre_local: sucursalNombre,
         direccion,
         telefono,
@@ -168,8 +155,10 @@ export async function POST(request: NextRequest) {
       });
 
     if (configError) {
-      await supabaseAdmin.from('restaurants').delete().eq('id', branchRestaurant.id);
-      await supabaseAdmin.from('restaurants').delete().eq('id', tenantRestaurant.id);
+      await supabaseAdmin
+  .from('restaurants')
+  .delete()
+  .eq('id', primaryRestaurant.id);
       throw configError;
     }
 
@@ -189,11 +178,12 @@ export async function POST(request: NextRequest) {
       await supabaseAdmin
         .from('configuracion_local')
         .delete()
-        .eq('restaurant_id', branchRestaurant.id);
+        .eq('restaurant_id', primaryRestaurant.id)
 
-      await supabaseAdmin.from('restaurants').delete().eq('id', branchRestaurant.id);
-      await supabaseAdmin.from('restaurants').delete().eq('id', tenantRestaurant.id);
-
+      await supabaseAdmin
+  .from('restaurants')
+  .delete()
+  .eq('id', primaryRestaurant.id);
       throw adminError ?? new Error('No se pudo crear el usuario administrador.');
     }
 
@@ -201,16 +191,16 @@ export async function POST(request: NextRequest) {
       {
         ok: true,
         tenant: {
-          id: tenantSlug,
-          slug: tenantSlug,
-          restaurant_id: String(tenantRestaurant.id),
-        },
-        restaurant: {
-          id: String(branchRestaurant.id),
-          slug: branchSlug,
-          nombre_local: sucursalNombre,
-          business_mode: businessMode,
-        },
+  id: tenantSlug,
+  slug: tenantSlug,
+  restaurant_id: String(primaryRestaurant.id),
+},
+restaurant: {
+  id: String(primaryRestaurant.id),
+  slug: primaryRestaurant.slug,
+  nombre_local: sucursalNombre,
+  business_mode: businessMode,
+},
         redirectTo: '/inicio',
       },
       { status: 201 }
