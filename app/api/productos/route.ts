@@ -274,17 +274,10 @@ async function resolveMarcaIdForProduct(
   return data.id as string;
 }
 
-function shouldFilterProductsByTenant(req: NextRequest) {
-  return !!pickFirstString(
-    req.nextUrl.searchParams.get('restaurant'),
-    req.nextUrl.searchParams.get('restaurantSlug'),
-    req.nextUrl.searchParams.get('tenant'),
-    req.nextUrl.searchParams.get('tenantSlug'),
-    req.nextUrl.searchParams.get('slug'),
+function getRequestedRestaurantId(req: NextRequest) {
+  return pickFirstString(
     req.nextUrl.searchParams.get('restaurantId'),
     req.nextUrl.searchParams.get('restaurant_id'),
-    req.headers.get('x-tenant-id'),
-    req.headers.get('x-tenant-slug'),
     req.headers.get('x-restaurant-id')
   );
 }
@@ -589,34 +582,45 @@ function applyEffectiveStockFromRestaurantConfigs(
 export async function GET(req: NextRequest) {
   try {
     const soloDisponibles =
-      req.nextUrl.searchParams.get('soloDisponibles') === '1';
+  req.nextUrl.searchParams.get('soloDisponibles') === '1';
 
-    const filterByTenant = shouldFilterProductsByTenant(req);
-    const access = filterByTenant
-      ? await resolveAccessForRequest(req, null)
-      : null;
+const requestedRestaurantId = getRequestedRestaurantId(req);
 
-    let visibleProductConfigs: Map<number, ProductRestaurantConfig> | null =
-      null;
-    let visibleProductIds: number[] | null = null;
+if (!requestedRestaurantId) {
+  return NextResponse.json(
+    {
+      error:
+        'Falta identificar la sucursal para cargar productos. Abrí Menú / Productos desde Inicio o enviá restaurantId.',
+    },
+    { status: 400 }
+  );
+}
 
-    if (filterByTenant) {
-      const restaurantId = access?.restaurant?.id;
+const access = await resolveAccessForRequest(req, null);
+const restaurantId = access.restaurant?.id ?? null;
 
-      if (!restaurantId) {
-        return NextResponse.json([]);
-      }
+if (!restaurantId || String(restaurantId) !== String(requestedRestaurantId)) {
+  return NextResponse.json(
+    {
+      error:
+        'La sucursal indicada no existe, está cerrada o no pertenece a este tenant.',
+    },
+    { status: 403 }
+  );
+}
 
-      visibleProductConfigs = await getVisibleProductConfigsForRestaurant(
-        restaurantId
-      );
+let visibleProductConfigs: Map<number, ProductRestaurantConfig> | null = null;
+let visibleProductIds: number[] | null = null;
 
-      visibleProductIds = Array.from(visibleProductConfigs.keys());
+visibleProductConfigs = await getVisibleProductConfigsForRestaurant(
+  restaurantId
+);
 
-      if (visibleProductIds.length === 0) {
-        return NextResponse.json([]);
-      }
-    }
+visibleProductIds = Array.from(visibleProductConfigs.keys());
+
+if (visibleProductIds.length === 0) {
+  return NextResponse.json([]);
+}
 
     let query = supabaseAdmin
       .from('productos')
@@ -643,10 +647,9 @@ export async function GET(req: NextRequest) {
     )) as ProductoConSucursales[];
 
     const productsWithEffectiveStock = enriched.map((product) => {
-      const restaurantConfig =
-        filterByTenant && visibleProductConfigs
-          ? visibleProductConfigs.get(Number(product.id)) ?? null
-          : null;
+      const restaurantConfig = visibleProductConfigs
+  ? visibleProductConfigs.get(Number(product.id)) ?? null
+  : null;
 
       return applyEffectiveStockFromRestaurantConfigs(
         product,
