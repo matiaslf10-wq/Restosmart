@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -131,6 +132,13 @@ export default function AdminLoginPage() {
             {loading ? 'Ingresando...' : 'Ingresar'}
           </button>
         </form>
+
+        <p className="mt-4 text-center text-sm text-slate-600">
+  ¿Todavía no tenés cuenta?{' '}
+  <Link href="/signup" className="font-semibold text-slate-900 underline">
+    Crear cuenta
+  </Link>
+</p>
       </div>
     </main>
   );
