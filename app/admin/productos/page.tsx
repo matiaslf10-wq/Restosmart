@@ -413,26 +413,15 @@ export default function AdminProductosPage() {
     }
 
     setProductos(raw as Producto[]);
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error cargando productos:', error);
-    setMensaje(error?.message || 'No se pudieron cargar los productos.');
-    setProductos([]);
-  }
-};
-    const raw = await res.json().catch(() => null);
 
-    if (!res.ok) {
-      throw new Error(raw?.error || 'No se pudieron cargar los productos.');
-    }
+    setMensaje(
+      error instanceof Error
+        ? error.message
+        : 'No se pudieron cargar los productos.'
+    );
 
-    if (!Array.isArray(raw)) {
-      throw new Error('La respuesta de /api/productos no es válida.');
-    }
-
-    setProductos(raw as Producto[]);
-  } catch (error: any) {
-    console.error('Error cargando productos:', error);
-    setMensaje(error?.message || 'No se pudieron cargar los productos.');
     setProductos([]);
   }
 };
@@ -1333,7 +1322,7 @@ const selectedRestaurant = restaurantes.find(
     explícita para evitar mezclar información entre tenants.
   </section>
 ) : (
-  <></>
+  <>
       <section className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Menú / Productos</h1>
