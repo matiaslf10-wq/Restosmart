@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
-  getFallbackAdminAccess,
   resolveAdminAccess,
   type AdminAccessResolutionOptions,
   type AdminAccessSnapshot,
@@ -106,14 +105,17 @@ function extractRequestedTenantContext(
   };
 }
 
-async function resolveAccessForRequest(request: NextRequest, session: unknown) {
+async function resolveAccessForRequest(
+  request: NextRequest,
+  session: unknown
+): Promise<AdminAccessSnapshot | null> {
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
     return await resolveAdminAccess(requestedContext);
   } catch (error) {
     console.error('Marca access resolution error:', error);
-    return getFallbackAdminAccess();
+    return null;
   }
 }
 
@@ -168,7 +170,7 @@ async function getMarcaById(id: string, tenantId: string) {
     .from('marcas')
     .select('id, nombre, activa')
     .eq('id', id)
-    .eq('tenant_id', tenantId)
+    .eq('tenant_id', access.tenantId)
     .maybeSingle();
 
   if (error) {
@@ -200,9 +202,16 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return auth.response;
   }
 
-  const access = await resolveAccessForRequest(request, auth.session);
+ const access = await resolveAccessForRequest(request, auth.session);
 
-  const accessError = validateMultiBrandAccess(access);
+if (!access) {
+  return NextResponse.json(
+    { error: 'No se pudo identificar el tenant para actualizar la marca.' },
+    { status: 400 }
+  );
+}
+
+const accessError = validateMultiBrandAccess(access);
 if (accessError) return accessError;
 
   const { id } = await params;
@@ -314,7 +323,14 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
   const access = await resolveAccessForRequest(request, auth.session);
 
-  const accessError = validateMultiBrandAccess(access);
+if (!access) {
+  return NextResponse.json(
+    { error: 'No se pudo identificar el tenant para eliminar la marca.' },
+    { status: 400 }
+  );
+}
+
+const accessError = validateMultiBrandAccess(access);
 if (accessError) return accessError;
 
   const { id } = await params;
