@@ -52,6 +52,7 @@ type RestaurantPublicContext = {
   slug: string;
   plan?: string | null;
   estado?: RestaurantStatus | string | null;
+  owner_tenant_id?: string | null;
 };
 
 type ItemCarrito = {
@@ -202,15 +203,12 @@ function buildPublicEndpoint(
   basePath: string,
   scope: {
     restaurantId?: string | null;
-    restaurantSlug?: string | null;
   }
 ) {
   const params = new URLSearchParams();
 
   if (scope.restaurantId) {
     params.set('restaurantId', scope.restaurantId);
-  } else if (scope.restaurantSlug) {
-    params.set('restaurant', scope.restaurantSlug);
   }
 
   const query = params.toString();
@@ -245,34 +243,22 @@ function PedirPageContent() {
   );
 }, [searchParams]);
 
-  const restaurantSlug = useMemo(() => {
-    return normalizePublicSlug(
-      searchParams.get('restaurant') ||
-        searchParams.get('restaurantSlug') ||
-        searchParams.get('tenant') ||
-        searchParams.get('tenantSlug') ||
-        searchParams.get('slug')
-    );
-  }, [searchParams]);
-
-  const hasRestaurantScope = !!restaurantId || !!restaurantSlug;
+  const hasRestaurantScope = !!restaurantId;
 
   const productosEndpoint = useMemo(
   () =>
     buildPublicEndpoint('/api/productos?soloDisponibles=1', {
       restaurantId,
-      restaurantSlug,
     }),
-  [restaurantId, restaurantSlug]
+  [restaurantId]
 );
 
 const pedidosEndpoint = useMemo(
   () =>
     buildPublicEndpoint('/api/pedidos', {
       restaurantId,
-      restaurantSlug,
     }),
-  [restaurantId, restaurantSlug]
+  [restaurantId]
 );
 
   const [localConfig, setLocalConfig] = useState<LocalPublicConfig | null>(null);
@@ -371,63 +357,53 @@ const reproducirSonidoPedidoListo = useCallback(async () => {
 
     let restaurantContext: RestaurantPublicContext | null = null;
 
-    if (restaurantId || restaurantSlug) {
-      let restaurantQuery = supabase
-        .from('restaurants')
-        .select('id, slug, plan, estado');
+if (!restaurantId) {
+  throw new Error(
+    'Falta identificar la sucursal del pedido. Volvé a abrir el link desde el QR o desde Inicio.'
+  );
+}
 
-      if (restaurantId) {
-        restaurantQuery = restaurantQuery.eq('id', restaurantId);
-      } else {
-        restaurantQuery = restaurantQuery.eq('slug', restaurantSlug);
-      }
+const { data, error: restaurantError } = await supabase
+  .from('restaurants')
+  .select('id, slug, plan, estado, owner_tenant_id')
+  .eq('id', restaurantId)
+  .maybeSingle();
 
-      const { data, error: restaurantError } =
-        await restaurantQuery.maybeSingle();
+if (restaurantError) {
+  console.warn(
+    'No se pudo cargar el restaurante público en /pedir:',
+    restaurantError
+  );
+}
 
-      if (restaurantError) {
-        console.warn(
-          'No se pudo cargar el restaurante público en /pedir:',
-          restaurantError
-        );
-      }
+if (!data?.id) {
+  throw new Error(
+    'No encontramos el local asociado a este QR. Revisá que el enlace sea correcto.'
+  );
+}
 
-      if (!data?.id) {
-        throw new Error(
-          'No encontramos el local asociado a este QR. Revisá que el enlace sea correcto.'
-        );
-      }
+if (isRestaurantClosedForOrdering(data.estado)) {
+  throw new Error('Este local ya no está recibiendo pedidos desde este QR.');
+}
 
-      if (isRestaurantClosedForOrdering(data.estado)) {
-        throw new Error(
-          'Este local ya no está recibiendo pedidos desde este QR.'
-        );
-      }
+restaurantContext = data as RestaurantPublicContext;
 
-      restaurantContext = data as RestaurantPublicContext;
-    }
+       const configPromise = supabase
+  .from('configuracion_local')
+  .select('nombre_local, direccion, horario_atencion, business_mode')
+  .eq('restaurant_id', restaurantContext.id)
+  .limit(1)
+  .maybeSingle();
 
-        const configQuery = supabase
-          .from('configuracion_local')
-          .select('nombre_local, direccion, horario_atencion, business_mode')
-          .order('id', { ascending: true })
-          .limit(1);
+        const tenantId = restaurantContext.owner_tenant_id ?? restaurantContext.slug;
 
-        const configPromise =
-          restaurantContext?.id != null
-            ? configQuery.eq('restaurant_id', restaurantContext.id).maybeSingle()
-            : configQuery.maybeSingle();
-
-        const marcasQuery = supabase
-          .from('marcas')
-          .select('id, nombre, descripcion, logo_url, color_hex, activa, orden')
-          .eq('activa', true)
-          .order('orden', { ascending: true })
-          .order('nombre', { ascending: true });
-
-        const marcasPromise = restaurantContext?.slug
-          ? marcasQuery.eq('tenant_id', restaurantContext.slug)
-          : marcasQuery;
+const marcasPromise = supabase
+  .from('marcas')
+  .select('id, nombre, descripcion, logo_url, color_hex, activa, orden')
+  .eq('tenant_id', tenantId)
+  .eq('activa', true)
+  .order('orden', { ascending: true })
+  .order('nombre', { ascending: true });
 
         const [configRes, productosRes, marcasRes] = await Promise.all([
           configPromise,
@@ -501,7 +477,7 @@ const reproducirSonidoPedidoListo = useCallback(async () => {
     return () => {
       activo = false;
     };
-  }, [productosEndpoint, restaurantId, restaurantSlug, hasRestaurantScope]);
+  }, [productosEndpoint, restaurantId, hasRestaurantScope]);
 
   const marcasPorId = useMemo(() => {
     return new Map(marcas.map((marca) => [marca.id, marca]));
