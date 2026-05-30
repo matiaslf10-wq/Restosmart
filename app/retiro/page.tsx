@@ -88,19 +88,8 @@ function getNameClass(
 function buildRetiroQueryString(searchParams: URLSearchParams) {
   const query = new URLSearchParams();
 
-  const restaurant =
-    searchParams.get('restaurant') ||
-    searchParams.get('restaurantSlug') ||
-    searchParams.get('tenant') ||
-    searchParams.get('slug') ||
-    searchParams.get('sucursal');
-
   const restaurantId =
     searchParams.get('restaurantId') || searchParams.get('restaurant_id');
-
-  if (restaurant) {
-    query.set('restaurant', restaurant);
-  }
 
   if (restaurantId) {
     query.set('restaurantId', restaurantId);
@@ -131,6 +120,8 @@ function RetiroPageContent() {
         : '/api/public/retiro',
     [retiroQueryString]
   );
+
+  const hasRestaurantScope = retiroQueryString.includes('restaurantId=');
 
   useEffect(() => {
     let activo = true;
@@ -181,7 +172,7 @@ const clockInterval = setInterval(() => setNow(new Date()), CLOCK_INTERVAL_MS);
       clearInterval(refreshInterval);
       clearInterval(clockInterval);
     };
-  }, []);
+  }, [retiroApiPath]);
 
   const localNombre = data?.local?.nombre?.trim() || 'RestoSmart';
 
@@ -232,6 +223,27 @@ const clockInterval = setInterval(() => setNow(new Date()), CLOCK_INTERVAL_MS);
   const preparingTotal = data?.preparingOrders.length ?? 0;
   const readyTotal = data?.readyOrders.length ?? 0;
   const totalActivos = preparingTotal + readyTotal;
+
+  if (!hasRestaurantScope) {
+  return (
+    <main className="flex h-screen items-center justify-center bg-slate-950 px-4 text-white">
+      <div className="max-w-lg rounded-3xl border border-amber-400/30 bg-slate-900 p-8 text-center shadow-2xl">
+        <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-200">
+          Falta sucursal
+        </p>
+
+        <h1 className="mt-3 text-3xl font-black tracking-tight">
+          Esta pantalla de retiro no identifica un local
+        </h1>
+
+        <p className="mt-4 text-sm leading-relaxed text-slate-300">
+          Para mostrar pedidos listos, el enlace debe incluir la sucursal.
+          Abrí esta pantalla desde Inicio o desde la tarjeta de la sucursal.
+        </p>
+      </div>
+    </main>
+  );
+}
 
   return (
     <main className="h-screen overflow-hidden bg-slate-950 text-white">
@@ -465,6 +477,8 @@ const clockInterval = setInterval(() => setNow(new Date()), CLOCK_INTERVAL_MS);
     </main>
   );
 }
+
+
 
 export default function RetiroPage() {
   return (
