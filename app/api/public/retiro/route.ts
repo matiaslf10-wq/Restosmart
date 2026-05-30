@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { getRestaurantContext } from '@/lib/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +26,7 @@ type RestaurantRow = {
   name?: string | null;
   nombre_local?: string | null;
   business_mode?: string | null;
+  estado?: string | null;
 };
 
 function normalizeText(value: unknown) {
@@ -65,19 +65,6 @@ function normalizeBusinessMode(value: unknown): 'restaurant' | 'takeaway' {
   return normalizeText(value) === 'takeaway' ? 'takeaway' : 'restaurant';
 }
 
-function getRestaurantSlugFromRequest(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-
-  return (
-    searchParams.get('restaurant') ||
-    searchParams.get('restaurantSlug') ||
-    searchParams.get('tenant') ||
-    searchParams.get('slug') ||
-    searchParams.get('sucursal') ||
-    ''
-  ).trim();
-}
-
 function getRestaurantIdFromRequest(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
 
@@ -88,51 +75,33 @@ function getRestaurantIdFromRequest(request: NextRequest) {
   ).trim();
 }
 
+function isRestaurantClosedForPublicScreen(value: unknown) {
+  const estado = normalizeText(value);
+  return estado === 'cerrado' || estado === 'pausado';
+}
+
 async function resolveRestaurantFromRequest(
   request: NextRequest
 ): Promise<RestaurantRow | null> {
   const restaurantId = getRestaurantIdFromRequest(request);
-  const restaurantSlug = getRestaurantSlugFromRequest(request);
 
-  if (restaurantId) {
-    const result = await supabaseAdmin
-      .from('restaurants')
-      .select('*')
-      .eq('id', restaurantId)
-      .maybeSingle();
-
-    if (result.error) {
-      throw new Error(
-        `No se pudo resolver la sucursal por ID: ${result.error.message}`
-      );
-    }
-
-    return (result.data as RestaurantRow | null) ?? null;
-  }
-
-  if (restaurantSlug) {
-    const result = await supabaseAdmin
-      .from('restaurants')
-      .select('*')
-      .eq('slug', restaurantSlug)
-      .maybeSingle();
-
-    if (result.error) {
-      throw new Error(
-        `No se pudo resolver la sucursal por slug: ${result.error.message}`
-      );
-    }
-
-    return (result.data as RestaurantRow | null) ?? null;
-  }
-
-  const fallback = await getRestaurantContext().catch(() => null);
-
-  if (!fallback?.id) {
+  if (!restaurantId) {
     return null;
   }
 
-  return fallback as RestaurantRow;
+  const result = await supabaseAdmin
+    .from('restaurants')
+    .select('id, slug, plan, estado, owner_tenant_id')
+    .eq('id', restaurantId)
+    .maybeSingle();
+
+  if (result.error) {
+    throw new Error(
+      `No se pudo resolver la sucursal por ID: ${result.error.message}`
+    );
+  }
+
+  return (result.data as RestaurantRow | null) ?? null;
 }
 
 function getRestaurantDisplayName(
@@ -157,9 +126,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            'Falta indicar la sucursal. Usá /retiro?restaurant=slug-de-la-sucursal o /retiro?restaurantId=id-de-la-sucursal.',
+            'Falta indicar la sucursal. Usá /retiro?restaurantId=id-de-la-sucursal.',
         },
         { status: 400 }
+      );
+    }
+
+    if (isRestaurantClosedForPublicScreen(restaurant.estado)) {
+      return NextResponse.json(
+        {
+          error: 'Esta sucursal no está habilitada para mostrar pedidos.',
+        },
+        { status: 403 }
       );
     }
 
