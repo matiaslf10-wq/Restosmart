@@ -529,39 +529,6 @@ async function validateProductBelongsToAccess(
   return null;
 }
 
-  const productoRow = producto as ProductoOwnershipRow;
-
-  if (!productoRow.marca_id) {
-    return NextResponse.json(
-      {
-        error:
-          'Este producto no tiene marca asignada y no se puede validar contra el tenant actual.',
-      },
-      { status: 409 }
-    );
-  }
-
-  const { data: marca, error: marcaError } = await supabaseAdmin
-    .from('marcas')
-    .select('id')
-    .eq('id', productoRow.marca_id)
-    .eq('tenant_id', access.tenantId)
-    .maybeSingle();
-
-  if (marcaError) {
-    throw marcaError;
-  }
-
-  if (!marca?.id) {
-    return NextResponse.json(
-      { error: 'Producto no encontrado para este tenant.' },
-      { status: 404 }
-    );
-  }
-
-  return null;
-}
-
 export async function PUT(req: NextRequest, { params }: Params) {
   const auth = requireAdminAuth(req);
 

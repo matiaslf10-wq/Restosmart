@@ -123,7 +123,6 @@ async function resolveAccessForRequest(
     return null;
   }
 }
-}
 
 function canUseMultiBrand(access: AdminAccessSnapshot) {
   const accessRecord = asRecord(access);
