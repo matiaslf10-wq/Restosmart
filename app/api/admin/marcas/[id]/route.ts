@@ -170,7 +170,7 @@ async function getMarcaById(id: string, tenantId: string) {
     .from('marcas')
     .select('id, nombre, activa')
     .eq('id', id)
-    .eq('tenant_id', access.tenantId)
+    .eq('tenant_id', tenantId)
     .maybeSingle();
 
   if (error) {
