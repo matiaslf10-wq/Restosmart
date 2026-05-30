@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
-  getFallbackAdminAccess,
   resolveAdminAccess,
   type AdminAccessResolutionOptions,
   type AdminAccessSnapshot,
@@ -32,6 +31,13 @@ type Params = {
 type ProductoOwnershipRow = {
   id: number;
   marca_id: string | null;
+};
+
+type RestaurantRow = {
+  id: number | string;
+  slug: string | null;
+  estado: string | null;
+  owner_tenant_id: string | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -107,15 +113,16 @@ function extractRequestedTenantContext(
 async function resolveAccessForRequest(
   request: NextRequest,
   session: unknown
-): Promise<AdminAccessSnapshot> {
+): Promise<AdminAccessSnapshot | null> {
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
     return await resolveAdminAccess(requestedContext);
   } catch (error) {
     console.error('Producto disponible access resolution error:', error);
-    return getFallbackAdminAccess();
+    return null;
   }
+}
 }
 
 function canUseMultiBrand(access: AdminAccessSnapshot) {
@@ -125,6 +132,24 @@ function canUseMultiBrand(access: AdminAccessSnapshot) {
   return (
     !!access.capabilities?.multi_brand ||
     addonsRecord?.multi_brand === true
+  );
+}
+
+async function getActiveRestaurantsForTenant(access: AdminAccessSnapshot) {
+  const { data, error } = await supabaseAdmin
+    .from('restaurants')
+    .select('id, slug, estado, owner_tenant_id')
+    .eq('owner_tenant_id', access.tenantId)
+    .neq('estado', 'cerrado')
+    .order('slug', { ascending: true });
+
+  if (error) {
+    console.error('Error leyendo restaurantes del tenant:', error);
+    throw new Error('No se pudieron leer las sucursales del tenant.');
+  }
+
+  return ((data ?? []) as RestaurantRow[]).filter(
+    (restaurant) => restaurant.id !== null && restaurant.id !== undefined
   );
 }
 
@@ -149,38 +174,58 @@ async function validateProductBelongsToAccess(
     );
   }
 
-  if (!canUseMultiBrand(access)) {
-    return null;
-  }
+  const activeRestaurants = await getActiveRestaurantsForTenant(access);
+  const allowedRestaurantIds = activeRestaurants.map((restaurant) =>
+    String(restaurant.id)
+  );
 
-  const productoRow = producto as ProductoOwnershipRow;
-
-  if (!productoRow.marca_id) {
+  if (allowedRestaurantIds.length === 0) {
     return NextResponse.json(
-      {
-        error:
-          'Este producto no tiene marca asignada y no se puede validar contra el tenant actual.',
-      },
-      { status: 409 }
+      { error: 'No hay sucursales activas para este tenant.' },
+      { status: 403 }
     );
   }
 
-  const { data: marca, error: marcaError } = await supabaseAdmin
-    .from('marcas')
-    .select('id')
-    .eq('id', productoRow.marca_id)
-    .eq('tenant_id', access.tenantId)
-    .maybeSingle();
+  const { data: productRestaurant, error: productRestaurantError } =
+    await supabaseAdmin
+      .from('producto_restaurantes')
+      .select('producto_id, restaurant_id')
+      .eq('producto_id', productoId)
+      .in('restaurant_id', allowedRestaurantIds)
+      .limit(1)
+      .maybeSingle();
 
-  if (marcaError) {
-    throw marcaError;
+  if (productRestaurantError) {
+    throw productRestaurantError;
   }
 
-  if (!marca?.id) {
+  if (!productRestaurant?.producto_id) {
     return NextResponse.json(
       { error: 'Producto no encontrado para este tenant.' },
       { status: 404 }
     );
+  }
+
+  const productoRow = producto as ProductoOwnershipRow;
+
+  if (productoRow.marca_id) {
+    const { data: marca, error: marcaError } = await supabaseAdmin
+      .from('marcas')
+      .select('id')
+      .eq('id', productoRow.marca_id)
+      .eq('tenant_id', access.tenantId)
+      .maybeSingle();
+
+    if (marcaError) {
+      throw marcaError;
+    }
+
+    if (!marca?.id) {
+      return NextResponse.json(
+        { error: 'La marca del producto no pertenece a este tenant.' },
+        { status: 404 }
+      );
+    }
   }
 
   return null;
@@ -194,6 +239,16 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   const access = await resolveAccessForRequest(req, auth.session);
+
+  if (!access) {
+  return NextResponse.json(
+    {
+      error:
+        'No se pudo identificar el tenant para actualizar la disponibilidad.',
+    },
+    { status: 400 }
+  );
+}
 
   try {
     const { id } = await params;

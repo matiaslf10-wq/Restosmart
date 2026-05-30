@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
-  getFallbackAdminAccess,
   resolveAdminAccess,
   type AdminAccessResolutionOptions,
   type AdminAccessSnapshot,
@@ -182,17 +181,16 @@ function extractRequestedTenantContext(
 async function resolveAccessForRequest(
   request: NextRequest,
   session: unknown
-): Promise<AdminAccessSnapshot> {
+): Promise<AdminAccessSnapshot | null> {
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
     return await resolveAdminAccess(requestedContext);
   } catch (error) {
     console.error('Producto access resolution error:', error);
-    return getFallbackAdminAccess();
+    return null;
   }
 }
-
 function canUseMultiBrand(access: AdminAccessSnapshot) {
   const accessRecord = asRecord(access);
   const addonsRecord = asRecord(accessRecord?.addons);
@@ -474,9 +472,62 @@ async function validateProductBelongsToAccess(
     );
   }
 
-  if (!canUseMultiBrand(access)) {
-    return null;
+  const activeRestaurants = await getActiveRestaurantsForTenant(access);
+  const allowedRestaurantIds = activeRestaurants.map((restaurant) =>
+    String(restaurant.id)
+  );
+
+  if (allowedRestaurantIds.length === 0) {
+    return NextResponse.json(
+      { error: 'No hay sucursales activas para este tenant.' },
+      { status: 403 }
+    );
   }
+
+  const { data: productRestaurant, error: productRestaurantError } =
+    await supabaseAdmin
+      .from('producto_restaurantes')
+      .select('producto_id, restaurant_id')
+      .eq('producto_id', productoId)
+      .in('restaurant_id', allowedRestaurantIds)
+      .limit(1)
+      .maybeSingle();
+
+  if (productRestaurantError) {
+    throw productRestaurantError;
+  }
+
+  if (!productRestaurant?.producto_id) {
+    return NextResponse.json(
+      { error: 'Producto no encontrado para este tenant.' },
+      { status: 404 }
+    );
+  }
+
+  const productoRow = producto as ProductoOwnershipRow;
+
+  if (productoRow.marca_id) {
+    const { data: marca, error: marcaError } = await supabaseAdmin
+      .from('marcas')
+      .select('id')
+      .eq('id', productoRow.marca_id)
+      .eq('tenant_id', access.tenantId)
+      .maybeSingle();
+
+    if (marcaError) {
+      throw marcaError;
+    }
+
+    if (!marca?.id) {
+      return NextResponse.json(
+        { error: 'La marca del producto no pertenece a este tenant.' },
+        { status: 404 }
+      );
+    }
+  }
+
+  return null;
+}
 
   const productoRow = producto as ProductoOwnershipRow;
 
@@ -519,6 +570,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   const access = await resolveAccessForRequest(req, auth.session);
+
+  if (!access) {
+  return NextResponse.json(
+    { error: 'No se pudo identificar el tenant para actualizar el producto.' },
+    { status: 400 }
+  );
+}
 
   try {
     const { id } = await params;
@@ -672,6 +730,13 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   }
 
   const access = await resolveAccessForRequest(req, auth.session);
+
+  if (!access) {
+  return NextResponse.json(
+    { error: 'No se pudo identificar el tenant para eliminar el producto.' },
+    { status: 400 }
+  );
+}
 
   try {
     const { id } = await params;
