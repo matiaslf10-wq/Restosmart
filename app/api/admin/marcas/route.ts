@@ -117,14 +117,14 @@ function extractRequestedTenantContext(
 async function resolveAccessForRequest(
   request: NextRequest,
   session: unknown
-): Promise<AdminAccessSnapshot> {
+): Promise<AdminAccessSnapshot | null> {
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
     return await resolveAdminAccess(requestedContext);
   } catch (error) {
     console.error('Marcas access resolution error:', error);
-    return getFallbackAdminAccess();
+    return null;
   }
 }
 
@@ -236,8 +236,15 @@ export async function GET(request: NextRequest) {
 
   const access = await resolveAccessForRequest(request, auth.session);
 
-  const accessError = validateMultiBrandAccess(access);
-  if (accessError) return accessError;
+if (!access) {
+  return NextResponse.json(
+    { error: 'No se pudo identificar el tenant para cargar marcas.' },
+    { status: 400 }
+  );
+}
+
+const accessError = validateMultiBrandAccess(access);
+if (accessError) return accessError;
 
   try {
     await ensureDefaultMarca(access);
@@ -286,8 +293,15 @@ export async function POST(request: NextRequest) {
 
   const access = await resolveAccessForRequest(request, auth.session);
 
-  const accessError = validateMultiBrandAccess(access);
-  if (accessError) return accessError;
+if (!access) {
+  return NextResponse.json(
+    { error: 'No se pudo identificar el tenant para crear marcas.' },
+    { status: 400 }
+  );
+}
+
+const accessError = validateMultiBrandAccess(access);
+if (accessError) return accessError;
 
   let body: MarcaBody | null = null;
 

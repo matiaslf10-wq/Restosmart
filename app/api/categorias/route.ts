@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
+import {
+  getFallbackAdminAccess,
+  resolveAdminAccess,
+  type AdminAccessResolutionOptions,
+  type AdminAccessSnapshot,
+} from '@/lib/adminAccess';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
@@ -10,21 +16,114 @@ type SupabaseErrorLike = {
   message?: string;
 };
 
+type CategoriaRow = {
+  id: number;
+  nombre: string;
+  orden: number | null;
+  tenant_id?: string | null;
+};
+
 function isSupabaseErrorLike(error: unknown): error is SupabaseErrorLike {
   return !!error && typeof error === 'object';
 }
 
-export async function GET() {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function normalizeNonEmptyString(value: unknown) {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
+function pickFirstString(...values: unknown[]) {
+  for (const value of values) {
+    const text = normalizeNonEmptyString(value);
+    if (text) return text;
+  }
+
+  return null;
+}
+
+function extractRequestedTenantContext(
+  request: NextRequest,
+  session: unknown
+): AdminAccessResolutionOptions {
+  const sessionRecord = asRecord(session);
+  const restaurantRecord = asRecord(sessionRecord?.restaurant);
+
+  const tenantSlug = pickFirstString(
+    request.nextUrl.searchParams.get('tenant'),
+    request.nextUrl.searchParams.get('tenantSlug'),
+    request.nextUrl.searchParams.get('slug'),
+    request.headers.get('x-tenant-id'),
+    request.headers.get('x-tenant-slug'),
+    request.cookies.get('tenant')?.value,
+    request.cookies.get('tenant_slug')?.value,
+    restaurantRecord?.slug,
+    sessionRecord?.tenantId,
+    sessionRecord?.tenant_id,
+    sessionRecord?.slug
+  );
+
+  const restaurantId = pickFirstString(
+    request.nextUrl.searchParams.get('restaurantId'),
+    request.nextUrl.searchParams.get('restaurant_id'),
+    request.headers.get('x-restaurant-id'),
+    request.cookies.get('restaurant_id')?.value,
+    restaurantRecord?.id,
+    sessionRecord?.restaurantId,
+    sessionRecord?.restaurant_id
+  );
+
+  return {
+    tenantSlug,
+    restaurantId,
+  };
+}
+
+async function resolveAccessForRequest(
+  request: NextRequest,
+  session: unknown
+): Promise<AdminAccessSnapshot> {
+  const requestedContext = extractRequestedTenantContext(request, session);
+
+  try {
+    return await resolveAdminAccess(requestedContext);
+  } catch (error) {
+    console.error('Categorias access resolution error:', error);
+    return getFallbackAdminAccess();
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const auth = requireAdminAuth(req);
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  const access = await resolveAccessForRequest(req, auth.session);
+
+  if (!access.tenantId) {
+    return NextResponse.json(
+      { error: 'No se pudo identificar el tenant para cargar categorías.' },
+      { status: 400 }
+    );
+  }
+
   try {
     const { data, error } = await supabaseAdmin
       .from('categorias')
-      .select('id, nombre, orden')
+      .select('id, nombre, orden, tenant_id')
+      .eq('tenant_id', access.tenantId)
       .order('orden', { ascending: true })
       .order('nombre', { ascending: true });
 
     if (error) throw error;
 
-    return NextResponse.json(data ?? []);
+    return NextResponse.json((data ?? []) as CategoriaRow[]);
   } catch (error) {
     console.error('Error obteniendo categorías:', error);
 
@@ -42,6 +141,15 @@ export async function POST(req: NextRequest) {
     return auth.response;
   }
 
+  const access = await resolveAccessForRequest(req, auth.session);
+
+  if (!access.tenantId) {
+    return NextResponse.json(
+      { error: 'No se pudo identificar el tenant para crear la categoría.' },
+      { status: 400 }
+    );
+  }
+
   try {
     const body = await req.json();
     const nombre = String(body?.nombre ?? '').trim();
@@ -56,6 +164,7 @@ export async function POST(req: NextRequest) {
     const { data: ultima, error: ultimaError } = await supabaseAdmin
       .from('categorias')
       .select('orden')
+      .eq('tenant_id', access.tenantId)
       .order('orden', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -66,8 +175,14 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from('categorias')
-      .insert([{ nombre, orden }])
-      .select('id, nombre, orden')
+      .insert([
+        {
+          tenant_id: access.tenantId,
+          nombre,
+          orden,
+        },
+      ])
+      .select('id, nombre, orden, tenant_id')
       .single();
 
     if (error) {
