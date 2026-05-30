@@ -3,7 +3,11 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { normalizeBusinessMode, type BusinessMode } from '@/lib/plans';
+import {
+  normalizeBusinessMode,
+  type BusinessMode,
+  type PlanCode,
+} from '@/lib/plans';
 
 type SignupResponse = {
   ok?: boolean;
@@ -22,6 +26,36 @@ type SignupResponse = {
   };
 };
 
+const PLAN_OPTIONS: Array<{
+  code: PlanCode;
+  title: string;
+  price: string;
+  description: string;
+  highlights: string[];
+}> = [
+  {
+    code: 'esencial',
+    title: 'Esencial',
+    price: 'Para empezar',
+    description: 'Una sucursal, menú digital y operación básica.',
+    highlights: ['1 sucursal activa', 'Menú y pedidos', 'Mostrador y cocina'],
+  },
+  {
+    code: 'pro',
+    title: 'Pro',
+    price: 'Operación avanzada',
+    description: 'Más sucursales, stock y reportes operativos.',
+    highlights: ['Hasta 3 sucursales', 'Control de stock', 'Reportes operativos'],
+  },
+  {
+    code: 'intelligence',
+    title: 'Intelligence',
+    price: 'Analítica completa',
+    description: 'Reportes completos, predicción y crecimiento multi-sucursal.',
+    highlights: ['Sucursales ilimitadas', 'Analytics completo', 'Stock inteligente'],
+  },
+];
+
 export default function SignupPage() {
   const router = useRouter();
 
@@ -29,6 +63,7 @@ export default function SignupPage() {
   const [sucursalNombre, setSucursalNombre] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [selectedPlan, setSelectedPlan] = useState<PlanCode>('esencial');
 
   const [businessMode, setBusinessMode] =
     useState<BusinessMode>('restaurant');
@@ -107,6 +142,7 @@ export default function SignupPage() {
           sucursal_nombre: sucursal,
           email: normalizedEmail,
           password,
+          plan: selectedPlan,
           business_mode: normalizeBusinessMode(businessMode),
           direccion: direccion.trim(),
           telefono: telefono.trim(),
@@ -163,7 +199,7 @@ export default function SignupPage() {
             <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
               <p className="text-sm font-semibold">1. Tenant</p>
               <p className="mt-2 text-xs leading-relaxed text-slate-300">
-                Se crea el grupo principal del negocio en plan Esencial.
+                Se crea el grupo principal del negocio con el plan que elijas.
               </p>
             </div>
 
@@ -184,9 +220,9 @@ export default function SignupPage() {
           </div>
 
           <div className="mt-8 rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-4 text-sm text-emerald-50">
-            Esta primera versión crea la cuenta en plan Esencial. Después
-            sumamos selección de plan, pago y activación automática.
-          </div>
+  En esta etapa podés elegir el plan al crear la cuenta. Luego vamos a sumar
+  Mercado Pago para activar Pro e Intelligence automáticamente.
+</div>
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-lg">
@@ -234,6 +270,69 @@ export default function SignupPage() {
                 placeholder="Ej: RestoSmart Belgrano"
               />
             </label>
+
+            <div className="grid gap-2">
+  <span className="text-sm font-medium text-slate-700">
+    Plan inicial
+  </span>
+
+  <div className="grid gap-3">
+    {PLAN_OPTIONS.map((plan) => {
+      const active = selectedPlan === plan.code;
+
+      return (
+        <label
+          key={plan.code}
+          className={`cursor-pointer rounded-2xl border p-4 transition ${
+            active
+              ? 'border-slate-900 bg-slate-50 shadow-sm'
+              : 'border-slate-200 bg-white hover:border-slate-300'
+          }`}
+        >
+          <input
+            type="radio"
+            name="plan"
+            className="sr-only"
+            checked={active}
+            onChange={() => setSelectedPlan(plan.code)}
+          />
+
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-slate-900">
+                {plan.title}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                {plan.price}
+              </p>
+            </div>
+
+            {active ? (
+              <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white">
+                Elegido
+              </span>
+            ) : null}
+          </div>
+
+          <p className="mt-2 text-xs leading-relaxed text-slate-600">
+            {plan.description}
+          </p>
+
+          <ul className="mt-3 space-y-1 text-xs text-slate-600">
+            {plan.highlights.map((item) => (
+              <li key={item}>• {item}</li>
+            ))}
+          </ul>
+        </label>
+      );
+    })}
+  </div>
+
+  <p className="text-xs leading-relaxed text-slate-500">
+    Por ahora el plan queda activo al crear la cuenta. En el próximo paso
+    vinculamos Pro e Intelligence con Mercado Pago.
+  </p>
+</div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label

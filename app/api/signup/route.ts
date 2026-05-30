@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { attachAdminSessionCookie, hashPassword } from '@/lib/adminAuth';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { normalizeBusinessMode, type BusinessMode } from '@/lib/plans';
+import {
+  normalizeBusinessMode,
+  normalizePlan,
+  type BusinessMode,
+  type PlanCode,
+} from '@/lib/plans';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +16,7 @@ type SignupBody = {
   sucursal_nombre?: string;
   email?: string;
   password?: string;
+  plan?: PlanCode | string;
   business_mode?: BusinessMode | string;
   direccion?: string;
   telefono?: string;
@@ -75,6 +81,7 @@ export async function POST(request: NextRequest) {
     const email = normalizeEmail(body?.email);
     const password = String(body?.password ?? '');
     const businessMode = normalizeBusinessMode(body?.business_mode);
+    const selectedPlan = normalizePlan(body?.plan);
     const direccion = normalizeNonEmptyString(body?.direccion) ?? '';
     const telefono = normalizeNonEmptyString(body?.telefono) ?? '';
     const celular = normalizeNonEmptyString(body?.celular) ?? '';
@@ -125,7 +132,7 @@ export async function POST(request: NextRequest) {
     .from('restaurants')
     .insert({
       slug: tenantSlug,
-      plan: 'esencial',
+      plan: selectedPlan,
       owner_tenant_id: tenantSlug,
       estado: 'activo',
     })
@@ -194,12 +201,14 @@ if (primaryRestaurantError || !primaryRestaurant?.id) {
   id: tenantSlug,
   slug: tenantSlug,
   restaurant_id: String(primaryRestaurant.id),
+  plan: selectedPlan,
 },
 restaurant: {
   id: String(primaryRestaurant.id),
   slug: primaryRestaurant.slug,
   nombre_local: sucursalNombre,
   business_mode: businessMode,
+  plan: selectedPlan,
 },
         redirectTo: '/inicio',
       },
@@ -207,10 +216,9 @@ restaurant: {
     );
 
     return attachAdminSessionCookie(response, {
-      adminId: adminUser.id,
-      email,
-      tenantId: tenantSlug,
-    });
+  adminId: adminUser.id,
+  email,
+});
     } catch (error) {
     console.error('POST /api/signup', error);
 
