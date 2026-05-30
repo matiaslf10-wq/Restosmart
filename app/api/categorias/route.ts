@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
-  getFallbackAdminAccess,
   resolveAdminAccess,
   type AdminAccessResolutionOptions,
   type AdminAccessSnapshot,
@@ -86,14 +85,14 @@ function extractRequestedTenantContext(
 async function resolveAccessForRequest(
   request: NextRequest,
   session: unknown
-): Promise<AdminAccessSnapshot> {
+): Promise<AdminAccessSnapshot | null> {
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
     return await resolveAdminAccess(requestedContext);
   } catch (error) {
     console.error('Categorias access resolution error:', error);
-    return getFallbackAdminAccess();
+    return null;
   }
 }
 
@@ -106,7 +105,7 @@ export async function GET(req: NextRequest) {
 
   const access = await resolveAccessForRequest(req, auth.session);
 
-  if (!access.tenantId) {
+  if (!access?.tenantId) {
     return NextResponse.json(
       { error: 'No se pudo identificar el tenant para cargar categorías.' },
       { status: 400 }
@@ -143,7 +142,7 @@ export async function POST(req: NextRequest) {
 
   const access = await resolveAccessForRequest(req, auth.session);
 
-  if (!access.tenantId) {
+  if (!access?.tenantId) {
     return NextResponse.json(
       { error: 'No se pudo identificar el tenant para crear la categoría.' },
       { status: 400 }
