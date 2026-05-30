@@ -300,14 +300,6 @@ const restaurantScopeQuery = useMemo(() => {
   return params.toString();
 }, [currentRestaurantId]);
 
-  const currentRestaurantId = useMemo(() => {
-    return (
-      searchParams.get('restaurantId') ??
-      searchParams.get('restaurant_id') ??
-      null
-    );
-  }, [searchParams]);
-
   const configuracionHref = buildScopedHref(
     '/admin/configuracion',
     restaurantScopeQuery
