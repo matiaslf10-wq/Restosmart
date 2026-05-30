@@ -1473,14 +1473,6 @@ const selectedRestaurant = restaurantes.find(
           )}
         </div>
 
-        {!stockControlEnabled ? (
-          <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            El <strong>control real de stock</strong> está disponible desde{' '}
-            <strong>Pro</strong>. En tu plan actual podés seguir cargando productos y
-            disponibilidad manual.
-          </div>
-        ) : null}
-
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
             <label className="block text-xs font-medium text-slate-700">
@@ -1639,63 +1631,62 @@ const selectedRestaurant = restaurantes.find(
   )}
 </div>
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-  <div>
-    <h3 className="text-sm font-semibold text-slate-900">
-      Control de stock
-    </h3>
-    <p className="mt-1 text-xs text-slate-600">
-      Cuando está activo, el sistema puede validar stock real al vender.
-    </p>
-  </div>
-
-  <div className="mt-3 flex items-center gap-2">
-    <input
-      id="control_stock"
-      type="checkbox"
-      checked={form.control_stock}
-      disabled={!stockControlEnabled}
-      onChange={(e) => onChangeForm('control_stock', e.target.checked)}
-    />
-    <label
-      htmlFor="control_stock"
-      className={`text-xs ${
-        stockControlEnabled ? 'text-slate-700' : 'text-slate-400'
-      }`}
-    >
-      Controlar stock real
-    </label>
-  </div>
-
-  {form.control_stock ? (
-    <div className="mt-3 space-y-2">
-      <div className="flex items-center gap-2">
-        <input
-          id="permitir_sin_stock"
-          type="checkbox"
-          checked={form.permitir_sin_stock}
-          onChange={(e) =>
-            onChangeForm('permitir_sin_stock', e.target.checked)
-          }
-        />
-        <label htmlFor="permitir_sin_stock" className="text-xs text-slate-700">
-          Permitir vender aunque se quede sin stock
-        </label>
-      </div>
-
-      <p className="text-xs text-slate-500">
-        El stock se carga por sucursal en el bloque anterior.
+ {stockControlEnabled ? (
+  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+    <div>
+      <h3 className="text-sm font-semibold text-slate-900">
+        Control de stock
+      </h3>
+      <p className="mt-1 text-xs text-slate-600">
+        Cuando está activo, el sistema puede validar stock real al vender.
       </p>
     </div>
-  ) : null}
 
-  {stockControlEnabled && form.control_stock ? (
-    <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-      Con esta opción activa, el producto puede quedar automáticamente sin
-      stock al venderse si no permitís ventas con stock 0.
+    <div className="mt-3 flex items-center gap-2">
+      <input
+        id="control_stock"
+        type="checkbox"
+        checked={form.control_stock}
+        onChange={(e) => onChangeForm('control_stock', e.target.checked)}
+      />
+      <label htmlFor="control_stock" className="text-xs text-slate-700">
+        Controlar stock real
+      </label>
     </div>
-  ) : null}
-</div>
+
+    {form.control_stock ? (
+      <div className="mt-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <input
+            id="permitir_sin_stock"
+            type="checkbox"
+            checked={form.permitir_sin_stock}
+            onChange={(e) =>
+              onChangeForm('permitir_sin_stock', e.target.checked)
+            }
+          />
+          <label
+            htmlFor="permitir_sin_stock"
+            className="text-xs text-slate-700"
+          >
+            Permitir vender aunque se quede sin stock
+          </label>
+        </div>
+
+        <p className="text-xs text-slate-500">
+          El stock se carga por sucursal en el bloque anterior.
+        </p>
+      </div>
+    ) : null}
+
+    {form.control_stock ? (
+      <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+        Con esta opción activa, el producto puede quedar automáticamente sin
+        stock al venderse si no permitís ventas con stock 0.
+      </div>
+    ) : null}
+  </div>
+) : null}
 
         <div className="space-y-2 pt-2">
           <label className="block text-xs font-medium text-slate-700">
