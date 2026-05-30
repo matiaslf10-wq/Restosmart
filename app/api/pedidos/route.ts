@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRestaurantContext } from '@/lib/tenant';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
@@ -15,6 +14,7 @@ type RestaurantContext = {
   slug: string;
   plan?: string | null;
   estado?: RestaurantStatus | string | null;
+  owner_tenant_id?: string | null;
 };
 
 type BusinessMode = 'restaurant' | 'takeaway';
@@ -176,7 +176,7 @@ function pickFirstString(...values: unknown[]) {
 async function getRestaurantBySlug(slug: string) {
   const { data, error } = await supabaseAdmin
     .from('restaurants')
-    .select('id, slug, plan, estado')
+    .select('id, slug, plan, estado, owner_tenant_id')
     .eq('slug', slug)
     .maybeSingle();
 
@@ -191,7 +191,7 @@ async function getRestaurantBySlug(slug: string) {
 async function getRestaurantById(id: string) {
   const { data, error } = await supabaseAdmin
     .from('restaurants')
-    .select('id, slug, plan, estado')
+    .select('id, slug, plan, estado, owner_tenant_id')
     .eq('id', id)
     .maybeSingle();
 
@@ -524,66 +524,31 @@ async function applyStockAdjustments(params: {
   return appliedAdjustments;
 }
 
-async function resolveRestaurantContextForRequest(request?: NextRequest) {
-  const requestedRestaurantSlug = request
-    ? pickFirstString(
-        request.nextUrl.searchParams.get('restaurant'),
-        request.nextUrl.searchParams.get('restaurantSlug'),
-        request.nextUrl.searchParams.get('tenant'),
-        request.nextUrl.searchParams.get('tenantSlug'),
-        request.nextUrl.searchParams.get('slug'),
-        request.headers.get('x-tenant-id'),
-        request.headers.get('x-tenant-slug')
-      )
-    : null;
+async function resolveRestaurantContextForRequest(request: NextRequest) {
+  const requestedRestaurantId = pickFirstString(
+    request.nextUrl.searchParams.get('restaurantId'),
+    request.nextUrl.searchParams.get('restaurant_id'),
+    request.headers.get('x-restaurant-id')
+  );
 
-  const requestedRestaurantId = request
-    ? pickFirstString(
-        request.nextUrl.searchParams.get('restaurantId'),
-        request.nextUrl.searchParams.get('restaurant_id'),
-        request.headers.get('x-restaurant-id')
-      )
-    : null;
+  const requestedRestaurantSlug = pickFirstString(
+    request.nextUrl.searchParams.get('restaurantSlug'),
+    request.nextUrl.searchParams.get('restaurant'),
+    request.headers.get('x-restaurant-slug')
+  );
 
   if (requestedRestaurantId) {
     const byId = await getRestaurantById(requestedRestaurantId);
     if (byId?.id) return byId;
+
+    return null;
   }
 
   if (requestedRestaurantSlug) {
     const bySlug = await getRestaurantBySlug(requestedRestaurantSlug);
     if (bySlug?.id) return bySlug;
-  }
 
-  const ctx = await getRestaurantContext().catch(() => null);
-
-  if (ctx?.id) {
-    return ctx as RestaurantContext;
-  }
-
-  const defaultTenantId = process.env.DEFAULT_TENANT_ID?.trim();
-
-  if (defaultTenantId) {
-    const bySlug = await supabaseAdmin
-      .from('restaurants')
-      .select('id, slug, plan, estado')
-      .eq('slug', defaultTenantId)
-      .maybeSingle();
-
-    if (!bySlug.error && bySlug.data?.id) {
-      return bySlug.data as RestaurantContext;
-    }
-  }
-
-  const fallback = await supabaseAdmin
-    .from('restaurants')
-    .select('id, slug, plan, estado')
-    .order('id', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (!fallback.error && fallback.data?.id) {
-    return fallback.data as RestaurantContext;
+    return null;
   }
 
   return null;
@@ -610,23 +575,7 @@ async function resolveBusinessMode(restaurant: RestaurantContext | null) {
     }
   }
 
-  const result = await supabaseAdmin
-    .from('configuracion_local')
-    .select('business_mode')
-    .order('id', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (result.error) {
-    console.error(
-      'POST /api/pedidos - no se pudo leer business_mode:',
-      result.error
-    );
-    return 'restaurant' as BusinessMode;
-  }
-
-  const config = (result.data ?? null) as LocalConfigRow | null;
-  return normalizeBusinessMode(config?.business_mode);
+  return 'restaurant' as BusinessMode;
 }
 
 async function resolveMesaIdForPedido(
