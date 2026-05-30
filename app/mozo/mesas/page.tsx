@@ -261,6 +261,18 @@ function buildScopedHref(path: string, restaurantScopeQuery: string) {
   return `${path}${separator}${restaurantScopeQuery}`;
 }
 
+function buildMesasApiUrl(restaurantId: string | null) {
+  const params = new URLSearchParams();
+
+  if (restaurantId) {
+    params.set('restaurantId', restaurantId);
+  }
+
+  const query = params.toString();
+
+  return `/api/admin/mesas${query ? `?${query}` : ''}`;
+}
+
 function getMesaNumeroVisible(mesa: { numero: number | null; id: number }) {
   return typeof mesa.numero === 'number' && mesa.numero > 0
     ? mesa.numero
@@ -271,27 +283,22 @@ function MesasMozoPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const restaurantScopeQuery = useMemo(() => {
-    const params = new URLSearchParams();
+  const currentRestaurantId = useMemo(() => {
+  return (
+    searchParams.get('restaurantId') ??
+    searchParams.get('restaurant_id') ??
+    null
+  );
+}, [searchParams]);
 
-    const restaurantId =
-      searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
+const restaurantScopeQuery = useMemo(() => {
+  if (!currentRestaurantId) return '';
 
-    const restaurantSlug =
-      searchParams.get('restaurantSlug') ??
-      searchParams.get('restaurant') ??
-      searchParams.get('tenant') ??
-      searchParams.get('tenantSlug') ??
-      searchParams.get('slug');
+  const params = new URLSearchParams();
+  params.set('restaurantId', currentRestaurantId);
 
-    if (restaurantId) {
-      params.set('restaurantId', restaurantId);
-    } else if (restaurantSlug) {
-      params.set('restaurantSlug', restaurantSlug);
-    }
-
-    return params.toString();
-  }, [searchParams]);
+  return params.toString();
+}, [currentRestaurantId]);
 
   const currentRestaurantId = useMemo(() => {
     return (
@@ -724,19 +731,33 @@ const qrUrl = getMesaQrUrl(mesaNumeroVisible);
   }
 
   try {
-    const { data: mesasData, error: errorMesas } = await supabase
-      .from('mesas')
-      .select('id, restaurant_id, numero, nombre')
-      .eq('restaurant_id', currentRestaurantId)
-      .gt('id', DELIVERY_MESA_ID)
-      .order('numero', { ascending: true });
+    const mesasRes = await fetch(buildMesasApiUrl(currentRestaurantId), {
+  method: 'GET',
+  cache: 'no-store',
+  credentials: 'include',
+});
 
-    if (errorMesas) {
-      console.error('Error al cargar mesas:', errorMesas);
-      setMensaje('Error al cargar las mesas.');
-      setCargando(false);
-      return;
-    }
+const mesasPayload = await mesasRes.json().catch(() => null);
+
+if (!mesasRes.ok) {
+  throw new Error(
+    mesasPayload?.error || 'No se pudieron cargar las mesas de esta sucursal.'
+  );
+}
+
+const resolvedMode = normalizeBusinessMode(
+  mesasPayload?.restaurant?.business_mode
+);
+
+setBusinessMode(resolvedMode);
+
+if (resolvedMode !== 'restaurant') {
+  setMesas([]);
+  setCargando(false);
+  return;
+}
+
+const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
 
     const { data: pedidosData, error: errorPedidos } = await supabase
       .from('pedidos')
@@ -813,7 +834,7 @@ const qrUrl = getMesaQrUrl(mesaNumeroVisible);
       pedidosPorMesa[pedido.mesa_id].push(pedido);
     });
 
-    const mesasConCuenta: MesaConCuenta[] = ((mesasData ?? []) as any[])
+    const mesasConCuenta: MesaConCuenta[] = (mesasData as any[])
       .map((m) => {
         const pedidosMesa = pedidosPorMesa[m.id] ?? [];
 
@@ -848,7 +869,9 @@ const qrUrl = getMesaQrUrl(mesaNumeroVisible);
 }, [currentRestaurantId]);
 
   useEffect(() => {
-    if (!canUseWaiterMode || businessMode !== 'restaurant') return;
+  if (!canUseWaiterMode || businessMode !== 'restaurant' || !currentRestaurantId) {
+    return;
+  }
 
     void cargarDatos();
 

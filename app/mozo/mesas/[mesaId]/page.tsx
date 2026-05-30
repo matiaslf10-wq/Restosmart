@@ -183,6 +183,18 @@ function buildScopedHref(path: string, restaurantScopeQuery: string) {
   return `${path}${separator}${restaurantScopeQuery}`;
 }
 
+function buildMesasApiUrl(restaurantId: string | null) {
+  const params = new URLSearchParams();
+
+  if (restaurantId) {
+    params.set('restaurantId', restaurantId);
+  }
+
+  const query = params.toString();
+
+  return `/api/admin/mesas${query ? `?${query}` : ''}`;
+}
+
 function MozoMesaPageContent() {
   const params = useParams();
   const router = useRouter();
@@ -191,27 +203,22 @@ function MozoMesaPageContent() {
   const mesaNumero = Number((params as { mesaId?: string }).mesaId);
   const mesaNumeroValido = Number.isFinite(mesaNumero) && mesaNumero > 0;
 
-  const restaurantScopeQuery = useMemo(() => {
-    const params = new URLSearchParams();
+  const currentRestaurantId = useMemo(() => {
+  return (
+    searchParams.get('restaurantId') ??
+    searchParams.get('restaurant_id') ??
+    null
+  );
+}, [searchParams]);
 
-    const restaurantId =
-      searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
+const restaurantScopeQuery = useMemo(() => {
+  if (!currentRestaurantId) return '';
 
-    const restaurantSlug =
-      searchParams.get('restaurantSlug') ??
-      searchParams.get('restaurant') ??
-      searchParams.get('tenant') ??
-      searchParams.get('tenantSlug') ??
-      searchParams.get('slug');
+  const params = new URLSearchParams();
+  params.set('restaurantId', currentRestaurantId);
 
-    if (restaurantId) {
-      params.set('restaurantId', restaurantId);
-    } else if (restaurantSlug) {
-      params.set('restaurantSlug', restaurantSlug);
-    }
-
-    return params.toString();
-  }, [searchParams]);
+  return params.toString();
+}, [currentRestaurantId]);
 
   const currentRestaurantId = useMemo(() => {
     return (
@@ -251,23 +258,51 @@ function MozoMesaPageContent() {
     return null;
   }
 
-  const { data, error } = await supabase
-    .from('mesas')
-    .select('id, restaurant_id, numero, nombre')
-    .eq('restaurant_id', currentRestaurantId)
-    .eq('numero', mesaNumero)
-    .maybeSingle();
+  try {
+    const res = await fetch(buildMesasApiUrl(currentRestaurantId), {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'include',
+    });
 
-  if (error) {
+    const payload = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(
+        payload?.error || 'No se pudo validar la sucursal de la mesa.'
+      );
+    }
+
+    const resolvedMode = normalizeBusinessMode(
+      payload?.restaurant?.business_mode
+    );
+
+    setBusinessMode(resolvedMode);
+
+    if (resolvedMode !== 'restaurant') {
+      setMesaActual(null);
+      return null;
+    }
+
+    const mesas = (payload?.mesas ?? []) as MesaActual[];
+
+    const mesa =
+      mesas.find((item) => Number(item.numero) === Number(mesaNumero)) ?? null;
+
+    setMesaActual(mesa);
+    return mesa;
+  } catch (error) {
     console.error('No se pudo cargar la mesa del mozo:', error);
-    setMensaje('No se pudo cargar la mesa.');
+
+    setMensaje(
+      error instanceof Error
+        ? error.message
+        : 'No se pudo cargar la mesa.'
+    );
+
     setMesaActual(null);
     return null;
   }
-
-  const mesa = (data as MesaActual | null) ?? null;
-  setMesaActual(mesa);
-  return mesa;
 }, [currentRestaurantId, mesaNumero, mesaNumeroValido]);
 
   const cargarPedidos = useCallback(async () => {
@@ -515,6 +550,38 @@ setBusinessMode(resolvedMode);
       </main>
     );
   }
+
+  if (!currentRestaurantId) {
+  return (
+    <main className="min-h-screen bg-slate-100 px-4 py-6">
+      <div className="max-w-4xl mx-auto">
+        <div className="rounded-3xl border border-amber-200 bg-white p-8 shadow-sm">
+          <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
+            Falta sucursal
+          </span>
+
+          <h1 className="mt-4 text-3xl font-bold text-slate-900">
+            Vista de mozo por mesa
+          </h1>
+
+          <p className="mt-3 text-slate-600 leading-relaxed">
+            Esta pantalla necesita abrirse desde una sucursal para evitar
+            mezclar mesas o pedidos entre tenants.
+          </p>
+
+          <div className="mt-6">
+            <button
+              onClick={() => router.push('/inicio')}
+              className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Volver a Inicio
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
 
   if (businessMode === 'takeaway') {
   return (
