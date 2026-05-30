@@ -9,7 +9,6 @@ import {
   type FormEvent,
 } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
 import QRCode from 'react-qr-code';
 import {
   normalizeBusinessMode,
@@ -97,6 +96,18 @@ function buildMesaUrl(
   if (!restaurantId) return basePath;
 
   return `${basePath}?restaurantId=${encodeURIComponent(restaurantId)}`;
+}
+
+function buildMesasApiUrl(restaurantId: string | null) {
+  const params = new URLSearchParams();
+
+  if (restaurantId) {
+    params.set('restaurantId', restaurantId);
+  }
+
+  const query = params.toString();
+
+  return `/api/admin/mesas${query ? `?${query}` : ''}`;
 }
 
 function AdminMesasPageContent() {
@@ -200,70 +211,59 @@ function AdminMesasPageContent() {
     let active = true;
 
     const cargarMesas = async () => {
-      setCargando(true);
-      setError(null);
+  setCargando(true);
+  setError(null);
 
-      try {
-        const configPromise = supabase
-          .from('configuracion_local')
-          .select('nombre_local, business_mode')
-          .eq('restaurant_id', currentRestaurantId)
-          .limit(1)
-          .maybeSingle();
+  try {
+    const res = await fetch(buildMesasApiUrl(currentRestaurantId), {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'include',
+    });
 
-        const mesasPromise = supabase
-          .from('mesas')
-          .select('id, nombre, numero, restaurant_id')
-          .eq('restaurant_id', currentRestaurantId)
-          .gt('id', DELIVERY_MESA_ID);
+    const data = await res.json().catch(() => null);
 
-        const [configRes, mesasRes] = await Promise.all([
-          configPromise,
-          mesasPromise,
-        ]);
+    if (!active) return;
 
-        if (!active) return;
+    if (!res.ok) {
+      throw new Error(
+        data?.error || 'No se pudieron cargar las mesas de esta sucursal.'
+      );
+    }
 
-        if (configRes.error) {
-          console.warn(
-            'No se pudo cargar configuracion_local para mesas:',
-            configRes.error
-          );
-        } else {
-          const config = (configRes.data as LocalConfigRow | null) ?? null;
-          setRestaurantLabel(
-            config?.nombre_local?.trim() ||
-              `Sucursal ${currentRestaurantId}`
-          );
+    const mode = normalizeBusinessMode(data?.restaurant?.business_mode);
+    setBusinessMode(mode);
 
-          const mode = normalizeBusinessMode(config?.business_mode);
-          setBusinessMode(mode);
+    setRestaurantLabel(
+      String(data?.restaurant?.label ?? '').trim() ||
+        `Sucursal ${currentRestaurantId}`
+    );
 
-          if (mode !== 'restaurant') {
-            setMesas([]);
-            setCargando(false);
-            return;
-          }
-        }
+    if (mode !== 'restaurant') {
+      setMesas([]);
+      setCargando(false);
+      return;
+    }
 
-        if (mesasRes.error) {
-          console.error('Error cargando mesas:', mesasRes.error);
-          setError('No se pudieron cargar las mesas de esta sucursal.');
-          setMesas([]);
-        } else {
-          setMesas(sortMesas((mesasRes.data ?? []) as Mesa[]));
-        }
-      } catch (err) {
-        console.error('Error inesperado cargando mesas:', err);
-        if (!active) return;
-        setError('Ocurrió un error al cargar las mesas.');
-        setMesas([]);
-      } finally {
-        if (active) {
-          setCargando(false);
-        }
-      }
-    };
+    setMesas(sortMesas((data?.mesas ?? []) as Mesa[]));
+  } catch (err) {
+    console.error('Error inesperado cargando mesas:', err);
+
+    if (!active) return;
+
+    setError(
+      err instanceof Error
+        ? err.message
+        : 'Ocurrió un error al cargar las mesas.'
+    );
+
+    setMesas([]);
+  } finally {
+    if (active) {
+      setCargando(false);
+    }
+  }
+};
 
     cargarMesas();
 
@@ -312,53 +312,57 @@ function AdminMesasPageContent() {
 
     setCreando(true);
 
-    const nombreLimpio = nuevoNombre.trim();
+try {
+  const res = await fetch(buildMesasApiUrl(currentRestaurantId), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      nombre: nuevoNombre.trim(),
+    }),
+  });
 
-const mesasDeEstaSucursal = mesas.filter(
-  (mesa) => String(mesa.restaurant_id) === String(currentRestaurantId)
-);
+  const data = await res.json().catch(() => null);
 
-const numeroNuevo = getNextAvailableMesaNumero(mesasDeEstaSucursal);
-const nombreFinal = nombreLimpio || `Mesa ${numeroNuevo}`;
+  if (!res.ok) {
+    throw new Error(data?.error || 'No se pudo crear la mesa.');
+  }
 
-    try {
-      const { data, error } = await supabase
-        .from('mesas')
-        .insert({
-          nombre: nombreFinal,
-          numero: numeroNuevo,
-          restaurant_id: currentRestaurantId,
-        })
-        .select('id, nombre, numero, restaurant_id')
-        .single();
+  const mesaNueva = data?.mesa as Mesa | null;
 
-      if (error) {
-        console.error('Error creando mesa:', error);
-        setError(
-          'No se pudo crear la mesa. Verificá que exista la columna "restaurant_id" en mesas y que corresponda a una sucursal válida.'
-        );
-        setCreando(false);
-        return;
-      }
+  if (!mesaNueva?.id) {
+    throw new Error('La respuesta de creación de mesa no es válida.');
+  }
 
-      const mesaNueva = data as Mesa;
+  if (mesaNueva.id <= DELIVERY_MESA_ID) {
+    setMensaje(
+      `Se creó la mesa "${mesaNueva.nombre}", pero no se mostrará acá porque la mesa ${DELIVERY_MESA_ID} está reservada para delivery.`
+    );
+    setNuevoNombre('');
+    return;
+  }
 
-      if (mesaNueva.id <= DELIVERY_MESA_ID) {
-        setMensaje(
-          `Se creó la mesa "${mesaNueva.nombre}", pero no se mostrará acá porque la mesa ${DELIVERY_MESA_ID} está reservada para delivery.`
-        );
-        setNuevoNombre('');
-        return;
-      }
+  setRestaurantLabel(
+    String(data?.restaurant?.label ?? '').trim() || restaurantLabel
+  );
 
-      setMesas((prev) => sortMesas([...prev, mesaNueva]));
-      setNuevoNombre('');
-      setMensaje(
-        `Mesa ${getMesaNumero(mesaNueva)} creada con éxito para ${restaurantLabel}. ID interno: ${mesaNueva.id}.`
-      );
-    } finally {
-      setCreando(false);
-    }
+  setMesas((prev) => sortMesas([...prev, mesaNueva]));
+  setNuevoNombre('');
+  setMensaje(
+    `Mesa ${getMesaNumero(mesaNueva)} creada con éxito para ${restaurantLabel}. ID interno: ${mesaNueva.id}.`
+  );
+} catch (err) {
+  console.error('Error creando mesa:', err);
+  setError(
+    err instanceof Error
+      ? err.message
+      : 'No se pudo crear la mesa.'
+  );
+} finally {
+  setCreando(false);
+}
   };
 
   if (checkingAccess) {
