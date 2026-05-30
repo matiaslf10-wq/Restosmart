@@ -84,33 +84,10 @@ function buildScopedEndpoint(basePath: string, restaurantScopeQuery: string) {
 function MesaPageContent() {
   const params = useParams();
   const searchParams = useSearchParams();
-  const rawMesaId = params?.mesaId as string | string[] | undefined;
+  const rawMesaIdParam = params?.id ?? params?.mesaId;
+const rawMesaId = rawMesaIdParam as string | string[] | undefined;
   const mesaRutaId = Number(Array.isArray(rawMesaId) ? rawMesaId[0] : rawMesaId);
-  const restaurantScopeQuery = useMemo(() => {
-  const params = new URLSearchParams();
-
-  params.set('scope', 'mesa');
-
-  const restaurantId =
-    searchParams.get('restaurantId') ?? searchParams.get('restaurant_id');
-
-  const restaurantSlug =
-    searchParams.get('restaurantSlug') ??
-    searchParams.get('restaurant') ??
-    searchParams.get('tenant') ??
-    searchParams.get('tenantSlug') ??
-    searchParams.get('slug');
-
-  if (restaurantId) {
-    params.set('restaurantId', restaurantId);
-  } else if (restaurantSlug) {
-    params.set('restaurantSlug', restaurantSlug);
-  }
-
-  return params.toString();
-}, [searchParams]);
-
-const restaurantIdParam = useMemo(() => {
+  const currentRestaurantId = useMemo(() => {
   return (
     searchParams.get('restaurantId') ??
     searchParams.get('restaurant_id') ??
@@ -118,7 +95,16 @@ const restaurantIdParam = useMemo(() => {
   );
 }, [searchParams]);
 
-const hasRestaurantScope = !!restaurantIdParam;
+const hasRestaurantScope = !!currentRestaurantId;
+
+const restaurantScopeQuery = useMemo(() => {
+  if (!currentRestaurantId) return '';
+
+  const params = new URLSearchParams();
+  params.set('restaurantId', currentRestaurantId);
+
+  return params.toString();
+}, [currentRestaurantId]);
 
 const productosEndpoint = useMemo(
   () =>
@@ -152,21 +138,17 @@ const pedidosEndpoint = useMemo(
   const mesaValida = Number.isFinite(mesaRutaId) && mesaRutaId > DELIVERY_MESA_ID;
 
   const cargarMesa = useCallback(async () => {
-  if (!mesaValida) {
+  if (!mesaValida || !currentRestaurantId) {
     setMesa(null);
-    return;
+    return null;
   }
 
-  let mesaQuery = supabase
+  const { data: mesaData, error: mesaError } = await supabase
     .from('mesas')
     .select('id, numero, nombre, restaurant_id')
-    .eq('numero', mesaRutaId);
-
-  if (restaurantIdParam) {
-    mesaQuery = mesaQuery.eq('restaurant_id', restaurantIdParam);
-  }
-
-  const { data: mesaData, error: mesaError } = await mesaQuery.maybeSingle();
+    .eq('restaurant_id', currentRestaurantId)
+    .eq('numero', mesaRutaId)
+    .maybeSingle();
 
   if (mesaError) {
     console.error('Error cargando mesa:', {
@@ -176,13 +158,16 @@ const pedidosEndpoint = useMemo(
       code: (mesaError as any)?.code,
       raw: mesaError,
     });
+
     setMensaje('No se pudo cargar la mesa.');
     setMesa(null);
-    return;
+    return null;
   }
 
-  setMesa((mesaData as Mesa | null) ?? null);
-}, [mesaRutaId, mesaValida, restaurantIdParam]);
+  const mesaActual = (mesaData as Mesa | null) ?? null;
+  setMesa(mesaActual);
+  return mesaActual;
+}, [mesaRutaId, mesaValida, currentRestaurantId]);
 
   const cargarProductos = useCallback(async () => {
   const productosRes = await fetch(productosEndpoint, {
@@ -234,19 +219,11 @@ const pedidosEndpoint = useMemo(
     setCargando(true);
 
     try {
-      let mesaQuery = supabase
-  .from('mesas')
-  .select('id, numero, nombre, restaurant_id')
-  .eq('numero', mesaRutaId);
-
-if (restaurantIdParam) {
-  mesaQuery = mesaQuery.eq('restaurant_id', restaurantIdParam);
-}
-
-if (!hasRestaurantScope) {
+      if (!currentRestaurantId) {
   setMensaje(
     'Falta identificar la sucursal de esta mesa. Volvé a abrir el QR desde Inicio o desde Mesas y QR.'
   );
+  setMesa(null);
   setProductos([]);
   setCategorias([]);
   setCategoriaSeleccionada(null);
@@ -254,7 +231,12 @@ if (!hasRestaurantScope) {
   return;
 }
 
-const mesaPromise = mesaQuery.maybeSingle();
+const mesaPromise = supabase
+  .from('mesas')
+  .select('id, numero, nombre, restaurant_id')
+  .eq('restaurant_id', currentRestaurantId)
+  .eq('numero', mesaRutaId)
+  .maybeSingle();
 
 const productosPromise = fetch(productosEndpoint, {
   method: 'GET',
@@ -308,7 +290,7 @@ const productosPromise = fetch(productosEndpoint, {
   };
 
   void cargarDatosIniciales();
-}, [mesaRutaId, mesaValida, productosEndpoint, restaurantIdParam, hasRestaurantScope]);
+}, [mesaRutaId, mesaValida, productosEndpoint, currentRestaurantId, hasRestaurantScope]);
 
   useEffect(() => {
     if (!mesa?.id) return;
@@ -505,6 +487,13 @@ const productosPromise = fetch(productosEndpoint, {
     setProcesandoPago(true);
     setMensaje(null);
 
+    if (!currentRestaurantId) {
+  setMensaje(
+    'Falta identificar la sucursal de esta mesa. Volvé a abrir el QR desde Inicio o desde Mesas y QR.'
+  );
+  return;
+}
+
     try {
       if (carrito.length > 0) {
         const pedido = await crearPedidoDesdeCarrito('efectivo');
@@ -523,8 +512,9 @@ const productosPromise = fetch(productosEndpoint, {
             estado_pago: 'aprobado',
             efectivo_aprobado: true,
           })
-          .eq('mesa_id', mesa.id)
-          .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
+          .eq('restaurant_id', currentRestaurantId)
+.eq('mesa_id', mesa.id)
+.in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
         if (error) {
           console.error('No se pudo marcar pago en efectivo:', error);
@@ -546,6 +536,13 @@ const productosPromise = fetch(productosEndpoint, {
 
     setMensaje(null);
 
+    if (!currentRestaurantId) {
+  setMensaje(
+    'Falta identificar la sucursal de esta mesa. Volvé a abrir el QR desde Inicio o desde Mesas y QR.'
+  );
+  return;
+}
+
     if (mesa?.id) {
       if (carrito.length > 0) {
         const pedido = await crearPedidoDesdeCarrito('virtual');
@@ -564,8 +561,9 @@ const productosPromise = fetch(productosEndpoint, {
             estado_pago: 'pendiente',
             efectivo_aprobado: false,
           })
-          .eq('mesa_id', mesa.id)
-          .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
+          .eq('restaurant_id', currentRestaurantId)
+.eq('mesa_id', mesa.id)
+.in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
 
         if (error) {
           console.error('No se pudo marcar pago virtual:', error);
@@ -608,6 +606,36 @@ const productosPromise = fetch(productosEndpoint, {
       </main>
     );
   }
+
+  if (!hasRestaurantScope) {
+  return (
+    <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-8">
+      <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-sm text-center">
+        <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+          Falta sucursal
+        </p>
+
+        <h1 className="mt-2 text-2xl font-bold text-slate-900">
+          Este QR no identifica una sucursal
+        </h1>
+
+        <p className="mt-3 text-sm leading-relaxed text-slate-600">
+          Para pedir desde una mesa, el enlace tiene que incluir la sucursal del
+          local. Volvé a escanear el QR impreso desde Mesas y QR.
+        </p>
+
+        <div className="mt-5 flex flex-wrap justify-center gap-3">
+          <Link
+            href="/inicio"
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Ir al inicio
+          </Link>
+        </div>
+      </div>
+    </main>
+  );
+}
 
   if (cargando) {
     return (
