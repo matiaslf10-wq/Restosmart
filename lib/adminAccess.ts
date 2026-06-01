@@ -35,6 +35,18 @@ type TenantAddonRow = {
   enabled: boolean | null;
 };
 
+type TenantSubscriptionStatus =
+  | 'active'
+  | 'pending_payment'
+  | 'payment_failed'
+  | 'cancelled';
+
+type TenantSubscriptionRow = {
+  tenant_id: string | null;
+  plan: string | null;
+  status: TenantSubscriptionStatus | string | null;
+};
+
 type LocalConfigRow = {
   business_mode: string | null;
 };
@@ -42,6 +54,10 @@ type LocalConfigRow = {
 export type AdminAccessSnapshot = {
   tenantId: string;
   plan: PlanCode;
+  subscription: {
+    plan: PlanCode;
+    status: TenantSubscriptionStatus;
+  };
   businessMode: BusinessMode;
   restaurant: {
     id: string;
@@ -91,9 +107,13 @@ export function getFallbackAdminAccess(): AdminAccessSnapshot {
   const addons = getDefaultAddons();
 
   return {
-    tenantId: DEFAULT_TENANT_ID,
+  tenantId: DEFAULT_TENANT_ID,
+  plan,
+  subscription: {
     plan,
-    businessMode,
+    status: 'active',
+  },
+  businessMode,
     restaurant: null,
     addons,
     features: getFeaturesForContext(plan, businessMode),
@@ -175,15 +195,54 @@ async function resolveRestaurant(
   return await getFirstRestaurant();
 }
 
-async function resolveTenantPlan(params: {
+function normalizeSubscriptionStatus(
+  value: unknown
+): TenantSubscriptionStatus {
+  const normalized = String(value ?? '').trim().toLowerCase();
+
+  if (normalized === 'pending_payment') return 'pending_payment';
+  if (normalized === 'payment_failed') return 'payment_failed';
+  if (normalized === 'cancelled') return 'cancelled';
+
+  return 'active';
+}
+
+async function resolveTenantSubscription(params: {
   tenantId: string;
   fallbackRestaurant: RestaurantRow | null;
 }) {
   const { tenantId, fallbackRestaurant } = params;
 
-  const owner = await getRestaurantBySlug(tenantId).catch(() => null);
+  const { data, error } = await supabaseAdmin
+    .from('tenant_subscriptions')
+    .select('tenant_id, plan, status')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
 
-  return normalizePlan(owner?.plan ?? fallbackRestaurant?.plan);
+  if (error) {
+    console.error('No se pudo leer tenant_subscriptions:', error);
+  }
+
+  const subscription = (data ?? null) as TenantSubscriptionRow | null;
+
+  const fallbackOwner = await getRestaurantBySlug(tenantId).catch(() => null);
+
+  const subscriptionPlan = normalizePlan(
+    subscription?.plan ?? fallbackOwner?.plan ?? fallbackRestaurant?.plan
+  );
+
+  const subscriptionStatus = normalizeSubscriptionStatus(
+    subscription?.status ?? 'active'
+  );
+
+  const effectivePlan =
+    subscriptionStatus === 'active' ? subscriptionPlan : 'esencial';
+
+  return {
+    plan: effectivePlan,
+    subscriptionPlan,
+    subscriptionStatus,
+  };
 }
 
 async function getWhatsAppConnectionByTenantId(tenantId: string) {
@@ -268,10 +327,12 @@ export async function resolveAdminAccess(
   const requestedTenantSlug = normalizeNonEmptyString(options.tenantSlug);
   const tenantId = getTenantIdFromRestaurant(restaurant, requestedTenantSlug);
 
-  const plan = await resolveTenantPlan({
-    tenantId,
-    fallbackRestaurant: restaurant,
-  });
+  const subscription = await resolveTenantSubscription({
+  tenantId,
+  fallbackRestaurant: restaurant,
+});
+
+const plan = subscription.plan;
 
   const restaurantId = restaurant?.id == null ? null : String(restaurant.id);
 
@@ -288,9 +349,13 @@ export async function resolveAdminAccess(
   };
 
   return {
-    tenantId,
-    plan,
-    businessMode,
+  tenantId,
+  plan,
+  subscription: {
+    plan: subscription.subscriptionPlan,
+    status: subscription.subscriptionStatus,
+  },
+  businessMode,
     restaurant: restaurant
       ? {
           id: String(restaurant.id),
