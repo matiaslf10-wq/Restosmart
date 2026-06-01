@@ -169,6 +169,32 @@ if (primaryRestaurantError || !primaryRestaurant?.id) {
       throw configError;
     }
 
+    const { error: subscriptionError } = await supabaseAdmin
+  .from('tenant_subscriptions')
+  .insert({
+    tenant_id: tenantSlug,
+    plan: selectedPlan,
+    status: 'active',
+    provider: null,
+    external_reference: null,
+    mp_preference_id: null,
+    checkout_url: null,
+  });
+
+if (subscriptionError) {
+  await supabaseAdmin
+    .from('configuracion_local')
+    .delete()
+    .eq('restaurant_id', primaryRestaurant.id);
+
+  await supabaseAdmin
+    .from('restaurants')
+    .delete()
+    .eq('id', primaryRestaurant.id);
+
+  throw subscriptionError;
+}
+
     const { data: adminUser, error: adminError } = await supabaseAdmin
       .from('admin_users')
       .insert({
@@ -182,17 +208,23 @@ if (primaryRestaurantError || !primaryRestaurant?.id) {
       .single();
 
     if (adminError || !adminUser?.id) {
-      await supabaseAdmin
-        .from('configuracion_local')
-        .delete()
-        .eq('restaurant_id', primaryRestaurant.id)
+  await supabaseAdmin
+    .from('tenant_subscriptions')
+    .delete()
+    .eq('tenant_id', tenantSlug);
 
-      await supabaseAdmin
-  .from('restaurants')
-  .delete()
-  .eq('id', primaryRestaurant.id);
-      throw adminError ?? new Error('No se pudo crear el usuario administrador.');
-    }
+  await supabaseAdmin
+    .from('configuracion_local')
+    .delete()
+    .eq('restaurant_id', primaryRestaurant.id);
+
+  await supabaseAdmin
+    .from('restaurants')
+    .delete()
+    .eq('id', primaryRestaurant.id);
+
+  throw adminError ?? new Error('No se pudo crear el usuario administrador.');
+}
 
     const response = NextResponse.json(
       {
