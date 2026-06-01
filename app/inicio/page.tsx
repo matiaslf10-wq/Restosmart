@@ -11,6 +11,12 @@ import {
   type PlanCode,
 } from '@/lib/plans';
 
+type SubscriptionStatus =
+  | 'active'
+  | 'pending_payment'
+  | 'payment_failed'
+  | 'cancelled';
+
 type AdminSessionPayload = {
   adminId: string;
   email: string;
@@ -18,6 +24,10 @@ type AdminSessionPayload = {
   exp: number;
   tenantId?: string;
   plan?: PlanCode;
+  subscription?: {
+    plan?: PlanCode;
+    status?: SubscriptionStatus;
+  };
   business_mode?: BusinessMode;
   addons?: {
     whatsapp_delivery?: boolean;
@@ -28,11 +38,15 @@ type AdminSessionPayload = {
     waiter_mode?: boolean;
   };
   restaurant?: {
-    id: string;
-    slug: string;
-    plan: PlanCode;
-    business_mode?: BusinessMode;
-  } | null;
+  id: string;
+  slug: string;
+  plan: PlanCode;
+  business_mode?: BusinessMode;
+  subscription?: {
+    plan?: PlanCode;
+    status?: SubscriptionStatus;
+  };
+} | null;
 };
 
 type RestaurantStatus = 'activo' | 'pausado' | 'cerrado';
@@ -115,6 +129,26 @@ function getRestaurantName(restaurant: RestaurantItem) {
 
 function getScopedHref(path: string, restaurantId: string) {
   return `${path}?restaurantId=${encodeURIComponent(restaurantId)}`;
+}
+
+function formatSubscriptionStatusLabel(status: SubscriptionStatus) {
+  if (status === 'pending_payment') return 'Pendiente de pago';
+  if (status === 'payment_failed') return 'Pago rechazado';
+  if (status === 'cancelled') return 'Cancelada';
+
+  return 'Activa';
+}
+
+function getSubscriptionBannerClassName(status: SubscriptionStatus) {
+  if (status === 'active') {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+  }
+
+  if (status === 'pending_payment') {
+    return 'border-amber-200 bg-amber-50 text-amber-900';
+  }
+
+  return 'border-rose-200 bg-rose-50 text-rose-900';
 }
 
 function QuickAccessCard({
@@ -378,6 +412,21 @@ export default function InicioPage() {
   const [error, setError] = useState('');
   const [restaurantsError, setRestaurantsError] = useState('');
 
+  async function logout() {
+  try {
+    await fetch('/api/admin/logout', {
+      method: 'POST',
+      cache: 'no-store',
+      credentials: 'include',
+    });
+  } catch (error) {
+    console.error('No se pudo cerrar sesión', error);
+  } finally {
+    router.replace('/admin/login');
+    router.refresh();
+  }
+}
+
   useEffect(() => {
     let active = true;
 
@@ -455,7 +504,21 @@ export default function InicioPage() {
   }, [mesaInput]);
 
   const plan = sessionData?.plan ?? sessionData?.restaurant?.plan ?? 'esencial';
-  const planLabel = formatPlanLabel(plan);
+const planLabel = formatPlanLabel(plan);
+
+const subscriptionPlan =
+  sessionData?.subscription?.plan ??
+  sessionData?.restaurant?.subscription?.plan ??
+  plan;
+
+const subscriptionStatus =
+  sessionData?.subscription?.status ??
+  sessionData?.restaurant?.subscription?.status ??
+  'active';
+
+const subscriptionPlanLabel = formatPlanLabel(subscriptionPlan);
+const subscriptionStatusLabel = formatSubscriptionStatusLabel(subscriptionStatus);
+const subscriptionIsActive = subscriptionStatus === 'active';
 
   const sessionBusinessMode = normalizeBusinessMode(
     sessionData?.business_mode ?? sessionData?.restaurant?.business_mode
@@ -507,6 +570,40 @@ const hasWhatsappDelivery = addons.whatsapp_delivery === true;
       badgeTone: 'default' as CardTone,
     };
   }, [plan]);
+
+  const subscriptionSummary = useMemo(() => {
+  if (subscriptionIsActive) {
+    return {
+      title: `Suscripción ${subscriptionStatusLabel}`,
+      description: `Tu plan contratado ${subscriptionPlanLabel} está activo. El sistema está operando con el plan ${planLabel}.`,
+    };
+  }
+
+  if (subscriptionStatus === 'pending_payment') {
+    return {
+      title: 'Suscripción pendiente de pago',
+      description: `Contrataste ${subscriptionPlanLabel}, pero hasta confirmar el pago el sistema opera con el plan ${planLabel}.`,
+    };
+  }
+
+  if (subscriptionStatus === 'payment_failed') {
+    return {
+      title: 'Hubo un problema con el pago',
+      description: `El plan contratado es ${subscriptionPlanLabel}, pero el sistema opera con ${planLabel} hasta regularizar el pago.`,
+    };
+  }
+
+  return {
+    title: 'Suscripción cancelada',
+    description: `El plan contratado era ${subscriptionPlanLabel}. El sistema opera actualmente con ${planLabel}.`,
+  };
+}, [
+  planLabel,
+  subscriptionIsActive,
+  subscriptionPlanLabel,
+  subscriptionStatus,
+  subscriptionStatusLabel,
+]);
 
   const quickLinks = useMemo<QuickLink[]>(() => {
   const links: QuickLink[] = [
@@ -601,22 +698,34 @@ const hasWhatsappDelivery = addons.whatsapp_delivery === true;
             </div>
 
             <div className="flex flex-col items-start gap-2 sm:items-end">
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClassName(
-                  planSummary.badgeTone
-                )}`}
-              >
-                {planSummary.title}
-              </span>
+  <span
+    className={`rounded-full px-3 py-1 text-xs font-semibold ${getBadgeClassName(
+      planSummary.badgeTone
+    )}`}
+  >
+    {planSummary.title}
+  </span>
 
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                Plan {planLabel}
-              </span>
+  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+    Plan efectivo: {planLabel}
+  </span>
 
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                {businessModeLabel} · {tenantLabel}
-              </span>
-            </div>
+  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+    Contratado: {subscriptionPlanLabel}
+  </span>
+
+  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+    {businessModeLabel} · {tenantLabel}
+  </span>
+
+  <button
+    type="button"
+    onClick={logout}
+    className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+  >
+    Cerrar sesión
+  </button>
+</div>
           </div>
 
           <p className="mt-5 max-w-4xl text-sm leading-relaxed text-slate-600">
@@ -646,6 +755,33 @@ const hasWhatsappDelivery = addons.whatsapp_delivery === true;
 </a>
           </div>
         </header>
+
+        <section
+  className={`rounded-3xl border px-5 py-4 shadow-sm ${getSubscriptionBannerClassName(
+    subscriptionStatus
+  )}`}
+>
+  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div>
+      <p className="text-sm font-bold">
+        {subscriptionSummary.title}
+      </p>
+
+      <p className="mt-1 text-sm leading-relaxed">
+        {subscriptionSummary.description}
+      </p>
+    </div>
+
+    {!subscriptionIsActive ? (
+      <Link
+        href="/#precios"
+        className="inline-flex rounded-xl bg-white/80 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-white"
+      >
+        Ver planes
+      </Link>
+    ) : null}
+  </div>
+</section>
 
         <section
   id="sucursales-operacion"
