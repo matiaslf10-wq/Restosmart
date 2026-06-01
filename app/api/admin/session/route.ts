@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
   getFallbackAdminAccess,
   resolveAdminAccess,
@@ -12,6 +13,12 @@ import {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+type AdminUserTenantRow = {
+  id: string | number;
+  email: string | null;
+  tenant_id: string | null;
+};
 
 type PublicOrderingMeta = {
   business_mode_label: string;
@@ -113,6 +120,46 @@ function extractRequestedTenantContext(
   };
 }
 
+async function getTenantIdForAdminSession(session: unknown) {
+  const sessionRecord = asRecord(session);
+
+  const tenantFromSession = pickFirstString(
+    sessionRecord?.tenantId,
+    sessionRecord?.tenant_id
+  );
+
+  if (tenantFromSession) {
+    return tenantFromSession;
+  }
+
+  const adminId = pickFirstString(sessionRecord?.adminId);
+  const email = pickFirstString(sessionRecord?.email);
+
+  let query = supabaseAdmin
+    .from('admin_users')
+    .select('id, email, tenant_id')
+    .limit(1);
+
+  if (adminId) {
+    query = query.eq('id', adminId);
+  } else if (email) {
+    query = query.ilike('email', email);
+  } else {
+    return null;
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) {
+    console.error('No se pudo leer tenant_id del admin:', error);
+    return null;
+  }
+
+  const adminUser = (data ?? null) as AdminUserTenantRow | null;
+
+  return normalizeNonEmptyString(adminUser?.tenant_id);
+}
+
 export async function GET(request: NextRequest) {
   const auth = requireAdminAuth(request);
 
@@ -121,11 +168,17 @@ export async function GET(request: NextRequest) {
   }
 
   const requestedContext = extractRequestedTenantContext(request, auth.session);
+const sessionTenantId = await getTenantIdForAdminSession(auth.session);
 
-  let access = getFallbackAdminAccess();
+const resolvedContext: AdminAccessResolutionOptions = {
+  ...requestedContext,
+  tenantSlug: requestedContext.tenantSlug ?? sessionTenantId,
+};
+
+let access = getFallbackAdminAccess();
 
   try {
-    access = await resolveAdminAccess(requestedContext);
+    access = await resolveAdminAccess(resolvedContext);
   } catch (error) {
     console.error('GET /api/admin/session access resolution error:', error);
 
@@ -149,7 +202,8 @@ export async function GET(request: NextRequest) {
         ...auth.session,
         tenantId: access.tenantId,
         plan: access.plan,
-        business_mode: businessMode,
+subscription: access.subscription,
+business_mode: businessMode,
         businessMode,
         addons: access.addons,
         features: access.features,
@@ -159,7 +213,8 @@ export async function GET(request: NextRequest) {
           ? {
               ...access.restaurant,
               business_mode: businessMode,
-              businessMode,
+businessMode,
+subscription: access.subscription,
             }
           : null,
       },
