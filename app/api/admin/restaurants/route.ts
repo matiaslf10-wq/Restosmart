@@ -8,7 +8,6 @@ import {
 } from '@/lib/adminAccess';
 import {
   normalizeBusinessMode,
-  normalizePlan,
   type BusinessMode,
   type PlanCode,
 } from '@/lib/plans';
@@ -36,12 +35,6 @@ type LocalConfigRow = {
   business_mode: string | null;
 };
 
-type TenantAddonRow = {
-  tenant_id: string | null;
-  addon_key: string | null;
-  enabled: boolean | null;
-};
-
 function normalizeNonEmptyString(value: unknown) {
   const text = String(value ?? '').trim();
   return text.length > 0 ? text : null;
@@ -56,18 +49,6 @@ function normalizeSlug(value: unknown) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60);
-}
-
-function normalizeBoolean(value: unknown, fallback = false) {
-  if (typeof value === 'boolean') return value;
-
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'true') return true;
-    if (normalized === 'false') return false;
-  }
-
-  return fallback;
 }
 
 function getUnknownErrorMessage(error: unknown) {
@@ -152,54 +133,6 @@ function normalizeRestaurantStatus(value: unknown): RestaurantStatus {
 
 function canUseMultiBrand(access: AdminAccessSnapshot) {
   return !!access.capabilities?.multi_brand || !!access.addons?.multi_brand;
-}
-
-async function getMultiBrandEnabledByTenant(slug: string) {
-  const { data, error } = await supabaseAdmin
-    .from('tenant_addons')
-    .select('enabled')
-    .eq('tenant_id', slug)
-    .eq('addon_key', 'multi_brand')
-    .maybeSingle();
-
-  if (error) {
-    console.error('Error leyendo multi_brand:', error);
-    return false;
-  }
-
-  return data?.enabled === true;
-}
-
-async function setMultiBrandEnabled(slug: string, enabled: boolean) {
-  const { data: existing, error: readError } = await supabaseAdmin
-    .from('tenant_addons')
-    .select('tenant_id, addon_key')
-    .eq('tenant_id', slug)
-    .eq('addon_key', 'multi_brand')
-    .maybeSingle();
-
-  if (readError) {
-    throw readError;
-  }
-
-  if (existing) {
-    const { error } = await supabaseAdmin
-      .from('tenant_addons')
-      .update({ enabled })
-      .eq('tenant_id', slug)
-      .eq('addon_key', 'multi_brand');
-
-    if (error) throw error;
-    return;
-  }
-
-  const { error } = await supabaseAdmin.from('tenant_addons').insert({
-    tenant_id: slug,
-    addon_key: 'multi_brand',
-    enabled,
-  });
-
-  if (error) throw error;
 }
 
 export async function GET(req: NextRequest) {
@@ -322,7 +255,6 @@ export async function POST(req: NextRequest) {
     const slug = normalizeSlug(body?.slug ?? nombreLocal);
     const technicalPlanFallback = access.plan as PlanCode;
     const businessMode = normalizeBusinessMode(body?.business_mode) as BusinessMode;
-    const multiBrand = normalizeBoolean(body?.multi_brand, false);
 
     if (!nombreLocal) {
       return NextResponse.json(
@@ -413,8 +345,6 @@ export async function POST(req: NextRequest) {
       throw configError;
     }
 
-    await setMultiBrandEnabled(ownerTenantId, multiBrand);
-
     return NextResponse.json(
       {
         ok: true,
@@ -429,7 +359,7 @@ export async function POST(req: NextRequest) {
           horario_atencion:
             normalizeNonEmptyString(body?.horario_atencion) ?? '',
           business_mode: businessMode,
-          multi_brand: await getMultiBrandEnabledByTenant(ownerTenantId),
+          multi_brand: canUseMultiBrand(access),
           estado: 'activo',
         },
       },

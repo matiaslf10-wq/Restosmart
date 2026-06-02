@@ -35,7 +35,6 @@ type RestaurantForm = {
   email: string;
   horario_atencion: string;
   business_mode: BusinessMode;
-  multi_brand: boolean;
 };
 
 const EMPTY_FORM: RestaurantForm = {
@@ -47,7 +46,6 @@ const EMPTY_FORM: RestaurantForm = {
   email: '',
   horario_atencion: '',
   business_mode: 'takeaway',
-  multi_brand: true,
 };
 
 function getApiErrorMessage(value: unknown, fallback: string) {
@@ -254,16 +252,15 @@ const closedCount = useMemo(
   horario_atencion: string
 ) {
   setForm({
-    nombre_local,
-    slug,
-    direccion,
-    telefono: '',
-    celular: '',
-    email: '',
-    horario_atencion,
-    business_mode: 'takeaway',
-    multi_brand: true,
-  });
+  nombre_local,
+  slug,
+  direccion,
+  telefono: '',
+  celular: '',
+  email: '',
+  horario_atencion,
+  business_mode: 'takeaway',
+});
 }
 
   return (
@@ -329,8 +326,7 @@ const closedCount = useMemo(
           <div>
             <h2 className="text-lg font-semibold">Crear restaurante</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Para la demo, creá tres sucursales take away dentro del tenant actual,
-con Multimarca activo.
+              Creá sucursales dentro del tenant actual. Los add-ons, como Multimarca, se activan aparte.
             </p>
           </div>
 
@@ -513,17 +509,6 @@ con Multimarca activo.
             </label>
           </div>
 
-          <label className="flex items-center gap-3 rounded-2xl border border-fuchsia-200 bg-fuchsia-50 px-4 py-3">
-            <input
-              type="checkbox"
-              checked={form.multi_brand}
-              onChange={(e) => updateForm('multi_brand', e.target.checked)}
-            />
-            <span className="text-sm font-medium text-fuchsia-900">
-  Activar Multimarca para este tenant/grupo
-</span>
-          </label>
-
           <div className="flex flex-wrap gap-3">
             <button
               type="submit"
@@ -648,12 +633,21 @@ con Multimarca activo.
       Configurar local
     </Link>
 
-    <Link
-      href="/admin/marcas"
-      className="rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-center text-sm font-semibold text-fuchsia-800 hover:bg-fuchsia-100"
-    >
-      Gestionar marcas del tenant
-    </Link>
+    {item.multi_brand ? (
+  <Link
+    href="/admin/marcas"
+    className="rounded-xl border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-center text-sm font-semibold text-fuchsia-800 hover:bg-fuchsia-100"
+  >
+    Gestionar marcas del tenant
+  </Link>
+) : (
+  <a
+    href="mailto:contacto@restosmart.com?subject=Activar%20Multimarca"
+    className="rounded-xl border border-fuchsia-200 bg-white px-4 py-2 text-center text-sm font-semibold text-fuchsia-700 hover:bg-fuchsia-50"
+  >
+    Solicitar Multimarca
+  </a>
+)}
 
     <Link
       href={buildTenantHref('/admin/productos', item.slug)}
