@@ -314,6 +314,14 @@ function getInitialRequestedRestaurantId() {
   );
 }
 
+function buildCommercialMailHref(subject: string, lines: string[]) {
+  const to = 'contacto@restosmart.com';
+  const encodedSubject = encodeURIComponent(subject);
+  const encodedBody = encodeURIComponent(lines.join('\n'));
+
+  return `mailto:${to}?subject=${encodedSubject}&body=${encodedBody}`;
+}
+
 export default function AdminConfiguracionPage() {
   const [sessionData, setSessionData] =
     useState<AdminSessionPayload | null>(null);
@@ -370,13 +378,10 @@ function buildPublicRetiroHref() {
   const [deliveryForm, setDeliveryForm] = useState<DeliveryConfig>(DEFAULT_DELIVERY);
   const [addonItems, setAddonItems] = useState<AddonItem[]>([]);
 const [cargandoAddons, setCargandoAddons] = useState(false);
-const [actualizandoAddonKey, setActualizandoAddonKey] =
-  useState<AddonKey | null>(null);
   
   const [selectedPlan, setSelectedPlan] = useState<PlanCode>('esencial');
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
-  const [guardandoPlan, setGuardandoPlan] = useState(false);
   const [mensaje, setMensaje] = useState('');
   const [error, setError] = useState('');
 
@@ -503,52 +508,24 @@ async function cargarAddons() {
   setSelectedPlan((session?.plan ?? 'esencial') as PlanCode);
 }
 
-  async function toggleAddon(item: AddonItem) {
-  if (!item.available || !item.configurable) return;
+  function getAddonRequestHref(item: AddonCard) {
+  const action = item.enabled ? 'baja o modificación' : 'activación';
 
-  if (item.key === 'multi_brand' && plan === 'esencial') {
-  setError('Multimarca está disponible desde el plan Pro.');
-  return;
-}
-
-  try {
-    setActualizandoAddonKey(item.key);
-    setMensaje('');
-    setError('');
-
-    const res = await fetch(buildTenantApiUrl('/api/admin/addons'), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        addon_key: item.key,
-        enabled: !item.enabled,
-      }),
-    });
-
-    const raw = await res.json().catch(() => null);
-
-    if (!res.ok) {
-      throw new Error(
-        getApiErrorMessage(raw, 'No se pudo actualizar el add-on.')
-      );
-    }
-
-    await reloadSession();
-    await cargarAddons();
-
-    setMensaje(
-      !item.enabled
-        ? `${item.label} activado correctamente.`
-        : `${item.label} desactivado correctamente.`
-    );
-  } catch (err) {
-    console.error(err);
-    setError(
-      err instanceof Error ? err.message : 'No se pudo actualizar el add-on.'
-    );
-  } finally {
-    setActualizandoAddonKey(null);
-  }
+  return buildCommercialMailHref(
+    `Solicitar ${action} de ${item.label}`,
+    [
+      `Hola, quiero solicitar ${action} del add-on ${item.label} en RestoSmart.`,
+      '',
+      `Tenant / grupo: ${tenantContextLabel}`,
+      `Sucursal: ${sucursalContextLabel}`,
+      `Plan actual: ${planLabel}`,
+      `Estado actual del add-on: ${item.enabled ? 'Activo' : 'No activo'}`,
+      `Precio informado: ${item.priceText}`,
+      `Disponibilidad: ${item.availabilityText}`,
+      '',
+      'Quedo atento/a para avanzar con la activación, modificación o baja correspondiente.',
+    ]
+  );
 }
 
   useEffect(() => {
@@ -713,53 +690,36 @@ async function cargarAddons() {
     }));
   }
 
-  async function guardarPlan() {
-    if (!planChanged) {
-      setMensaje('El plan seleccionado ya es el plan actual.');
-      setError('');
-      return;
-    }
-
-    try {
-      setGuardandoPlan(true);
-      setMensaje('');
-      setError('');
-
-      const res = await fetch(buildTenantApiUrl('/api/admin/plan'), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-  plan: selectedPlan,
-  tenantSlug: requestedTenant ?? sessionData?.tenantId ?? tenantLabel,
-  restaurantId: requestedRestaurantId ?? sessionData?.restaurant?.id ?? null,
-}),
-        }
-      );
-
-      const raw = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        throw new Error(
-          getApiErrorMessage(raw, 'No se pudo actualizar el plan.')
-        );
-      }
-
-      await reloadSession();
-await cargarAddons();
-
-setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
-      setError('');
-    } catch (err) {
-      console.error(err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'No se pudo actualizar el plan.'
-      );
-    } finally {
-      setGuardandoPlan(false);
-    }
+  function solicitarCambioPlan() {
+  if (!planChanged) {
+    setMensaje('El plan seleccionado ya es el plan actual.');
+    setError('');
+    return;
   }
+
+  const href = buildCommercialMailHref(
+    `Solicitar cambio de plan a ${formatPlanLabel(selectedPlan)}`,
+    [
+      'Hola, quiero solicitar un cambio de plan en RestoSmart.',
+      '',
+      `Tenant / grupo: ${tenantContextLabel}`,
+      `Sucursal: ${sucursalContextLabel}`,
+      `Plan actual: ${planLabel}`,
+      `Plan solicitado: ${formatPlanLabel(selectedPlan)}`,
+      '',
+      'Quedo atento/a para avanzar con la activación y el cobro correspondiente.',
+    ]
+  );
+
+  window.location.href = href;
+
+  setMensaje(
+    `Se abrió una solicitud para cambiar el tenant de ${planLabel} a ${formatPlanLabel(
+      selectedPlan
+    )}. El plan no se modifica automáticamente.`
+  );
+  setError('');
+}
 
   async function guardarTodo(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1070,21 +1030,18 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
 
         <div className="mt-4 flex flex-wrap gap-3">
           <button
-            type="button"
-            onClick={() => {
-              void guardarPlan();
-            }}
-            disabled={guardandoPlan || !planChanged}
-            className="rounded-xl bg-black px-5 py-3 text-white disabled:opacity-60"
-          >
-            {guardandoPlan ? 'Actualizando plan...' : 'Guardar cambio de plan'}
-          </button>
+  type="button"
+  onClick={solicitarCambioPlan}
+  disabled={!planChanged}
+  className="rounded-xl bg-black px-5 py-3 text-white disabled:opacity-60"
+>
+  Solicitar cambio de plan
+</button>
 
           {planChanged ? (
             <span className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-  Vas a pasar el tenant de {planLabel} a {formatPlanLabel(selectedPlan)}.
-  Si el nuevo plan excede restaurantes o marcas activas, el sistema va a bloquear el cambio.
-</span>
+  Vas a solicitar el cambio del tenant de {planLabel} a {formatPlanLabel(selectedPlan)}.
+El plan no se modifica automáticamente: requiere activación comercial y cobro.</span>
           ) : (
             <span className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               No hay cambios pendientes en el plan.
@@ -1121,7 +1078,7 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
 
   <div className="mt-4 grid gap-4 lg:grid-cols-3">
     {addonCards.map((item) => {
-      const updating = actualizandoAddonKey === item.key;
+      
 
       return (
         <article
@@ -1168,44 +1125,15 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
           </div>
 
           <div className="mt-4 space-y-2">
-            {item.actionAvailable ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void toggleAddon(item);
-                }}
-                disabled={updating}
-                className={`w-full rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 ${
-                  item.enabled
-                    ? 'bg-rose-600 hover:bg-rose-700'
-                    : 'bg-emerald-600 hover:bg-emerald-700'
-                }`}
-              >
-                {updating
-                  ? 'Actualizando...'
-                  : item.enabled
-                  ? 'Desactivar'
-                  : 'Activar'}
-              </button>
-            ) : (
-              <button
-  type="button"
-  disabled
-  className="w-full rounded-xl bg-slate-300 px-4 py-2 text-sm font-semibold text-slate-600"
->
-  {item.key === 'multi_brand' && plan === 'esencial'
-    ? 'Disponible desde Pro'
-    : 'Próximamente'}
-</button>
-            )}
-
-            {item.disabledReason ? (
-  <p className="text-xs leading-relaxed text-slate-500">
-    {item.disabledReason}
-  </p>
-) : null}
-
-{item.key === 'multi_brand' && plan === 'esencial' ? (
+            {item.key === 'billing' ? (
+  <button
+    type="button"
+    disabled
+    className="w-full rounded-xl bg-slate-300 px-4 py-2 text-sm font-semibold text-slate-600"
+  >
+    Próximamente
+  </button>
+) : item.key === 'multi_brand' && plan === 'esencial' ? (
   <button
     type="button"
     onClick={() => setSelectedPlan('pro')}
@@ -1213,6 +1141,23 @@ setMensaje(`Plan actualizado a ${formatPlanLabel(selectedPlan)}.`);
   >
     Seleccionar plan Pro
   </button>
+) : (
+  <a
+    href={getAddonRequestHref(item)}
+    className={`block w-full rounded-xl px-4 py-2 text-center text-sm font-semibold ${
+      item.enabled
+        ? 'border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+    }`}
+  >
+    {item.enabled ? 'Solicitar baja / modificación' : 'Solicitar activación'}
+  </a>
+)}
+
+            {item.disabledReason ? (
+  <p className="text-xs leading-relaxed text-slate-500">
+    {item.disabledReason}
+  </p>
 ) : null}
 
             {item.key === 'whatsapp_delivery' && item.enabled ? (
