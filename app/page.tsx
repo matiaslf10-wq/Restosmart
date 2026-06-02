@@ -4,7 +4,14 @@ import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 
-const LOGIN_HREF = '/login';
+const LOGIN_HREF = '/admin/login';
+const SIGNUP_HREF = '/signup';
+
+type LandingPlanCode = 'esencial' | 'pro' | 'intelligence';
+
+function getSignupHref(plan: LandingPlanCode) {
+  return `${SIGNUP_HREF}?plan=${plan}`;
+}
 
 function PhoneMockup() {
   return (
@@ -180,18 +187,25 @@ export default function RestoSmartLanding() {
             </a>
 
             <Link
-              href={LOGIN_HREF}
-              className="rounded-full border border-black/10 px-4 py-2 text-zinc-900 hover:bg-zinc-50"
-            >
-              Ingresar
-            </Link>
+  href={LOGIN_HREF}
+  className="rounded-full border border-black/10 px-4 py-2 text-zinc-900 hover:bg-zinc-50"
+>
+  Ingresar
+</Link>
 
-            <Link
-              href="/demo"
-              className="rounded-full bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-            >
-              Probar demo
-            </Link>
+<Link
+  href={SIGNUP_HREF}
+  className="rounded-full bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+>
+  Crear cuenta
+</Link>
+
+<Link
+  href="/demo"
+  className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+>
+  Probar demo
+</Link>
           </nav>
 
           <div className="flex items-center gap-2 md:hidden">
@@ -203,11 +217,11 @@ export default function RestoSmartLanding() {
             </Link>
 
             <Link
-              href="/demo"
-              className="rounded-full bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-            >
-              Probar demo
-            </Link>
+  href={SIGNUP_HREF}
+  className="rounded-full bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+>
+  Crear cuenta
+</Link>
           </div>
         </div>
       </header>
@@ -233,27 +247,34 @@ export default function RestoSmartLanding() {
             </p>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              <a
-                href="#precios"
-                className="rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
-                Ver planes y precios
-              </a>
+  <Link
+    href={SIGNUP_HREF}
+    className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+  >
+    Crear cuenta
+  </Link>
 
-              <Link
-                href={LOGIN_HREF}
-                className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
-              >
-                Ingresar al sistema
-              </Link>
+  <a
+    href="#precios"
+    className="rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+  >
+    Ver planes y precios
+  </a>
 
-              <a
-                href="#contacto"
-                className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-              >
-                Quiero una propuesta
-              </a>
-            </div>
+  <Link
+    href={LOGIN_HREF}
+    className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+  >
+    Ingresar al sistema
+  </Link>
+
+  <a
+    href="#contacto"
+    className="rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+  >
+    Quiero una propuesta
+  </a>
+</div>
 
             <div className="grid grid-cols-3 gap-3 pt-2 text-center">
               {[
@@ -550,6 +571,12 @@ export default function RestoSmartLanding() {
                 <li>✔ QR por mesa si operás con salón</li>
                 <li>✔ Cocina y operación básica</li>
               </ul>
+              <Link
+  href={getSignupHref('esencial')}
+  className="mt-6 inline-flex w-full justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+>
+  Elegir Esencial
+</Link>
             </div>
 
             <div className="relative rounded-3xl border-2 border-blue-600 bg-white p-6 shadow-md">
@@ -574,6 +601,12 @@ export default function RestoSmartLanding() {
                 Ideal si necesitás más control operativo. Los analytics avanzados
                 recién aparecen en Intelligence.
               </div>
+              <Link
+  href={getSignupHref('pro')}
+  className="mt-6 inline-flex w-full justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+>
+  Elegir Pro
+</Link>
             </div>
 
             <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
@@ -589,6 +622,12 @@ export default function RestoSmartLanding() {
                 <li>✔ Vista ejecutiva</li>
                 <li>✔ Insights para optimizar el negocio</li>
               </ul>
+              <Link
+  href={getSignupHref('intelligence')}
+  className="mt-6 inline-flex w-full justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+>
+  Elegir Intelligence
+</Link>
             </div>
           </div>
 
@@ -970,18 +1009,18 @@ export default function RestoSmartLanding() {
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
-              href={LOGIN_HREF}
-              className="inline-block rounded-2xl border border-white/30 bg-white px-6 py-3 text-sm font-semibold text-blue-600 hover:bg-blue-50"
-            >
-              Ingresar al sistema
-            </Link>
+  href={SIGNUP_HREF}
+  className="inline-block rounded-2xl border border-white/30 bg-white px-6 py-3 text-sm font-semibold text-blue-600 hover:bg-blue-50"
+>
+  Crear cuenta
+</Link>
 
-            <Link
-              href="/demo"
-              className="inline-block rounded-2xl border border-white/30 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
-            >
-              Probar demo
-            </Link>
+<Link
+  href={LOGIN_HREF}
+  className="inline-block rounded-2xl border border-white/30 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10"
+>
+  Ingresar al sistema
+</Link>
           </div>
         </div>
       </section>
