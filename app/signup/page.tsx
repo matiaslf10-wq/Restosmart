@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   normalizeBusinessMode,
+  normalizePlan,
   type BusinessMode,
   type PlanCode,
 } from '@/lib/plans';
@@ -67,6 +68,17 @@ export default function SignupPage() {
 
   const [businessMode, setBusinessMode] =
     useState<BusinessMode>('restaurant');
+
+    useEffect(() => {
+  if (typeof window === 'undefined') return;
+
+  const params = new URLSearchParams(window.location.search);
+  const planFromUrl = params.get('plan');
+
+  if (planFromUrl) {
+    setSelectedPlan(normalizePlan(planFromUrl));
+  }
+}, []);
 
   const [direccion, setDireccion] = useState('');
   const [telefono, setTelefono] = useState('');

@@ -571,10 +571,7 @@ export default function RestoSmartLanding() {
                 <li>✔ QR por mesa si operás con salón</li>
                 <li>✔ Cocina y operación básica</li>
               </ul>
-              <Link
-  href={getSignupHref('esencial')}
-  className="mt-6 inline-flex w-full justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
->
+              <Link href="/signup?plan=esencial">
   Elegir Esencial
 </Link>
             </div>
@@ -601,10 +598,7 @@ export default function RestoSmartLanding() {
                 Ideal si necesitás más control operativo. Los analytics avanzados
                 recién aparecen en Intelligence.
               </div>
-              <Link
-  href={getSignupHref('pro')}
-  className="mt-6 inline-flex w-full justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
->
+              <Link href="/signup?plan=pro">
   Elegir Pro
 </Link>
             </div>
@@ -622,10 +616,7 @@ export default function RestoSmartLanding() {
                 <li>✔ Vista ejecutiva</li>
                 <li>✔ Insights para optimizar el negocio</li>
               </ul>
-              <Link
-  href={getSignupHref('intelligence')}
-  className="mt-6 inline-flex w-full justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
->
+              <Link href="/signup?plan=intelligence">
   Elegir Intelligence
 </Link>
             </div>
