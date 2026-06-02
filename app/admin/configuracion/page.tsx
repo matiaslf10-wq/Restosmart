@@ -108,6 +108,12 @@ type AddonCard = AddonItem & {
   disabledReason?: string;
 };
 
+type BillingCheckoutResponse = {
+  ok?: boolean;
+  checkout_url?: string;
+  error?: string;
+};
+
 const DEFAULT_LOCAL: LocalConfig = {
   nombre_local: '',
   direccion: '',
@@ -320,6 +326,32 @@ function buildCommercialMailHref(subject: string, lines: string[]) {
   const encodedBody = encodeURIComponent(lines.join('\n'));
 
   return `mailto:${to}?subject=${encodedSubject}&body=${encodedBody}`;
+}
+
+async function startBillingCheckout(payload: {
+  kind: 'plan_change' | 'addon_activation';
+  target_plan?: PlanCode;
+  addon_key?: 'multi_brand' | 'whatsapp_delivery';
+}) {
+  const res = await fetch('/api/admin/billing/checkout', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = (await res.json().catch(() => null)) as
+    | BillingCheckoutResponse
+    | null;
+
+  if (!res.ok || !data?.checkout_url) {
+    throw new Error(
+      data?.error || 'No se pudo iniciar el checkout de Mercado Pago.'
+    );
+  }
+
+  window.location.href = data.checkout_url;
 }
 
 export default function AdminConfiguracionPage() {
@@ -690,15 +722,64 @@ async function cargarAddons() {
     }));
   }
 
-  function solicitarCambioPlan() {
+  async function solicitarCambioPlan() {
   if (!planChanged) {
     setMensaje('El plan seleccionado ya es el plan actual.');
     setError('');
     return;
   }
 
+  try {
+    setMensaje('');
+    setError('');
+
+    await startBillingCheckout({
+      kind: 'plan_change',
+      target_plan: selectedPlan,
+    });
+  } catch (err) {
+    console.error(err);
+    setError(
+      err instanceof Error
+        ? err.message
+        : 'No se pudo iniciar el pago del cambio de plan.'
+    );
+  }
+}
+
+async function contratarAddon(item: AddonCard) {
+  if (item.key === 'billing') {
+    setError('Facturación ARCA todavía no está disponible.');
+    return;
+  }
+
+  if (item.key === 'whatsapp_delivery') {
+    setError(
+      'WhatsApp Delivery tiene cotización aparte. Por ahora se activa manualmente.'
+    );
+    return;
+  }
+
+  try {
+    setMensaje('');
+    setError('');
+
+    await startBillingCheckout({
+      kind: 'addon_activation',
+      addon_key: item.key,
+    });
+  } catch (err) {
+    console.error(err);
+    setError(
+      err instanceof Error
+        ? err.message
+        : 'No se pudo iniciar el pago del add-on.'
+    );
+  }
+}
+
   const href = buildCommercialMailHref(
-    `Solicitar cambio de plan a ${formatPlanLabel(selectedPlan)}`,
+    `Contratar cambio de plan a ${formatPlanLabel(selectedPlan)}`,
     [
       'Hola, quiero solicitar un cambio de plan en RestoSmart.',
       '',
@@ -1142,16 +1223,20 @@ El plan no se modifica automáticamente: requiere activación comercial y cobro.
     Seleccionar plan Pro
   </button>
 ) : (
-  <a
-    href={getAddonRequestHref(item)}
-    className={`block w-full rounded-xl px-4 py-2 text-center text-sm font-semibold ${
-      item.enabled
-        ? 'border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
-        : 'bg-emerald-600 text-white hover:bg-emerald-700'
-    }`}
-  >
-    {item.enabled ? 'Solicitar baja / modificación' : 'Solicitar activación'}
-  </a>
+  <button
+  type="button"
+  onClick={() => {
+    void contratarAddon(item);
+  }}
+  disabled={item.enabled}
+  className={`block w-full rounded-xl px-4 py-2 text-center text-sm font-semibold disabled:opacity-60 ${
+    item.enabled
+      ? 'border border-rose-300 bg-rose-50 text-rose-700'
+      : 'bg-emerald-600 text-white hover:bg-emerald-700'
+  }`}
+>
+  {item.enabled ? 'Add-on activo' : 'Contratar add-on'}
+</button>
 )}
 
             {item.disabledReason ? (
