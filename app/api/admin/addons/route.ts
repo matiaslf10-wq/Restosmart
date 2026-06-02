@@ -5,7 +5,6 @@ import {
   resolveAdminAccess,
   type AdminAccessResolutionOptions,
 } from '@/lib/adminAccess';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,6 +13,8 @@ type AddonUpdateBody = {
   addon_key?: string;
   enabled?: boolean;
 };
+
+type AddonKey = 'multi_brand' | 'whatsapp_delivery' | 'billing';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -44,6 +45,14 @@ function pickFirstString(...values: unknown[]): string | null {
   }
 
   return null;
+}
+
+function isAddonKey(value: unknown): value is AddonKey {
+  return (
+    value === 'multi_brand' ||
+    value === 'whatsapp_delivery' ||
+    value === 'billing'
+  );
 }
 
 function extractRequestedTenantContext(
@@ -94,75 +103,6 @@ async function resolveAccessForRequest(request: NextRequest, session: unknown) {
   }
 }
 
-async function setTenantAddon(
-  tenantId: string,
-  addonKey: string,
-  enabled: boolean
-) {
-  const { data: existing, error: readError } = await supabaseAdmin
-    .from('tenant_addons')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('addon_key', addonKey)
-    .maybeSingle();
-
-  if (readError) throw readError;
-
-  if (existing?.id) {
-    const { error } = await supabaseAdmin
-      .from('tenant_addons')
-      .update({
-        enabled,
-        actualizado_en: new Date().toISOString(),
-      })
-      .eq('id', existing.id);
-
-    if (error) throw error;
-    return;
-  }
-
-  const { error } = await supabaseAdmin.from('tenant_addons').insert([
-    {
-      tenant_id: tenantId,
-      addon_key: addonKey,
-      enabled,
-    },
-  ]);
-
-  if (error) throw error;
-}
-
-async function setWhatsAppDeliveryAddon(tenantId: string, enabled: boolean) {
-  const { data: existing, error: readError } = await supabaseAdmin
-    .from('whatsapp_connections')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .order('id', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (readError) throw readError;
-
-  if (existing?.id) {
-    const { error } = await supabaseAdmin
-      .from('whatsapp_connections')
-      .update({ add_on_enabled: enabled })
-      .eq('id', existing.id);
-
-    if (error) throw error;
-    return;
-  }
-
-  const { error } = await supabaseAdmin.from('whatsapp_connections').insert([
-    {
-      tenant_id: tenantId,
-      add_on_enabled: enabled,
-    },
-  ]);
-
-  if (error) throw error;
-}
-
 export async function GET(request: NextRequest) {
   const auth = requireAdminAuth(request);
 
@@ -171,6 +111,8 @@ export async function GET(request: NextRequest) {
   }
 
   const access = await resolveAccessForRequest(request, auth.session);
+
+  const multiBrandAvailable = access.plan !== 'esencial';
 
   return NextResponse.json({
     ok: true,
@@ -187,7 +129,7 @@ export async function GET(request: NextRequest) {
         description:
           'Permite recibir pedidos por WhatsApp y gestionarlos desde RestoSmart.',
         enabled: !!access.addons.whatsapp_delivery,
-        configurable: true,
+        configurable: false,
         available: true,
         status: access.addons.whatsapp_delivery ? 'Activo' : 'Inactivo',
       },
@@ -197,14 +139,14 @@ export async function GET(request: NextRequest) {
         description:
           'Permite administrar varias marcas internas dentro del mismo local y tenant.',
         enabled: !!access.addons.multi_brand,
-        configurable: access.plan !== 'esencial',
-        available: access.plan !== 'esencial',
-status:
-  access.plan === 'esencial'
-    ? 'Disponible desde Pro'
-    : access.addons.multi_brand
-    ? 'Activo'
-    : 'Inactivo',
+        configurable: false,
+        available: multiBrandAvailable,
+        status:
+          access.plan === 'esencial'
+            ? 'Disponible desde Pro'
+            : access.addons.multi_brand
+            ? 'Activo'
+            : 'Inactivo',
       },
       {
         key: 'billing',
@@ -237,99 +179,66 @@ export async function PUT(request: NextRequest) {
     body = null;
   }
 
-  const addonKey = normalizeNonEmptyString(body?.addon_key);
-  const enabled = normalizeBoolean(body?.enabled, false);
+  const addonKeyRaw = normalizeNonEmptyString(body?.addon_key);
 
-  if (!addonKey) {
-    return NextResponse.json(
-      { error: 'El add-on es obligatorio.' },
-      { status: 400 }
-    );
+  if (!isAddonKey(addonKeyRaw)) {
+    return NextResponse.json({ error: 'Add-on inválido.' }, { status: 400 });
   }
 
-  if (addonKey === 'billing') {
+  if (addonKeyRaw === 'billing') {
     return NextResponse.json(
       { error: 'Facturación todavía no está disponible.' },
       { status: 409 }
     );
   }
 
-  if (addonKey !== 'multi_brand' && addonKey !== 'whatsapp_delivery') {
-    return NextResponse.json({ error: 'Add-on inválido.' }, { status: 400 });
+  const requestedEnabled = normalizeBoolean(body?.enabled, false);
+
+  const currentEnabled =
+    addonKeyRaw === 'multi_brand'
+      ? !!access.addons.multi_brand
+      : !!access.addons.whatsapp_delivery;
+
+  if (requestedEnabled === currentEnabled) {
+    return NextResponse.json({
+      ok: true,
+      mode: 'no_change',
+      tenantId: access.tenantId,
+      addon_key: addonKeyRaw,
+      enabled: currentEnabled,
+      message: 'El add-on ya está en ese estado.',
+    });
   }
 
-  try {
-    try {
-  if (addonKey === 'multi_brand' && enabled && access.plan === 'esencial') {
+  if (
+    addonKeyRaw === 'multi_brand' &&
+    requestedEnabled &&
+    access.plan === 'esencial'
+  ) {
     return NextResponse.json(
-      { error: 'Multimarca está disponible desde el plan Pro.' },
+      {
+        ok: false,
+        checkout_required: true,
+        error:
+          'Multimarca está disponible desde el plan Pro y requiere activación comercial.',
+        addon_key: addonKeyRaw,
+        tenantId: access.tenantId,
+      },
       { status: 409 }
     );
   }
 
-  if (addonKey === 'multi_brand') {
-    await setTenantAddon(access.tenantId, 'multi_brand', enabled);
-  }
-
-  if (addonKey === 'whatsapp_delivery') {
-    await Promise.all([
-      setTenantAddon(access.tenantId, 'whatsapp_delivery', enabled),
-      setWhatsAppDeliveryAddon(access.tenantId, enabled),
-    ]);
-  }
-
-  const updatedAccess = await resolveAdminAccess({
-    tenantSlug: access.restaurant?.slug ?? access.tenantId,
-    restaurantId: access.restaurant?.id ?? null,
-  });
-
-  return NextResponse.json({
-    ok: true,
-    tenantId: updatedAccess.tenantId,
-    addons: {
-      whatsapp_delivery: !!updatedAccess.addons.whatsapp_delivery,
-      multi_brand: !!updatedAccess.addons.multi_brand,
-      billing: false,
-    },
-  });
-} catch (error) {
-  console.error('PUT /api/admin/addons error:', error);
   return NextResponse.json(
-    { error: 'No se pudo actualizar el add-on.' },
-    { status: 500 }
+    {
+      ok: false,
+      checkout_required: true,
+      error:
+        'La activación, modificación o baja de add-ons pagos requiere activación comercial y cobro. No se puede modificar directamente desde esta API.',
+      addon_key: addonKeyRaw,
+      current_enabled: currentEnabled,
+      requested_enabled: requestedEnabled,
+      tenantId: access.tenantId,
+    },
+    { status: 402 }
   );
-}
-
-    if (addonKey === 'multi_brand') {
-      await setTenantAddon(access.tenantId, 'multi_brand', enabled);
-    }
-
-    if (addonKey === 'whatsapp_delivery') {
-      await Promise.all([
-        setTenantAddon(access.tenantId, 'whatsapp_delivery', enabled),
-        setWhatsAppDeliveryAddon(access.tenantId, enabled),
-      ]);
-    }
-
-    const updatedAccess = await resolveAdminAccess({
-      tenantSlug: access.restaurant?.slug ?? access.tenantId,
-      restaurantId: access.restaurant?.id ?? null,
-    });
-
-    return NextResponse.json({
-      ok: true,
-      tenantId: updatedAccess.tenantId,
-      addons: {
-        whatsapp_delivery: !!updatedAccess.addons.whatsapp_delivery,
-        multi_brand: !!updatedAccess.addons.multi_brand,
-        billing: false,
-      },
-    });
-  } catch (error) {
-    console.error('PUT /api/admin/addons error:', error);
-    return NextResponse.json(
-      { error: 'No se pudo actualizar el add-on.' },
-      { status: 500 }
-    );
-  }
 }
