@@ -410,12 +410,15 @@ function buildPublicRetiroHref() {
   const [deliveryForm, setDeliveryForm] = useState<DeliveryConfig>(DEFAULT_DELIVERY);
   const [addonItems, setAddonItems] = useState<AddonItem[]>([]);
 const [cargandoAddons, setCargandoAddons] = useState(false);
+const [actualizandoAddonKey, setActualizandoAddonKey] =
+  useState<AddonKey | null>(null);
   
   const [selectedPlan, setSelectedPlan] = useState<PlanCode>('esencial');
-  const [cargando, setCargando] = useState(true);
-  const [guardando, setGuardando] = useState(false);
-  const [mensaje, setMensaje] = useState('');
-  const [error, setError] = useState('');
+const [cargando, setCargando] = useState(true);
+const [guardando, setGuardando] = useState(false);
+const [guardandoPlan, setGuardandoPlan] = useState(false);
+const [mensaje, setMensaje] = useState('');
+const [error, setError] = useState('');
 
   const plan = sessionData?.plan ?? 'esencial';
   const planLabel = formatPlanLabel(plan);
@@ -722,6 +725,115 @@ async function cargarAddons() {
     }));
   }
 
+  async function guardarTodo(e: React.FormEvent<HTMLFormElement>) {
+  e.preventDefault();
+
+  try {
+    setGuardando(true);
+    setMensaje('');
+    setError('');
+
+    const localRes = await fetch(buildTenantApiUrl('/api/admin/local-config'), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(localForm),
+    });
+
+    const localRaw = await localRes.json().catch(() => null);
+
+    if (!localRes.ok) {
+      throw new Error(
+        getApiErrorMessage(
+          localRaw,
+          'No se pudo guardar la configuración del local.'
+        )
+      );
+    }
+
+    const savedLocalConfig = isLocalConfigSaveResponse(localRaw)
+      ? localRaw.config
+      : null;
+
+    if (savedLocalConfig) {
+      setLocalForm({
+        nombre_local: savedLocalConfig.nombre_local,
+        direccion: savedLocalConfig.direccion,
+        telefono: savedLocalConfig.telefono,
+        celular: savedLocalConfig.celular,
+        email: savedLocalConfig.email,
+        horario_atencion: savedLocalConfig.horario_atencion,
+        google_analytics_id: savedLocalConfig.google_analytics_id,
+        google_analytics_property_id:
+          savedLocalConfig.google_analytics_property_id,
+        business_mode: normalizeBusinessMode(savedLocalConfig.business_mode),
+      });
+    }
+
+    if (deliveryAddonEnabled) {
+      const deliveryRes = await fetch(
+        buildTenantApiUrl('/api/admin/delivery-config'),
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(deliveryForm),
+        }
+      );
+
+      const deliveryData = await deliveryRes.json().catch(() => null);
+
+      if (!deliveryRes.ok) {
+        throw new Error(
+          getApiErrorMessage(
+            deliveryData,
+            'No se pudo guardar la configuración de delivery.'
+          )
+        );
+      }
+    }
+
+    const nextBusinessMode = normalizeBusinessMode(
+      savedLocalConfig?.business_mode ?? localForm.business_mode
+    );
+
+    setMensaje(
+      deliveryAddonEnabled
+        ? 'Configuración de la sucursal guardada correctamente.'
+        : 'Configuración de la sucursal e integraciones guardadas correctamente.'
+    );
+
+    setSessionData((prev) =>
+      prev
+        ? {
+            ...prev,
+            business_mode: nextBusinessMode,
+            restaurant: prev.restaurant
+              ? {
+                  ...prev.restaurant,
+                  business_mode: nextBusinessMode,
+                }
+              : prev.restaurant,
+            capabilities: {
+              ...prev.capabilities,
+              waiter_mode:
+                nextBusinessMode === 'restaurant' &&
+                !!prev.capabilities?.waiter_mode,
+            },
+            public_ordering: getPublicOrderingMeta(nextBusinessMode),
+          }
+        : prev
+    );
+  } catch (err) {
+    console.error(err);
+    setError(
+      err instanceof Error
+        ? err.message
+        : 'Ocurrió un error al guardar la configuración.'
+    );
+  } finally {
+    setGuardando(false);
+  }
+}
+
   async function solicitarCambioPlan() {
   if (!planChanged) {
     setMensaje('El plan seleccionado ya es el plan actual.');
@@ -729,21 +841,52 @@ async function cargarAddons() {
     return;
   }
 
+  if (selectedPlan === 'esencial') {
+    setError(
+      'El cambio a Esencial no requiere checkout automático. Para bajar de plan conviene hacerlo con validación manual por límites de restaurantes, marcas y funcionalidades activas.'
+    );
+    return;
+  }
+
   try {
+    setGuardandoPlan(true);
     setMensaje('');
     setError('');
 
-    await startBillingCheckout({
-      kind: 'plan_change',
-      target_plan: selectedPlan,
+    const res = await fetch(buildTenantApiUrl('/api/admin/billing/checkout'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'plan_change',
+        target_plan: selectedPlan,
+      }),
     });
+
+    const raw = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(
+        getApiErrorMessage(raw, 'No se pudo iniciar el checkout del plan.')
+      );
+    }
+
+    const checkoutUrl =
+      raw?.checkoutUrl || raw?.checkout_url || raw?.init_point || null;
+
+    if (!checkoutUrl) {
+      throw new Error('Mercado Pago no devolvió una URL de checkout.');
+    }
+
+    window.location.href = checkoutUrl;
   } catch (err) {
     console.error(err);
     setError(
       err instanceof Error
         ? err.message
-        : 'No se pudo iniciar el pago del cambio de plan.'
+        : 'No se pudo iniciar el checkout del plan.'
     );
+  } finally {
+    setGuardandoPlan(false);
   }
 }
 
@@ -755,161 +898,64 @@ async function contratarAddon(item: AddonCard) {
 
   if (item.key === 'whatsapp_delivery') {
     setError(
-      'WhatsApp Delivery tiene cotización aparte. Por ahora se activa manualmente.'
+      'WhatsApp Delivery tiene cotización aparte. Por ahora se solicita comercialmente.'
     );
     return;
   }
 
+  if (item.key === 'multi_brand' && plan === 'esencial') {
+    setSelectedPlan('pro');
+    setError('Para contratar Multimarca, primero seleccioná y contratá Pro.');
+    return;
+  }
+
+  if (item.enabled) {
+    setMensaje(`${item.label} ya está activo.`);
+    setError('');
+    return;
+  }
+
   try {
+    setActualizandoAddonKey(item.key);
     setMensaje('');
     setError('');
 
-    await startBillingCheckout({
-      kind: 'addon_activation',
-      addon_key: item.key,
+    const res = await fetch(buildTenantApiUrl('/api/admin/billing/checkout'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'addon_activation',
+        addon_key: item.key,
+      }),
     });
+
+    const raw = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(
+        getApiErrorMessage(raw, 'No se pudo iniciar el checkout del add-on.')
+      );
+    }
+
+    const checkoutUrl =
+      raw?.checkoutUrl || raw?.checkout_url || raw?.init_point || null;
+
+    if (!checkoutUrl) {
+      throw new Error('Mercado Pago no devolvió una URL de checkout.');
+    }
+
+    window.location.href = checkoutUrl;
   } catch (err) {
     console.error(err);
     setError(
       err instanceof Error
         ? err.message
-        : 'No se pudo iniciar el pago del add-on.'
+        : 'No se pudo iniciar el checkout del add-on.'
     );
+  } finally {
+    setActualizandoAddonKey(null);
   }
 }
-
-  const href = buildCommercialMailHref(
-    `Contratar cambio de plan a ${formatPlanLabel(selectedPlan)}`,
-    [
-      'Hola, quiero solicitar un cambio de plan en RestoSmart.',
-      '',
-      `Tenant / grupo: ${tenantContextLabel}`,
-      `Sucursal: ${sucursalContextLabel}`,
-      `Plan actual: ${planLabel}`,
-      `Plan solicitado: ${formatPlanLabel(selectedPlan)}`,
-      '',
-      'Quedo atento/a para avanzar con la activación y el cobro correspondiente.',
-    ]
-  );
-
-  window.location.href = href;
-
-  setMensaje(
-    `Se abrió una solicitud para cambiar el tenant de ${planLabel} a ${formatPlanLabel(
-      selectedPlan
-    )}. El plan no se modifica automáticamente.`
-  );
-  setError('');
-}
-
-  async function guardarTodo(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
-    try {
-      setGuardando(true);
-      setMensaje('');
-      setError('');
-
-      const localRes = await fetch(buildTenantApiUrl('/api/admin/local-config'), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(localForm),
-      });
-
-      const localRaw = (await localRes.json().catch(() => null)) as
-        | LocalConfigSaveResponse
-        | ApiErrorResponse
-        | null;
-
-      if (!localRes.ok) {
-        throw new Error(
-          getApiErrorMessage(
-            localRaw,
-            'No se pudo guardar la configuración del local.'
-          )
-        );
-      }
-
-      const savedLocalConfig = isLocalConfigSaveResponse(localRaw)
-        ? localRaw.config
-        : null;
-
-      if (savedLocalConfig) {
-        setLocalForm({
-          nombre_local: savedLocalConfig.nombre_local,
-          direccion: savedLocalConfig.direccion,
-          telefono: savedLocalConfig.telefono,
-          celular: savedLocalConfig.celular,
-          email: savedLocalConfig.email,
-          horario_atencion: savedLocalConfig.horario_atencion,
-          google_analytics_id: savedLocalConfig.google_analytics_id,
-          google_analytics_property_id:
-            savedLocalConfig.google_analytics_property_id,
-          business_mode: normalizeBusinessMode(savedLocalConfig.business_mode),
-        });
-      }
-
-      if (deliveryAddonEnabled) {
-        const deliveryRes = await fetch(buildTenantApiUrl('/api/admin/delivery-config'), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(deliveryForm),
-        });
-
-        const deliveryData = await deliveryRes.json().catch(() => null);
-
-        if (!deliveryRes.ok) {
-          throw new Error(
-            getApiErrorMessage(
-              deliveryData,
-              'No se pudo guardar la configuración de delivery.'
-            )
-          );
-        }
-      }
-
-      const nextBusinessMode = normalizeBusinessMode(
-        savedLocalConfig?.business_mode ?? localForm.business_mode
-      );
-
-      setMensaje(
-        deliveryAddonEnabled
-          ? 'Configuración de la sucursal guardada correctamente.'
-          : 'Configuración de la sucursal e integraciones guardadas correctamente.'
-      );
-
-      setSessionData((prev) =>
-        prev
-          ? {
-              ...prev,
-              business_mode: nextBusinessMode,
-              restaurant: prev.restaurant
-                ? {
-                    ...prev.restaurant,
-                    business_mode: nextBusinessMode,
-                  }
-                : prev.restaurant,
-              capabilities: {
-                ...prev.capabilities,
-                waiter_mode:
-                  nextBusinessMode === 'restaurant' &&
-                  !!prev.capabilities?.waiter_mode,
-              },
-              public_ordering: getPublicOrderingMeta(nextBusinessMode),
-            }
-          : prev
-      );
-    } catch (err) {
-      console.error(err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Ocurrió un error al guardar la configuración.'
-      );
-    } finally {
-      setGuardando(false);
-    }
-  }
 
   if (cargando) {
     return (
@@ -1110,25 +1156,29 @@ async function contratarAddon(item: AddonCard) {
 </div>
 
         <div className="mt-4 flex flex-wrap gap-3">
-          <button
-  type="button"
-  onClick={solicitarCambioPlan}
-  disabled={!planChanged}
-  className="rounded-xl bg-black px-5 py-3 text-white disabled:opacity-60"
->
-  Solicitar cambio de plan
-</button>
+  <button
+    type="button"
+    onClick={() => {
+      void solicitarCambioPlan();
+    }}
+    disabled={guardandoPlan || !planChanged}
+    className="rounded-xl bg-black px-5 py-3 text-white disabled:opacity-60"
+  >
+    {guardandoPlan ? 'Iniciando checkout...' : 'Contratar cambio de plan'}
+  </button>
 
-          {planChanged ? (
-            <span className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-  Vas a solicitar el cambio del tenant de {planLabel} a {formatPlanLabel(selectedPlan)}.
-El plan no se modifica automáticamente: requiere activación comercial y cobro.</span>
-          ) : (
-            <span className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              No hay cambios pendientes en el plan.
-            </span>
-          )}
-        </div>
+  {planChanged ? (
+    <span className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      Vas a solicitar el cambio del tenant de {planLabel} a{' '}
+      {formatPlanLabel(selectedPlan)}. Se abrirá Mercado Pago. Cuando el pago se
+      apruebe, el webhook activará el plan automáticamente.
+    </span>
+  ) : (
+    <span className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+      No hay cambios pendientes en el plan.
+    </span>
+  )}
+</div>
       </section>
 
       <section className="rounded-2xl border bg-white p-5 shadow-sm">
