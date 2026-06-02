@@ -571,54 +571,99 @@ export default function RestoSmartLanding() {
                 <li>✔ QR por mesa si operás con salón</li>
                 <li>✔ Cocina y operación básica</li>
               </ul>
-              <Link href="/signup?plan=esencial">
-  Elegir Esencial
-</Link>
-            </div>
+              <div className="mt-8 grid gap-6 md:grid-cols-3">
+  <div className="flex h-full flex-col rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
+    <div className="flex items-center justify-between gap-3">
+      <h3 className="text-lg font-bold">Esencial</h3>
+      <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">
+        Ideal para empezar
+      </span>
+    </div>
 
-            <div className="relative rounded-3xl border-2 border-blue-600 bg-white p-6 shadow-md">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-xs text-white">
-                Más elegido
-              </div>
+    <div className="mt-4 text-3xl font-bold text-blue-600">
+      $12.000{' '}
+      <span className="text-sm font-medium text-zinc-500">/ mes</span>
+    </div>
 
-              <h3 className="text-lg font-bold">Pro</h3>
-              <div className="mt-4 text-3xl font-bold text-blue-600">
-                $35.000{' '}
-                <span className="text-sm font-medium text-zinc-500">/ mes</span>
-              </div>
-              <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
-                <li>✔ Todo lo del plan Esencial</li>
-                <li>✔ Gestión operativa ampliada</li>
-                <li>✔ Más control del flujo diario</li>
-                <li>✔ Modo mozo para restaurante</li>
-                <li>✔ Más coordinación del local</li>
-              </ul>
+    <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
+      <li>✔ Gestión de productos y categorías</li>
+      <li>✔ Menú digital</li>
+      <li>✔ Restaurante o take away</li>
+      <li>✔ QR por mesa si operás con salón</li>
+      <li>✔ Cocina y operación básica</li>
+    </ul>
 
-              <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-800">
-                Ideal si necesitás más control operativo. Los analytics avanzados
-                recién aparecen en Intelligence.
-              </div>
-              <Link href="/signup?plan=pro">
-  Elegir Pro
-</Link>
-            </div>
+    <div className="mt-auto pt-6">
+      <Link
+        href={getSignupHref('esencial')}
+        className="inline-flex w-full justify-center rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+      >
+        Elegir Esencial
+      </Link>
+    </div>
+  </div>
 
-            <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
-              <h3 className="text-lg font-bold">Intelligence</h3>
-              <div className="mt-4 text-3xl font-bold text-blue-600">
-                $50.000{' '}
-                <span className="text-sm font-medium text-zinc-500">/ mes</span>
-              </div>
-              <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
-                <li>✔ Todo lo del plan Pro</li>
-                <li>✔ Analytics avanzados</li>
-                <li>✔ KPIs y rendimiento</li>
-                <li>✔ Vista ejecutiva</li>
-                <li>✔ Insights para optimizar el negocio</li>
-              </ul>
-              <Link href="/signup?plan=intelligence">
-  Elegir Intelligence
-</Link>
+  <div className="relative flex h-full flex-col rounded-3xl border-2 border-blue-600 bg-white p-6 shadow-md">
+    <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-xs text-white">
+      Más elegido
+    </div>
+
+    <h3 className="text-lg font-bold">Pro</h3>
+
+    <div className="mt-4 text-3xl font-bold text-blue-600">
+      $35.000{' '}
+      <span className="text-sm font-medium text-zinc-500">/ mes</span>
+    </div>
+
+    <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
+      <li>✔ Todo lo del plan Esencial</li>
+      <li>✔ Gestión operativa ampliada</li>
+      <li>✔ Más control del flujo diario</li>
+      <li>✔ Modo mozo para restaurante</li>
+      <li>✔ Más coordinación del local</li>
+    </ul>
+
+    <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-800">
+      Ideal si necesitás más control operativo. Los analytics avanzados recién
+      aparecen en Intelligence.
+    </div>
+
+    <div className="mt-auto pt-6">
+      <Link
+        href={getSignupHref('pro')}
+        className="inline-flex w-full justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+      >
+        Elegir Pro
+      </Link>
+    </div>
+  </div>
+
+  <div className="flex h-full flex-col rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
+    <h3 className="text-lg font-bold">Intelligence</h3>
+
+    <div className="mt-4 text-3xl font-bold text-blue-600">
+      $50.000{' '}
+      <span className="text-sm font-medium text-zinc-500">/ mes</span>
+    </div>
+
+    <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
+      <li>✔ Todo lo del plan Pro</li>
+      <li>✔ Analytics avanzados</li>
+      <li>✔ KPIs y rendimiento</li>
+      <li>✔ Vista ejecutiva</li>
+      <li>✔ Insights para optimizar el negocio</li>
+    </ul>
+
+    <div className="mt-auto pt-6">
+      <Link
+        href={getSignupHref('intelligence')}
+        className="inline-flex w-full justify-center rounded-2xl border border-blue-200 bg-white px-5 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
+      >
+        Elegir Intelligence
+      </Link>
+    </div>
+  </div>
+</div>
             </div>
           </div>
 
