@@ -29,12 +29,18 @@ type MercadoPagoPreferenceResponse = {
   message?: string;
 };
 
-const BILLABLE_PLANS: PlanCode[] = ['pro', 'intelligence'];
+type BillablePlan = Exclude<PlanCode, 'esencial'>;
 
-const PLAN_PRICES: Record<Exclude<PlanCode, 'esencial'>, number> = {
+const BILLABLE_PLANS: BillablePlan[] = ['pro', 'intelligence'];
+
+const PLAN_PRICES: Record<BillablePlan, number> = {
   pro: 35000,
   intelligence: 50000,
 };
+
+function isBillablePlan(value: unknown): value is BillablePlan {
+  return value === 'pro' || value === 'intelligence';
+}
 
 const MULTI_BRAND_PRICES: Record<Exclude<PlanCode, 'esencial'>, number> = {
   pro: 15000,
@@ -220,29 +226,30 @@ export async function POST(request: NextRequest) {
     let addonKey: AddonKey | null = null;
 
     if (intent.kind === 'plan_change') {
-      if (!intent.targetPlan || !BILLABLE_PLANS.includes(intent.targetPlan)) {
-        return NextResponse.json(
-          {
-            error:
-              'Solo los planes Pro e Intelligence requieren checkout de Mercado Pago.',
-          },
-          { status: 400 }
-        );
-      }
+  if (!isBillablePlan(intent.targetPlan)) {
+    return NextResponse.json(
+      {
+        error:
+          'Solo los planes Pro e Intelligence requieren checkout de Mercado Pago.',
+      },
+      { status: 400 }
+    );
+  }
 
-      targetPlan = intent.targetPlan;
+  const billablePlan = intent.targetPlan;
+  targetPlan = billablePlan;
 
-      if (targetPlan === access.plan) {
-        return NextResponse.json(
-          { error: 'Ese plan ya está activo para este tenant.' },
-          { status: 409 }
-        );
-      }
+  if (billablePlan === access.plan) {
+    return NextResponse.json(
+      { error: 'Ese plan ya está activo para este tenant.' },
+      { status: 409 }
+    );
+  }
 
-      amount = PLAN_PRICES[targetPlan];
-      title = getPlanTitle(targetPlan);
-      description = getPlanDescription(targetPlan);
-    }
+  amount = PLAN_PRICES[billablePlan];
+  title = getPlanTitle(billablePlan);
+  description = getPlanDescription(billablePlan);
+}
 
     if (intent.kind === 'addon_activation') {
       if (!isAddonKey(intent.addonKey)) {
