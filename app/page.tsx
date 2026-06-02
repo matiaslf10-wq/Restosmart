@@ -541,223 +541,207 @@ export default function RestoSmartLanding() {
         </div>
       </section>
 
-      <section id="precios" className="border-t border-black/5 bg-white">
-        <div className="mx-auto max-w-6xl px-5 py-14">
-          <div className="max-w-2xl">
-            <h2 className="text-2xl font-bold md:text-3xl">Planes y precios</h2>
-            <p className="mt-2 text-zinc-700">
-  Elegí el plan que mejor se adapta a tu operación. Los add-ons se contratan
-  aparte por local, según las necesidades de cada restaurante.
-</p>
+<section id="precios" className="border-t border-black/5 bg-white">
+  <div className="mx-auto max-w-6xl px-5 py-14">
+    <div className="max-w-2xl">
+      <h2 className="text-2xl font-bold md:text-3xl">Planes y precios</h2>
+      <p className="mt-2 text-zinc-700">
+        Elegí el plan que mejor se adapta a tu operación. Los add-ons se
+        contratan aparte por local, según las necesidades de cada restaurante.
+      </p>
+    </div>
+
+    <div className="mt-8 grid gap-6 md:grid-cols-3">
+      <div className="flex min-h-[520px] flex-col rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-lg font-bold">Esencial</h3>
+          <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">
+            Ideal para empezar
+          </span>
+        </div>
+
+        <div className="mt-4 text-3xl font-bold text-blue-600">
+          $12.000{' '}
+          <span className="text-sm font-medium text-zinc-500">/ mes</span>
+        </div>
+
+        <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
+          <li>✔ Gestión de productos y categorías</li>
+          <li>✔ Menú digital</li>
+          <li>✔ Restaurante o take away</li>
+          <li>✔ QR por mesa si operás con salón</li>
+          <li>✔ Cocina y operación básica</li>
+        </ul>
+
+        <div className="mt-auto pt-6">
+          <Link
+            href={getSignupHref('esencial')}
+            className="inline-flex w-full justify-center rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+          >
+            Elegir Esencial
+          </Link>
+        </div>
+      </div>
+
+      <div className="relative flex min-h-[520px] flex-col rounded-3xl border-2 border-blue-600 bg-white p-6 shadow-md">
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-xs text-white">
+          Más elegido
+        </div>
+
+        <h3 className="text-lg font-bold">Pro</h3>
+
+        <div className="mt-4 text-3xl font-bold text-blue-600">
+          $35.000{' '}
+          <span className="text-sm font-medium text-zinc-500">/ mes</span>
+        </div>
+
+        <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
+          <li>✔ Todo lo del plan Esencial</li>
+          <li>✔ Gestión operativa ampliada</li>
+          <li>✔ Más control del flujo diario</li>
+          <li>✔ Modo mozo para restaurante</li>
+          <li>✔ Más coordinación del local</li>
+        </ul>
+
+        <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-800">
+          Ideal si necesitás más control operativo. Los analytics avanzados
+          recién aparecen en Intelligence.
+        </div>
+
+        <div className="mt-auto pt-6">
+          <Link
+            href={getSignupHref('pro')}
+            className="inline-flex w-full justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+          >
+            Elegir Pro
+          </Link>
+        </div>
+      </div>
+
+      <div className="flex min-h-[520px] flex-col rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
+        <h3 className="text-lg font-bold">Intelligence</h3>
+
+        <div className="mt-4 text-3xl font-bold text-blue-600">
+          $50.000{' '}
+          <span className="text-sm font-medium text-zinc-500">/ mes</span>
+        </div>
+
+        <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
+          <li>✔ Todo lo del plan Pro</li>
+          <li>✔ Analytics avanzados</li>
+          <li>✔ KPIs y rendimiento</li>
+          <li>✔ Vista ejecutiva</li>
+          <li>✔ Insights para optimizar el negocio</li>
+        </ul>
+
+        <div className="mt-auto pt-6">
+          <Link
+            href={getSignupHref('intelligence')}
+            className="inline-flex w-full justify-center rounded-2xl border border-blue-200 bg-white px-5 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+          >
+            Elegir Intelligence
+          </Link>
+        </div>
+      </div>
+    </div>
+
+    <div className="mt-8 rounded-3xl border border-black/10 bg-zinc-50 p-6">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h3 className="text-xl font-bold text-zinc-900">
+            Add-ons disponibles
+          </h3>
+          <p className="mt-1 text-sm text-zinc-700">
+            Funcionalidades opcionales para sumar según la operación del local.
+          </p>
+        </div>
+
+        <p className="text-xs text-zinc-500">
+          Se contratan por local y no forman parte del plan base.
+        </p>
+      </div>
+
+      <div className="mt-5 grid gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border border-violet-200 bg-white p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold text-zinc-900">WhatsApp Delivery</p>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-700">
+                Pedidos por WhatsApp conectados a la operación del local.
+              </p>
+            </div>
+
+            <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+              Add-on
+            </span>
           </div>
 
-          <div className="mt-8 grid gap-6 md:grid-cols-3">
-            <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-lg font-bold">Esencial</h3>
-                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">
-                  Ideal para take away
-                </span>
-              </div>
+          <p className="mt-4 text-lg font-bold text-violet-800">
+            Cotización aparte
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            No incluido en ningún plan base.
+          </p>
+        </div>
 
-              <div className="mt-4 text-3xl font-bold text-blue-600">
-                $12.000{' '}
-                <span className="text-sm font-medium text-zinc-500">/ mes</span>
-              </div>
-              <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
-                <li>✔ Gestión de productos y categorías</li>
-                <li>✔ Menú digital</li>
-                <li>✔ Restaurante o take away</li>
-                <li>✔ QR por mesa si operás con salón</li>
-                <li>✔ Cocina y operación básica</li>
-              </ul>
-              <div className="mt-8 grid gap-6 md:grid-cols-3">
-  <div className="flex h-full flex-col rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
-    <div className="flex items-center justify-between gap-3">
-      <h3 className="text-lg font-bold">Esencial</h3>
-      <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">
-        Ideal para empezar
-      </span>
-    </div>
+        <div className="rounded-2xl border border-fuchsia-200 bg-white p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold text-zinc-900">Multimarca</p>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-700">
+                Varias marcas dentro del mismo local, con operación unificada.
+              </p>
+            </div>
 
-    <div className="mt-4 text-3xl font-bold text-blue-600">
-      $12.000{' '}
-      <span className="text-sm font-medium text-zinc-500">/ mes</span>
-    </div>
+            <span className="rounded-full bg-fuchsia-50 px-2.5 py-1 text-[11px] font-semibold text-fuchsia-700">
+              Add-on
+            </span>
+          </div>
 
-    <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
-      <li>✔ Gestión de productos y categorías</li>
-      <li>✔ Menú digital</li>
-      <li>✔ Restaurante o take away</li>
-      <li>✔ QR por mesa si operás con salón</li>
-      <li>✔ Cocina y operación básica</li>
-    </ul>
-
-    <div className="mt-auto pt-6">
-      <Link
-        href={getSignupHref('esencial')}
-        className="inline-flex w-full justify-center rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
-      >
-        Elegir Esencial
-      </Link>
-    </div>
-  </div>
-
-  <div className="relative flex h-full flex-col rounded-3xl border-2 border-blue-600 bg-white p-6 shadow-md">
-    <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-xs text-white">
-      Más elegido
-    </div>
-
-    <h3 className="text-lg font-bold">Pro</h3>
-
-    <div className="mt-4 text-3xl font-bold text-blue-600">
-      $35.000{' '}
-      <span className="text-sm font-medium text-zinc-500">/ mes</span>
-    </div>
-
-    <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
-      <li>✔ Todo lo del plan Esencial</li>
-      <li>✔ Gestión operativa ampliada</li>
-      <li>✔ Más control del flujo diario</li>
-      <li>✔ Modo mozo para restaurante</li>
-      <li>✔ Más coordinación del local</li>
-    </ul>
-
-    <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-800">
-      Ideal si necesitás más control operativo. Los analytics avanzados recién
-      aparecen en Intelligence.
-    </div>
-
-    <div className="mt-auto pt-6">
-      <Link
-        href={getSignupHref('pro')}
-        className="inline-flex w-full justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-      >
-        Elegir Pro
-      </Link>
-    </div>
-  </div>
-
-  <div className="flex h-full flex-col rounded-3xl border border-black/10 bg-white p-6 shadow-sm">
-    <h3 className="text-lg font-bold">Intelligence</h3>
-
-    <div className="mt-4 text-3xl font-bold text-blue-600">
-      $50.000{' '}
-      <span className="text-sm font-medium text-zinc-500">/ mes</span>
-    </div>
-
-    <ul className="mt-6 grid gap-2 text-sm text-zinc-700">
-      <li>✔ Todo lo del plan Pro</li>
-      <li>✔ Analytics avanzados</li>
-      <li>✔ KPIs y rendimiento</li>
-      <li>✔ Vista ejecutiva</li>
-      <li>✔ Insights para optimizar el negocio</li>
-    </ul>
-
-    <div className="mt-auto pt-6">
-      <Link
-        href={getSignupHref('intelligence')}
-        className="inline-flex w-full justify-center rounded-2xl border border-blue-200 bg-white px-5 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
-      >
-        Elegir Intelligence
-      </Link>
-    </div>
-  </div>
-</div>
+          <div className="mt-4 space-y-2 text-sm">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <span className="font-semibold">Esencial:</span> no disponible
+            </div>
+            <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 px-3 py-2 text-fuchsia-900">
+              <span className="font-semibold">Pro:</span> + $15.000/mes · hasta
+              3 marcas
+            </div>
+            <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 px-3 py-2 text-fuchsia-900">
+              <span className="font-semibold">Intelligence:</span> +
+              $25.000/mes · marcas ilimitadas
             </div>
           </div>
+        </div>
 
-          <div className="mt-8 rounded-3xl border border-black/10 bg-zinc-50 p-6">
-  <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-    <div>
-      <h3 className="text-xl font-bold text-zinc-900">Add-ons disponibles</h3>
-      <p className="mt-1 text-sm text-zinc-700">
-        Funcionalidades opcionales para sumar según la operación del local.
-      </p>
-    </div>
+        <div className="rounded-2xl border border-amber-200 bg-white p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold text-zinc-900">Facturación ARCA</p>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-700">
+                Futuro módulo para asistir la emisión y gestión de comprobantes.
+              </p>
+            </div>
 
-    <p className="text-xs text-zinc-500">
-      Se contratan por local y no forman parte del plan base.
-    </p>
-  </div>
+            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+              Próximamente
+            </span>
+          </div>
 
-  <div className="mt-5 grid gap-4 md:grid-cols-3">
-    <div className="rounded-2xl border border-violet-200 bg-white p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-zinc-900">WhatsApp Delivery</p>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-700">
-            Pedidos por WhatsApp conectados a la operación del local.
+          <p className="mt-4 text-sm leading-relaxed text-zinc-600">
+            La activación deberá contemplar configuración fiscal, condiciones
+            comerciales y aclaraciones legales específicas.
           </p>
-        </div>
-
-        <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
-          Add-on
-        </span>
-      </div>
-
-      <p className="mt-4 text-lg font-bold text-violet-800">Cotización aparte</p>
-      <p className="mt-1 text-xs text-zinc-500">
-        No incluido en ningún plan base.
-      </p>
-    </div>
-
-    <div className="rounded-2xl border border-fuchsia-200 bg-white p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-zinc-900">Multimarca</p>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-700">
-            Varias marcas dentro del mismo local, con operación unificada.
-          </p>
-        </div>
-
-        <span className="rounded-full bg-fuchsia-50 px-2.5 py-1 text-[11px] font-semibold text-fuchsia-700">
-          Add-on
-        </span>
-      </div>
-
-      <div className="mt-4 space-y-2 text-sm">
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-          <span className="font-semibold">Esencial:</span> no disponible
-        </div>
-        <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 px-3 py-2 text-fuchsia-900">
-          <span className="font-semibold">Pro:</span> + $15.000/mes · hasta 3 marcas
-        </div>
-        <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 px-3 py-2 text-fuchsia-900">
-          <span className="font-semibold">Intelligence:</span> + $25.000/mes · marcas ilimitadas
         </div>
       </div>
     </div>
 
-    <div className="rounded-2xl border border-amber-200 bg-white p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-zinc-900">Facturación ARCA</p>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-700">
-            Futuro módulo para asistir la emisión y gestión de comprobantes.
-          </p>
-        </div>
-
-        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
-          Próximamente
-        </span>
-      </div>
-
-      <p className="mt-4 text-sm leading-relaxed text-zinc-600">
-        La activación deberá contemplar configuración fiscal, condiciones
-        comerciales y aclaraciones legales específicas.
-      </p>
+    <div className="mt-6 text-xs text-zinc-500">
+      Los planes se contratan por local. El modo del negocio puede ser
+      restaurante o take away. Los add-ons se contratan aparte y pueden tener
+      disponibilidad, límites o condiciones según el plan.
     </div>
   </div>
-</div>
-
-          <div className="mt-6 text-xs text-zinc-500">
-  Los planes se contratan por local. El modo del negocio puede ser restaurante
-  o take away. Los add-ons se contratan aparte y pueden tener disponibilidad,
-  límites o condiciones según el plan.
-</div>
-        </div>
-      </section>
+</section>
 
       <section id="pasos" className="border-t border-black/5 bg-white">
         <div className="mx-auto max-w-6xl px-5 py-14">
