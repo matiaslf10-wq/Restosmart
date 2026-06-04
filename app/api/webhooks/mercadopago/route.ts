@@ -100,11 +100,11 @@ async function applyApprovedCheckout(session: CheckoutSessionRow) {
     }
 
     const { error } = await supabaseAdmin
-      .from('restaurants')
-      .update({
-        plan: session.target_plan,
-      })
-      .eq('owner_tenant_id', session.tenant_id);
+  .from('restaurants')
+  .update({
+    plan: session.target_plan,
+  })
+  .or(`owner_tenant_id.eq.${session.tenant_id},slug.eq.${session.tenant_id}`);
 
     if (error) throw error;
 
@@ -254,17 +254,38 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  await applyApprovedCheckout(session);
+ await applyApprovedCheckout(session);
 
+const now = new Date().toISOString();
+
+await supabaseAdmin
+  .from('billing_checkout_sessions')
+  .update({
+    status: 'approved',
+    mp_payment_id: String(payment?.id ?? paymentId),
+    approved_at: now,
+    updated_at: now,
+  })
+  .eq('id', session.id);
+
+if (session.kind === 'plan_change' && session.target_plan) {
   await supabaseAdmin
-    .from('billing_checkout_sessions')
-    .update({
-      status: 'approved',
-      mp_payment_id: String(payment?.id ?? paymentId),
-      approved_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', session.id);
+    .from('tenant_subscriptions')
+    .upsert(
+      {
+        tenant_id: session.tenant_id,
+        plan: session.target_plan,
+        status: 'active',
+        provider: 'mercadopago',
+        external_reference: session.external_reference,
+        mp_payment_id: String(payment?.id ?? paymentId),
+        updated_at: now,
+      },
+      {
+        onConflict: 'tenant_id',
+      }
+    );
+}
 
   return NextResponse.json({
     ok: true,
