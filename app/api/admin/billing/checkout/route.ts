@@ -29,17 +29,18 @@ type MercadoPagoPreferenceResponse = {
   message?: string;
 };
 
-type BillablePlan = Exclude<PlanCode, 'esencial'>;
+type BillablePlan = PlanCode;
 
-const BILLABLE_PLANS: BillablePlan[] = ['pro', 'intelligence'];
+const BILLABLE_PLANS: BillablePlan[] = ['esencial', 'pro', 'intelligence'];
 
 const PLAN_PRICES: Record<BillablePlan, number> = {
+  esencial: 12000,
   pro: 35000,
   intelligence: 50000,
 };
 
 function isBillablePlan(value: unknown): value is BillablePlan {
-  return value === 'pro' || value === 'intelligence';
+  return value === 'esencial' || value === 'pro' || value === 'intelligence';
 }
 
 const MULTI_BRAND_PRICES: Record<Exclude<PlanCode, 'esencial'>, number> = {
@@ -230,7 +231,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          'Solo los planes Pro e Intelligence requieren checkout de Mercado Pago.',
+          'El plan solicitado es inválido. Usá Esencial, Pro o Intelligence.',
       },
       { status: 400 }
     );
@@ -239,7 +240,28 @@ export async function POST(request: NextRequest) {
   const billablePlan = intent.targetPlan;
   targetPlan = billablePlan;
 
-  if (billablePlan === access.plan) {
+  const { data: currentSubscription, error: subscriptionReadError } =
+    await supabaseAdmin
+      .from('tenant_subscriptions')
+      .select('plan, status')
+      .eq('tenant_id', access.tenantId)
+      .maybeSingle();
+
+  if (subscriptionReadError) {
+    console.warn(
+      'No se pudo leer tenant_subscriptions antes del checkout:',
+      subscriptionReadError
+    );
+  }
+
+  const subscriptionStatus = String(
+    currentSubscription?.status ?? ''
+  ).toLowerCase();
+
+  const alreadyActive =
+    billablePlan === access.plan && subscriptionStatus === 'active';
+
+  if (alreadyActive) {
     return NextResponse.json(
       { error: 'Ese plan ya está activo para este tenant.' },
       { status: 409 }

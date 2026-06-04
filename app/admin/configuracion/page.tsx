@@ -420,6 +420,13 @@ const [guardandoPlan, setGuardandoPlan] = useState(false);
 const [mensaje, setMensaje] = useState('');
 const [error, setError] = useState('');
 
+const [billingStatus] = useState<string | null>(() => {
+  if (typeof window === 'undefined') return null;
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get('billing');
+});
+
   const plan = sessionData?.plan ?? 'esencial';
   const planLabel = formatPlanLabel(plan);
   const addons = sessionData?.addons ?? {};
@@ -439,6 +446,37 @@ const multiBrandAddonEnabled =
   const businessModeLabel = formatBusinessModeLabel(localForm.business_mode);
   const planChanged = selectedPlan !== plan;
 
+  const billingNotice = useMemo(() => {
+  if (billingStatus === 'success') {
+    return {
+      tone: 'success' as const,
+      title: 'Estamos validando tu pago',
+      message:
+        'Tu pago fue iniciado correctamente. Mercado Pago puede demorar unos momentos en confirmar la aprobación. No te preocupes: apenas recibamos la confirmación, RestoSmart activará automáticamente el plan o add-on contratado.',
+    };
+  }
+
+  if (billingStatus === 'pending') {
+    return {
+      tone: 'pending' as const,
+      title: 'Tu pago está pendiente',
+      message:
+        'Mercado Pago todavía está procesando la operación. Esto puede demorar unos momentos. Cuando el pago se apruebe, RestoSmart activará automáticamente la contratación.',
+    };
+  }
+
+  if (billingStatus === 'failure') {
+    return {
+      tone: 'failure' as const,
+      title: 'No pudimos confirmar el pago',
+      message:
+        'La operación no se completó o fue rechazada. Podés intentar nuevamente desde esta pantalla cuando quieras.',
+    };
+  }
+
+  return null;
+}, [billingStatus]);
+
   const tenantContextLabel = sessionData?.tenantId ?? tenantLabel;
 
   const sucursalContextLabel =
@@ -449,6 +487,8 @@ const multiBrandAddonEnabled =
 
   const hasSucursalContext = Boolean(
     requestedRestaurantId || requestedTenant || sessionData?.restaurant?.id
+  
+  
   );
 
   const addonCards = useMemo(
@@ -1078,17 +1118,32 @@ async function contratarAddon(item: AddonCard) {
         </div>
       </section>
 
-      {mensaje ? (
-        <div className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
-          {mensaje}
-        </div>
-      ) : null}
+      {billingNotice ? (
+  <div
+    className={`rounded-xl border px-4 py-3 text-sm ${
+      billingNotice.tone === 'success'
+        ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+        : billingNotice.tone === 'pending'
+        ? 'border-amber-300 bg-amber-50 text-amber-900'
+        : 'border-red-300 bg-red-50 text-red-800'
+    }`}
+  >
+    <p className="font-semibold">{billingNotice.title}</p>
+    <p className="mt-1 leading-relaxed">{billingNotice.message}</p>
+  </div>
+) : null}
 
-      {error ? (
-        <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {error}
-        </div>
-      ) : null}
+{mensaje ? (
+  <div className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+    {mensaje}
+  </div>
+) : null}
+
+{error ? (
+  <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+    {error}
+  </div>
+) : null}
 
       <section className="rounded-2xl border bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
