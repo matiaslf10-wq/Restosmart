@@ -1,9 +1,8 @@
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdminAuth } from '@/lib/adminAuth';
+import { requireAdminAuth, type AdminSession } from '@/lib/adminAuth';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
-  getFallbackAdminAccess,
-  resolveAdminAccess,
   type AdminAccessSnapshot,
 } from '@/lib/adminAccess';
 import {
@@ -90,7 +89,7 @@ function pickFirstString(...values: unknown[]) {
 async function resolveAccessForRequest(
   req: NextRequest,
   session: unknown
-): Promise<AdminAccessSnapshot> {
+): Promise<AdminAccessSnapshot | null> {
   const sessionRecord = asRecord(session);
   const restaurantRecord = asRecord(sessionRecord?.restaurant);
 
@@ -109,10 +108,10 @@ async function resolveAccessForRequest(
   );
 
   try {
-    return await resolveAdminAccess({ tenantSlug });
+    return await resolveAuthorizedAdminAccess(session as AdminSession, { tenantSlug });
   } catch (error) {
     console.error('Restaurants access resolution error:', error);
-    return getFallbackAdminAccess();
+    return null;
   }
 }
 
@@ -143,6 +142,13 @@ export async function GET(req: NextRequest) {
   }
 
 const access = await resolveAccessForRequest(req, auth.session);
+
+  if (!access) {
+    return NextResponse.json(
+      { error: 'No autorizado para administrar los restaurantes de este tenant.' },
+      { status: 403 }
+    );
+  }
 const ownerTenantId = access.tenantId;
 const restaurantLimit = getRestaurantLimitForPlan(access.plan);
   const multiBrandEnabled = canUseMultiBrand(access);
@@ -245,6 +251,13 @@ export async function POST(req: NextRequest) {
   }
 
   const access = await resolveAccessForRequest(req, auth.session);
+
+  if (!access) {
+    return NextResponse.json(
+      { error: 'No autorizado para administrar los restaurantes de este tenant.' },
+      { status: 403 }
+    );
+  }
   const ownerTenantId = access.tenantId;
   const restaurantLimit = getRestaurantLimitForPlan(access.plan);
 
@@ -383,6 +396,13 @@ export async function DELETE(req: NextRequest) {
   }
 
   const access = await resolveAccessForRequest(req, auth.session);
+
+  if (!access) {
+    return NextResponse.json(
+      { error: 'No autorizado para administrar los restaurantes de este tenant.' },
+      { status: 403 }
+    );
+  }
   const ownerTenantId = access.tenantId;
 
   try {
