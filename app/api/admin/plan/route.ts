@@ -1,6 +1,7 @@
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
-import { getFallbackAdminAccess, resolveAdminAccess } from '@/lib/adminAccess';
+import type { AdminAccessSnapshot } from '@/lib/adminAccess';
 import { type PlanCode } from '@/lib/plans';
 
 export const runtime = 'nodejs';
@@ -78,12 +79,13 @@ export async function GET(request: NextRequest) {
 
   const requestedContext = extractRequestedTenantContext(request, auth.session);
 
-  let access = getFallbackAdminAccess();
+  let access: AdminAccessSnapshot;
 
   try {
-    access = await resolveAdminAccess(requestedContext);
+    access = await resolveAuthorizedAdminAccess(auth.session, requestedContext);
   } catch (error) {
     console.error('GET /api/admin/plan access resolution error:', error);
+    return NextResponse.json({ error: 'Acceso no autorizado.' }, { status: 403 });
   }
 
   return NextResponse.json({
@@ -134,10 +136,10 @@ export async function PUT(request: NextRequest) {
     );
   }
 
-  let access = getFallbackAdminAccess();
+  let access: AdminAccessSnapshot;
 
   try {
-    access = await resolveAdminAccess(requestedContext);
+    access = await resolveAuthorizedAdminAccess(auth.session, requestedContext);
   } catch (error) {
     console.error('PUT /api/admin/plan access resolution error:', error);
     return NextResponse.json(
