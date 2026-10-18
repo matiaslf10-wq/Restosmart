@@ -1,9 +1,9 @@
+import type { AdminSession } from '@/lib/adminAuth';
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
-  getFallbackAdminAccess,
-  resolveAdminAccess,
   type AdminAccessResolutionOptions,
 } from '@/lib/adminAccess';
 import { normalizeBusinessMode, type BusinessMode } from '@/lib/plans';
@@ -114,10 +114,10 @@ async function resolveAccessForRequest(request: NextRequest, session: unknown) {
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
-    return await resolveAdminAccess(requestedContext);
+    return await resolveAuthorizedAdminAccess(session as AdminSession, requestedContext);
   } catch (error) {
     console.error('Local config access resolution error:', error);
-    return getFallbackAdminAccess();
+    throw error;
   }
 }
 
@@ -177,6 +177,7 @@ export async function GET(request: NextRequest) {
   try {
     const access = await resolveAccessForRequest(request, auth.session);
     const restaurantId = access.restaurant?.id ?? null;
+    if (!restaurantId) { throw new Error('RESTAURANT_ACCESS_DENIED'); }
 
     const data = await readLocalConfigByRestaurantId(restaurantId);
 
@@ -210,6 +211,7 @@ export async function PUT(request: NextRequest) {
   try {
     const access = await resolveAccessForRequest(request, auth.session);
     const restaurantId = access.restaurant?.id ?? null;
+    if (!restaurantId) { throw new Error('RESTAURANT_ACCESS_DENIED'); }
     const body = await request.json();
 
     const payload = {

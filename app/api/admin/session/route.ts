@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
-  getFallbackAdminAccess,
   resolveAdminAccess,
   type AdminAccessResolutionOptions,
 } from '@/lib/adminAccess';
@@ -167,31 +166,71 @@ export async function GET(request: NextRequest) {
     return auth.response;
   }
 
-  const requestedContext = extractRequestedTenantContext(request, auth.session);
-const sessionTenantId = await getTenantIdForAdminSession(auth.session);
+  const sessionTenantId = await getTenantIdForAdminSession(auth.session);
 
-const resolvedContext: AdminAccessResolutionOptions = {
-  ...requestedContext,
-  tenantSlug: requestedContext.tenantSlug ?? sessionTenantId,
-};
-
-let access = getFallbackAdminAccess();
-
-  try {
-    access = await resolveAdminAccess(resolvedContext);
-  } catch (error) {
-    console.error('GET /api/admin/session access resolution error:', error);
-
-    if (process.env.NODE_ENV === 'production') {
-      return NextResponse.json(
-        {
-          error: 'No se pudo resolver el acceso del restaurante.',
-        },
-        { status: 500 }
-      );
-    }
+  if (!sessionTenantId) {
+    return NextResponse.json(
+      { error: 'El administrador no tiene un tenant asignado.' },
+      { status: 403 }
+    );
   }
 
+  const requestedContext = extractRequestedTenantContext(
+    request,
+    auth.session
+  );
+
+  let access: Awaited<ReturnType<typeof resolveAdminAccess>>;
+
+  try {
+    access = await resolveAdminAccess({
+      tenantSlug: requestedContext.tenantSlug ?? sessionTenantId,
+      restaurantId: requestedContext.restaurantId,
+    });
+  } catch (error) {
+    console.error('GET /api/admin/session access resolution error:', error);
+    return NextResponse.json(
+      { error: 'No se pudo resolver el acceso del restaurante.' },
+      { status: 500 }
+    );
+  }
+
+  const restaurant = access.restaurant;
+  const owningTenantId =
+    restaurant?.owner_tenant_id?.trim() ||
+    (restaurant?.slug === sessionTenantId ? sessionTenantId : null);
+
+  if (
+    !restaurant ||
+    owningTenantId !== sessionTenantId ||
+    access.tenantId !== sessionTenantId
+  ) {
+    return NextResponse.json(
+      { error: 'No autorizado para este restaurante.' },
+      { status: 403 }
+    );
+  }
+
+  if (
+    requestedContext.restaurantId &&
+    restaurant.id !== requestedContext.restaurantId
+  ) {
+    return NextResponse.json(
+      { error: 'El restaurante solicitado no esta disponible.' },
+      { status: 403 }
+    );
+  }
+
+  if (
+    requestedContext.tenantSlug &&
+    requestedContext.tenantSlug !== sessionTenantId &&
+    requestedContext.tenantSlug !== restaurant.slug
+  ) {
+    return NextResponse.json(
+      { error: 'El restaurante solicitado no esta autorizado.' },
+      { status: 403 }
+    );
+  }
   const businessMode = access.businessMode;
   const publicOrdering = getPublicOrderingMeta(businessMode);
 
