@@ -1,7 +1,7 @@
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdminAuth } from '@/lib/adminAuth';
+import { requireAdminAuth, type AdminSession } from '@/lib/adminAuth';
 import {
-  resolveAdminAccess,
   type AdminAccessResolutionOptions,
   type AdminAccessSnapshot,
 } from '@/lib/adminAccess';
@@ -47,6 +47,7 @@ type ProductRestaurantConfig = {
   visible_en_menu: boolean;
   control_stock: boolean;
   stock_actual: number;
+  stock_explicit?: boolean;
   permitir_sin_stock: boolean;
 };
 
@@ -123,6 +124,7 @@ function normalizeRestaurantConfigs(value: unknown): ProductRestaurantConfig[] {
       visible_en_menu: normalizeBoolean(record.visible_en_menu, true),
       control_stock: normalizeBoolean(record.control_stock, false),
       stock_actual: normalizeStockQuantity(record.stock_actual),
+      stock_explicit: Object.prototype.hasOwnProperty.call(record, 'stock_actual'),
       permitir_sin_stock: normalizeBoolean(record.permitir_sin_stock, true),
     });
   }
@@ -185,7 +187,7 @@ async function resolveAccessForRequest(
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
-    return await resolveAdminAccess(requestedContext);
+    return await resolveAuthorizedAdminAccess(session as AdminSession, requestedContext);
   } catch (error) {
     console.error('Producto access resolution error:', error);
     return null;
@@ -401,6 +403,24 @@ async function syncProductRestaurants(params: {
       : restaurantIds
   );
 
+  // Recuperar existencias antes de cualquier sincronizacion.
+  const { data: previousRows, error: previousError } = await supabaseAdmin
+    .from('producto_restaurantes')
+    .select('restaurant_id, stock_actual')
+    .eq('producto_id', productId)
+    .in('restaurant_id', activeRestaurantIds);
+
+  if (previousError) {
+    throw new Error('No se pudieron recuperar las existencias anteriores.');
+  }
+
+  const previousStock = new Map(
+    (previousRows ?? []).map((row) => [
+      String(row.restaurant_id),
+      normalizeStockQuantity(row.stock_actual),
+    ])
+  );
+
   const now = new Date().toISOString();
 
   const rows = activeRestaurantIds.map((restaurantId) => {
@@ -413,10 +433,11 @@ async function syncProductRestaurants(params: {
       restaurant_id: restaurantId,
       visible_en_menu: visible,
       control_stock: rowControlStock,
-      stock_actual:
-        visible && rowControlStock
-          ? normalizeStockQuantity(config?.stock_actual ?? 0)
-          : 0,
+      // Un cero enviado explicitamente se respeta.
+      // Si no se envia stock, conservamos la existencia previa.
+      stock_actual: config?.stock_explicit
+        ? normalizeStockQuantity(config.stock_actual)
+        : previousStock.get(restaurantId) ?? 0,
       permitir_sin_stock: rowControlStock
         ? config?.permitir_sin_stock ?? permitirSinStock
         : true,
@@ -616,7 +637,10 @@ export async function PUT(req: NextRequest, { params }: Params) {
       disponible: normalizeBoolean(body?.disponible, true),
       imagen_url: body?.imagen_url ? String(body.imagen_url).trim() : null,
       control_stock,
-      stock_actual,
+      ...((body?.restaurant_patches === undefined &&
+        (restaurantConfigsWasProvided || Object.prototype.hasOwnProperty.call(body, 'stock_actual')))
+        ? { stock_actual }
+        : {}),
       permitir_sin_stock,
     };
 
@@ -632,6 +656,44 @@ export async function PUT(req: NextRequest, { params }: Params) {
         { error: 'La categoría es obligatoria.' },
         { status: 400 }
       );
+    }
+
+    // Solo un conjunto de sucursales autorizadas puede ser actualizado.
+    // Nunca confiamos en IDs de restaurante provenientes del cliente.
+    if (
+      restaurantIdsWasProvided ||
+      Object.prototype.hasOwnProperty.call(body, 'stock_actual')
+    ) {
+      return NextResponse.json({ error: 'No mezclar parches y configuraciones completas.' }, { status: 400 });
+    }
+    const rawPatches = body?.restaurant_patches;
+    if (rawPatches !== undefined && !Array.isArray(rawPatches)) {
+      return NextResponse.json({ error: 'Cambios de sucursal invalidos.' }, { status: 400 });
+    }
+    const restaurantPatches = (rawPatches ?? []) as unknown[];
+    const patchIds = restaurantPatches.map((item) =>
+      normalizeNonEmptyString(asRecord(item)?.restaurant_id)
+    );
+    if (patchIds.some((id) => !id) || new Set(patchIds).size !== patchIds.length) {
+      return NextResponse.json({ error: 'Sucursales duplicadas o invalidas.' }, { status: 400 });
+    }
+    const validIds = patchIds.filter((id): id is string => !!id);
+    if (validIds.length) {
+      await validateRestaurantIdsForTenant(validIds, access);
+    }
+    for (const patch of restaurantPatches) {
+      const item = asRecord(patch)!;
+      if (Object.prototype.hasOwnProperty.call(item, 'stock_actual')) {
+        const quantity = Number(item.stock_actual);
+        if (!Number.isSafeInteger(quantity) || quantity < 0) {
+          return NextResponse.json({ error: 'Stock invalido.' }, { status: 400 });
+        }
+      }
+      for (const field of ['visible_en_menu', 'control_stock', 'permitir_sin_stock']) {
+        if (Object.prototype.hasOwnProperty.call(item, field) && typeof item[field] !== 'boolean') {
+          return NextResponse.json({ error: 'Configuracion de sucursal invalida.' }, { status: 400 });
+        }
+      }
     }
 
     const { data, error } = await supabaseAdmin
@@ -650,7 +712,72 @@ export async function PUT(req: NextRequest, { params }: Params) {
       );
     }
 
-    const restaurantSync = restaurantIdsWasProvided
+    // El contrato nuevo aplica parches por sucursal, sin reemplazar
+    // existencias ni configuraciones de las demas sucursales.
+    if (validIds.length > 0) {
+      const { data: existingConfigs, error: existingError } = await supabaseAdmin
+        .from('producto_restaurantes')
+        .select('restaurant_id, visible_en_menu, control_stock, stock_actual, permitir_sin_stock')
+        .eq('producto_id', productoId)
+        .in('restaurant_id', validIds);
+      if (existingError) throw existingError;
+      const existingById = new Map((existingConfigs ?? []).map((row) => [String(row.restaurant_id), row]));
+      // Actualizar solo las columnas explicitamente enviadas. Nunca leer
+      // stock_actual y reescribirlo en un cambio de visibilidad/otros campos:
+      // una venta concurrente podria haber descontado stock entre ambos pasos.
+      for (const raw of restaurantPatches) {
+        const patch = asRecord(raw)!;
+        const restaurantId = String(patch.restaurant_id);
+        const changes: {
+          visible_en_menu?: boolean;
+          control_stock?: boolean;
+          stock_actual?: number;
+          permitir_sin_stock?: boolean;
+          actualizado_en: string;
+        } = { actualizado_en: new Date().toISOString() };
+
+        if (typeof patch.visible_en_menu === 'boolean') {
+          changes.visible_en_menu = patch.visible_en_menu;
+        }
+        if (typeof patch.control_stock === 'boolean') {
+          changes.control_stock = patch.control_stock;
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'stock_actual')) {
+          changes.stock_actual = Number(patch.stock_actual);
+        }
+        if (typeof patch.permitir_sin_stock === 'boolean') {
+          changes.permitir_sin_stock = patch.permitir_sin_stock;
+        }
+
+        if (existingById.has(restaurantId)) {
+          const { error: updateError } = await supabaseAdmin
+            .from('producto_restaurantes')
+            .update(changes)
+            .eq('producto_id', productoId)
+            .eq('restaurant_id', restaurantId);
+          if (updateError) throw updateError;
+        } else {
+          // Una asociacion inexistente necesita valores iniciales. Esto no
+          // afecta las existencias de ninguna asociacion ya existente.
+          const { error: insertError } = await supabaseAdmin
+            .from('producto_restaurantes')
+            .insert({
+              producto_id: productoId,
+              restaurant_id: restaurantId,
+              visible_en_menu: changes.visible_en_menu ?? false,
+              control_stock: changes.control_stock ?? false,
+              stock_actual: changes.stock_actual ?? 0,
+              permitir_sin_stock: changes.permitir_sin_stock ?? true,
+              actualizado_en: changes.actualizado_en,
+            });
+          if (insertError) throw insertError;
+        }
+      }
+    }
+
+    const restaurantSync = validIds.length > 0
+      ? await getProductRestaurantSyncData(productoId)
+      : restaurantIdsWasProvided
       ? await syncProductRestaurants({
           productId: productoId,
           restaurantIds: requestedRestaurantIds,

@@ -333,6 +333,7 @@ export default function AdminProductosPage() {
 
   const [modoEdicion, setModoEdicion] = useState(false);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
+  const [stockTouchedIds, setStockTouchedIds] = useState<string[]>([]);
 
   const [imagenesExistentes, setImagenesExistentes] = useState<ProductoImagen[]>([]);
   const [imagenesPendientes, setImagenesPendientes] = useState<PendingImage[]>([]);
@@ -620,6 +621,7 @@ const cargarRestaurantes = async () => {
     });
     setModoEdicion(false);
     setProductoEditando(null);
+    setStockTouchedIds([]);
     setImagenesExistentes([]);
     setImagenesPendientes([]);
     setCargandoImagenes(false);
@@ -676,6 +678,7 @@ const cargarRestaurantes = async () => {
   };
 
   const onChangeRestaurantStock = (restaurantId: string, value: string) => {
+    setStockTouchedIds((prev) => prev.includes(restaurantId) ? prev : [...prev, restaurantId]);
     setForm((prev) => ({
       ...prev,
       restaurant_stock: {
@@ -688,6 +691,7 @@ const cargarRestaurantes = async () => {
     const comenzarEdicion = async (p: Producto) => {
     setModoEdicion(true);
     setProductoEditando(p);
+    setStockTouchedIds([]);
 
     const restaurantIds = p.restaurant_ids ?? [];
     const restaurantStock = restaurantIds.reduce<Record<string, string>>(
@@ -1089,6 +1093,49 @@ const cargarRestaurantes = async () => {
     return;
   }
 
+  // En edicion enviamos exclusivamente los cambios operativos reales.
+  // Nunca reenviamos todas las existencias por modificar el catalogo.
+  const restaurantPatches: Array<{
+    restaurant_id: string;
+    visible_en_menu?: boolean;
+    control_stock?: boolean;
+    stock_actual?: number;
+    permitir_sin_stock?: boolean;
+  }> = [];
+
+  if (modoEdicion && productoEditando) {
+    for (const restaurant of restaurantes) {
+      const restaurantId = String(restaurant.id);
+      const original = productoEditando.restaurant_configs?.find(
+        (item) => String(item.restaurant_id) === restaurantId
+      );
+      const originallyVisible = original?.visible_en_menu ??
+        (productoEditando.restaurant_ids ?? []).includes(restaurantId);
+      const nowVisible = selectedRestaurantIds.includes(restaurantId);
+      const patch: (typeof restaurantPatches)[number] = {
+        restaurant_id: restaurantId,
+      };
+
+      if (originallyVisible !== nowVisible) {
+        patch.visible_en_menu = nowVisible;
+      }
+      if (nowVisible && form.control_stock !== !!productoEditando.control_stock) {
+        patch.control_stock = controlStockFinal;
+      }
+      if (nowVisible && form.permitir_sin_stock !== !!productoEditando.permitir_sin_stock) {
+        patch.permitir_sin_stock = form.permitir_sin_stock;
+      }
+      const raw = form.restaurant_stock[restaurantId];
+      if (stockTouchedIds.includes(restaurantId) && raw !== undefined) {
+        const newStock = Number(raw);
+        if (Number.isSafeInteger(newStock) && newStock >= 0) {
+          patch.stock_actual = newStock;
+        }
+      }
+      if (Object.keys(patch).length > 1) restaurantPatches.push(patch);
+    }
+  }
+
   try {
     let productoId: number;
 
@@ -1096,7 +1143,14 @@ const cargarRestaurantes = async () => {
       const res = await fetch(buildTenantApiUrl(`/api/productos/${form.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          // El PUT parcial no debe sincronizar configuraciones completas.
+          stock_actual: undefined,
+          restaurant_ids: undefined,
+          restaurant_configs: undefined,
+          restaurant_patches: restaurantPatches,
+        }),
       });
 
       const body = await res.json().catch(() => null);

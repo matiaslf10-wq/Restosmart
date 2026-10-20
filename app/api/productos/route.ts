@@ -1,3 +1,4 @@
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
@@ -50,6 +51,7 @@ type ProductRestaurantConfig = {
   visible_en_menu: boolean;
   control_stock: boolean;
   stock_actual: number;
+  stock_explicit?: boolean;
   permitir_sin_stock: boolean;
 };
 
@@ -131,6 +133,7 @@ function normalizeRestaurantConfigs(value: unknown): ProductRestaurantConfig[] {
       visible_en_menu: normalizeBoolean(record.visible_en_menu, true),
       control_stock: normalizeBoolean(record.control_stock, false),
       stock_actual: normalizeStockQuantity(record.stock_actual),
+      stock_explicit: Object.prototype.hasOwnProperty.call(record, 'stock_actual'),
       permitir_sin_stock: normalizeBoolean(record.permitir_sin_stock, true),
     });
   }
@@ -474,6 +477,24 @@ async function syncProductRestaurants(params: {
       : restaurantIds
   );
 
+  // Recuperar existencias antes de cualquier sincronizacion.
+  const { data: previousRows, error: previousError } = await supabaseAdmin
+    .from('producto_restaurantes')
+    .select('restaurant_id, stock_actual')
+    .eq('producto_id', productId)
+    .in('restaurant_id', activeRestaurantIds);
+
+  if (previousError) {
+    throw new Error('No se pudieron recuperar las existencias anteriores.');
+  }
+
+  const previousStock = new Map(
+    (previousRows ?? []).map((row) => [
+      String(row.restaurant_id),
+      normalizeStockQuantity(row.stock_actual),
+    ])
+  );
+
   const now = new Date().toISOString();
 
   const rows = activeRestaurantIds.map((restaurantId) => {
@@ -486,10 +507,11 @@ async function syncProductRestaurants(params: {
       restaurant_id: restaurantId,
       visible_en_menu: visible,
       control_stock: rowControlStock,
-      stock_actual:
-        visible && rowControlStock
-          ? normalizeStockQuantity(config?.stock_actual ?? 0)
-          : 0,
+      // Un cero enviado explicitamente se respeta.
+      // Si no se envia stock, conservamos la existencia previa.
+      stock_actual: config?.stock_explicit
+        ? normalizeStockQuantity(config.stock_actual)
+        : previousStock.get(restaurantId) ?? 0,
       permitir_sin_stock: rowControlStock
         ? config?.permitir_sin_stock ?? permitirSinStock
         : true,
@@ -680,7 +702,20 @@ export async function POST(req: NextRequest) {
     return auth.response;
   }
 
-  const access = await resolveAccessForRequest(req, auth.session);
+  let access: AdminAccessSnapshot;
+
+  try {
+    access = await resolveAuthorizedAdminAccess(
+      auth.session,
+      extractRequestedTenantContext(req, auth.session)
+    );
+  } catch (error) {
+    console.error('POST /api/productos authorization error:', error);
+    return NextResponse.json(
+      { error: 'No autorizado para administrar productos de este tenant.' },
+      { status: 403 }
+    );
+  }
 
   try {
     const body = await req.json();
