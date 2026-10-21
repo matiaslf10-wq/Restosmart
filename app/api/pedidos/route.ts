@@ -86,12 +86,6 @@ type AggregatedProductRequest = {
   cantidad: number;
 };
 
-type AppliedStockAdjustment = {
-  producto_id: number;
-  restaurant_id: string | number;
-  previous_stock: number;
-};
-
 function normalizePlan(plan: unknown): 'esencial' | 'pro' | 'intelligence' {
   const value = String(plan ?? '').trim().toLowerCase();
 
@@ -433,95 +427,6 @@ function validateStockAvailability(
     notVisibleInRestaurantProducts,
     insufficientProducts,
   };
-}
-
-async function rollbackPedidoCreation(pedidoId: number) {
-  try {
-    await supabaseAdmin.from('items_pedido').delete().eq('pedido_id', pedidoId);
-    await supabaseAdmin.from('pedidos').delete().eq('id', pedidoId);
-  } catch (error) {
-    console.error('Rollback de pedido fallido:', error);
-  }
-}
-
-async function rollbackStockAdjustments(
-  adjustments: AppliedStockAdjustment[]
-) {
-  for (const adjustment of adjustments) {
-    try {
-      await supabaseAdmin
-        .from('producto_restaurantes')
-        .update({
-          stock_actual: adjustment.previous_stock,
-        })
-        .eq('producto_id', adjustment.producto_id)
-        .eq('restaurant_id', adjustment.restaurant_id);
-    } catch (error) {
-      console.error(
-        `No se pudo revertir stock del producto ${adjustment.producto_id} en restaurant ${adjustment.restaurant_id}:`,
-        error
-      );
-    }
-  }
-}
-
-async function applyStockAdjustments(params: {
-  requestedProducts: AggregatedProductRequest[];
-  productsMap: Map<number, ProductoStockRow>;
-  restaurantStocksMap: Map<number, ProductRestaurantStockRow>;
-  restaurantId: string | number;
-}) {
-  const { requestedProducts, productsMap, restaurantStocksMap, restaurantId } =
-    params;
-
-  const appliedAdjustments: AppliedStockAdjustment[] = [];
-
-  for (const requested of requestedProducts) {
-    const product = productsMap.get(requested.producto_id);
-    const restaurantStock = restaurantStocksMap.get(requested.producto_id);
-
-    if (!product || !restaurantStock || restaurantStock.control_stock !== true) {
-      continue;
-    }
-
-    const previousStock = normalizeStockQuantity(restaurantStock.stock_actual);
-    const permitirSinStock = restaurantStock.permitir_sin_stock === true;
-
-    const nextStock = permitirSinStock
-      ? Math.max(previousStock - requested.cantidad, 0)
-      : previousStock - requested.cantidad;
-
-    const { data, error } = await supabaseAdmin
-      .from('producto_restaurantes')
-      .update({
-        stock_actual: nextStock,
-        actualizado_en: new Date().toISOString(),
-      })
-      .eq('producto_id', requested.producto_id)
-      .eq('restaurant_id', restaurantId)
-      .eq('visible_en_menu', true)
-      .eq('control_stock', true)
-      .eq('permitir_sin_stock', permitirSinStock)
-      .eq('stock_actual', previousStock)
-      .select('producto_id')
-      .maybeSingle();
-
-    if (error) {
-      throw error;
-    }
-
-    if (!data?.producto_id) {
-      throw new Error(`${STOCK_CONFLICT_PREFIX}${product.nombre}`);
-    }
-
-    appliedAdjustments.push({
-      producto_id: requested.producto_id,
-      restaurant_id: restaurantId,
-      previous_stock: previousStock,
-    });
-  }
-
-  return appliedAdjustments;
 }
 
 async function resolveRestaurantContextForRequest(request: NextRequest) {
@@ -1043,101 +948,71 @@ notificar_whatsapp: notificarWhatsapp && !!clienteTelefono,
 direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
 };
 
-    const { data: pedido, error: pedidoError } = await supabaseAdmin
-      .from('pedidos')
-      .insert(payloadPedido)
-      .select()
-      .single();
-
-    if (pedidoError || !pedido) {
-      console.error('POST /api/pedidos - error creando pedido', pedidoError);
-
-      return NextResponse.json(
-        {
-          error: pedidoError?.message || 'No se pudo crear el pedido.',
-        },
-        { status: 500 }
-      );
-    }
-
     const payloadItems = items.map((item) => {
-  const productoId = Number(item.producto_id);
-  const productMeta = productsMap.get(productoId);
-  const brandMeta = productMeta?.marca_id
-    ? brandMetaMap.get(productMeta.marca_id) ?? null
-    : null;
+      const productoId = Number(item.producto_id);
+      const productMeta = productsMap.get(productoId);
+      const brandMeta = productMeta?.marca_id
+        ? brandMetaMap.get(productMeta.marca_id) ?? null
+        : null;
 
-  return {
-    pedido_id: pedido.id,
-    producto_id: productoId,
-    cantidad: Number(item.cantidad),
-    comentarios:
-      item.prep_target === 'cocina'
-        ? buildKitchenComment(item.comentarios, 'pendiente')
-        : normalizeOptionalText(item.comentarios),
-    marca_id: productMeta?.marca_id ?? null,
-    marca_nombre_snapshot: brandMeta?.nombre ?? null,
-    marca_color_hex_snapshot: brandMeta?.color_hex ?? null,
-    marca_logo_url_snapshot: brandMeta?.logo_url ?? null,
-  };
-});
+      return {
+        producto_id: productoId,
+        cantidad: Number(item.cantidad),
+        comentarios:
+          item.prep_target === 'cocina'
+            ? buildKitchenComment(item.comentarios, 'pendiente')
+            : normalizeOptionalText(item.comentarios),
+        marca_id: productMeta?.marca_id ?? null,
+        marca_nombre_snapshot: brandMeta?.nombre ?? null,
+        marca_color_hex_snapshot: brandMeta?.color_hex ?? null,
+        marca_logo_url_snapshot: brandMeta?.logo_url ?? null,
+      };
+    });
 
-    const { error: itemsError } = await supabaseAdmin
-      .from('items_pedido')
-      .insert(payloadItems);
+    // Pedido, items y stock: una sola transaccion PostgreSQL.
+    // La funcion RPC solo es ejecutable por service_role.
+    const { data: result, error: transactionError } = await supabaseAdmin.rpc(
+      'restosmart_create_order_atomic_v1',
+      {
+        p_pedido: payloadPedido,
+        p_items: payloadItems,
+        p_control_stock: stockControlEnabled,
+      }
+    );
 
-    if (itemsError) {
-      console.error('POST /api/pedidos - error creando items', itemsError);
-
-      await rollbackPedidoCreation(Number(pedido.id));
-
-      return NextResponse.json(
-        {
-          error:
-            itemsError.message || 'No se pudieron guardar los ítems del pedido.',
-        },
-        { status: 500 }
-      );
-    }
-
-    let appliedAdjustments: AppliedStockAdjustment[] = [];
-
-    if (stockControlEnabled) {
-      try {
-                appliedAdjustments = await applyStockAdjustments({
-          requestedProducts,
-          productsMap,
-          restaurantStocksMap,
-          restaurantId: restaurant.id,
-        });
-      } catch (error) {
-        console.error('POST /api/pedidos - error aplicando stock', error);
-
-        await rollbackStockAdjustments(appliedAdjustments);
-        await rollbackPedidoCreation(Number(pedido.id));
-
-        const message =
-          error instanceof Error ? error.message : 'No se pudo actualizar el stock.';
-
-        if (message.startsWith(STOCK_CONFLICT_PREFIX)) {
-          const productName = message.replace(STOCK_CONFLICT_PREFIX, '').trim();
-
-          return NextResponse.json(
-            {
-              error: `El stock cambió mientras se procesaba el pedido${productName ? ` para "${productName}"` : ''}. Reintentá con la información actualizada.`,
-            },
-            { status: 409 }
-          );
-        }
-
+    if (transactionError) {
+      console.error('POST /api/pedidos - error transaccional', transactionError);
+      const message = transactionError.message ?? '';
+      if (message.includes(STOCK_CONFLICT_PREFIX)) {
         return NextResponse.json(
-          {
-            error: 'No se pudo actualizar el stock del pedido.',
-          },
-          { status: 500 }
+          { error: 'El stock cambió o no alcanza para completar el pedido. Actualizá el carrito y reintentá.' },
+          { status: 409 }
         );
       }
+      if (message.includes('ORDER_VALIDATION:')) {
+        return NextResponse.json(
+          { error: 'Los datos del pedido no son válidos o un producto dejó de estar disponible.' },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json(
+        { error: 'No se pudo guardar el pedido. No se aplicaron cambios parciales.' },
+        { status: 500 }
+      );
     }
+
+    const orderResult = result as {
+      pedido?: Record<string, unknown>;
+      stock_updates?: number;
+    } | null;
+    if (!orderResult?.pedido) {
+      return NextResponse.json(
+        { error: 'La base no devolvió la confirmación del pedido.' },
+        { status: 500 }
+      );
+    }
+    const pedido = orderResult.pedido;
+    const stockUpdates = Number(orderResult.stock_updates ?? 0);
 
     return NextResponse.json(
       {
@@ -1162,7 +1037,7 @@ direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
               : 'restaurant',
           has_kitchen_items: hasKitchenItems,
           stock_control_applied: stockControlEnabled,
-          stock_updates: appliedAdjustments.length,
+          stock_updates: stockUpdates,
         },
       },
       { status: 201 }
