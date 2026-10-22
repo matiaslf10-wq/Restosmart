@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireAdminAuth } from '@/lib/adminAuth';
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,38 @@ export async function POST(
   }
 
   try {
+    // B6: validar el restaurante contra la sesion administrativa.
+    const requestedRestaurantId =
+      request.nextUrl.searchParams.get('restaurantId')?.trim() ||
+      request.nextUrl.searchParams.get('restaurant_id')?.trim() ||
+      request.cookies.get('restaurant_id')?.value?.trim() ||
+      null;
+
+    let restaurantId: string;
+
+    try {
+      const access = await resolveAuthorizedAdminAccess(
+        auth.session,
+        requestedRestaurantId
+          ? { restaurantId: requestedRestaurantId }
+          : {}
+      );
+
+      if (!access.restaurant?.id) {
+        return NextResponse.json(
+          { error: 'Restaurante no autorizado.' },
+          { status: 403 }
+        );
+      }
+
+      restaurantId = String(access.restaurant.id);
+    } catch {
+      return NextResponse.json(
+        { error: 'Acceso al restaurante denegado.' },
+        { status: 403 }
+      );
+    }
+
     const { id } = await params;
     const pedidoId = Number(id);
 
@@ -51,6 +84,7 @@ export async function POST(
         `
       )
       .eq('id', pedidoId)
+      .eq('restaurant_id', restaurantId)
       .maybeSingle();
 
     if (current.error) {
@@ -131,6 +165,7 @@ export async function POST(
       .from('pedidos')
       .update(payload)
       .eq('id', pedidoId)
+      .eq('restaurant_id', restaurantId)
       .select(
         `
           id,

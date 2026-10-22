@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireAdminAuth } from '@/lib/adminAuth';
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -603,9 +605,15 @@ function extractTakeawayDataFromItems(items: PedidoItemInput[]) {
 }
 
 export async function GET(request: NextRequest) {
+  // B6: el listado operativo de pedidos es exclusivamente administrativo.
+  // POST permanece publico para los pedidos originados en QR y clientes.
+  const auth = requireAdminAuth(request);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
     const ctx = await resolveRestaurantContextForRequest(request);
-    const businessMode = await resolveBusinessMode(ctx);
 
     if (!ctx?.id) {
       return NextResponse.json(
@@ -613,6 +621,28 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Verificar la pertenencia del restaurante al administrador autenticado.
+    // Un restaurantId o header enviado por un cliente nunca autoriza acceso.
+    try {
+      const access = await resolveAuthorizedAdminAccess(auth.session, {
+        restaurantId: String(ctx.id),
+      });
+
+      if (String(access.restaurant?.id ?? '') !== String(ctx.id)) {
+        return NextResponse.json(
+          { error: 'Acceso al restaurante denegado.' },
+          { status: 403 }
+        );
+      }
+    } catch {
+      return NextResponse.json(
+        { error: 'Acceso al restaurante denegado.' },
+        { status: 403 }
+      );
+    }
+
+    const businessMode = await resolveBusinessMode(ctx);
 
     const { data: localConfig, error: localConfigError } = await supabaseAdmin
       .from('configuracion_local')

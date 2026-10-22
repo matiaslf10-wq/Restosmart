@@ -1,24 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient';
+import { NextResponse } from 'next/server';
 
-export async function POST(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-  const { error } = await supabase
-    .from('pedidos')
-    .update({
-      estado_pago: 'aprobado',
-      efectivo_aprobado: true,
-      estado: 'pendiente',
-    })
-    .eq('id', Number(id));
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true });
+// B6: ruta heredada deshabilitada.
+// La aprobacion de efectivo exige autorizacion administrativa,
+// pertenencia al restaurante y validacion del estado del pedido.
+export async function POST() {
+  return NextResponse.json(
+    { error: 'Operacion no disponible.' },
+    { status: 403 }
+  );
 }
