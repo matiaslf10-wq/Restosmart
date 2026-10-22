@@ -35,8 +35,9 @@ function getSignatureParts(xSignature: string | null) {
 function verifyMercadoPagoSignature(request: NextRequest, dataId: string | null) {
   const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET?.trim();
 
+  // B7: nunca aceptar un webhook si falta la clave de verificacion.
   if (!secret) {
-    return true;
+    return false;
   }
 
   const xSignature = request.headers.get('x-signature');
