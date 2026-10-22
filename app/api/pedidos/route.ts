@@ -65,6 +65,7 @@ type ProductoStockRow = {
   nombre: string;
   disponible: boolean | null;
   marca_id: string | null;
+  precio: number | string | null;
 };
 
 type ProductRestaurantStockRow = {
@@ -298,7 +299,7 @@ async function loadProductsForStock(
 ): Promise<Map<number, ProductoStockRow>> {
   const { data, error } = await supabaseAdmin
     .from('productos')
-    .select('id, nombre, disponible, marca_id')
+    .select('id, nombre, disponible, marca_id, precio')
     .in('id', productoIds);
 
   if (error) {
@@ -773,7 +774,7 @@ const businessMode = await resolveBusinessMode(restaurant);
     const stockControlEnabled = planHasStockControl(plan);
 
     const rawMesaId = Number(body?.mesa_id);
-    const total = Number(body?.total ?? 0);
+    const totalInformado = Number(body?.total ?? 0);
     const formaPago = body?.forma_pago === 'efectivo' ? 'efectivo' : 'virtual';
     const requestedTipoServicio = body?.tipo_servicio;
     const tipoServicio = normalizeTipoServicio(
@@ -784,7 +785,7 @@ const businessMode = await resolveBusinessMode(restaurant);
     const identityKind = getIdentityKind(tipoServicio);
     const rawItems = Array.isArray(body?.items) ? body.items : [];
 
-    if (!Number.isFinite(total) || total < 0) {
+    if (!Number.isFinite(totalInformado) || totalInformado < 0) {
       return NextResponse.json({ error: 'total inválido.' }, { status: 400 });
     }
 
@@ -860,7 +861,7 @@ const businessMode = await resolveBusinessMode(restaurant);
         );
       }
 
-      if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      if (!Number.isSafeInteger(cantidad) || cantidad <= 0 || cantidad > 2147483647) {
         return NextResponse.json(
           { error: 'cantidad inválida en los ítems.' },
           { status: 400 }
@@ -932,6 +933,70 @@ if (stockControlEnabled && insufficientProducts.length > 0) {
   );
 }
 
+    // B7.6B: el importe surge exclusivamente de los precios oficiales.
+    // Los importes se calculan en centavos para evitar errores binarios.
+    let totalCentavos = 0;
+
+    for (const item of requestedProducts) {
+      const producto = productsMap.get(item.producto_id);
+
+      if (!producto) {
+        return NextResponse.json(
+          { error: 'Producto no disponible para calcular el precio.' },
+          { status: 409 }
+        );
+      }
+
+      const precio = Number(producto.precio);
+      const precioCentavos = Math.round(precio * 100);
+
+      if (
+        !Number.isFinite(precio) ||
+        precio < 0 ||
+        !Number.isSafeInteger(precioCentavos) ||
+        Math.abs(precio * 100 - precioCentavos) > 0.000001
+      ) {
+        return NextResponse.json(
+          { error: 'El precio del producto no es válido.' },
+          { status: 409 }
+        );
+      }
+
+      const importeLinea = precioCentavos * item.cantidad;
+
+      if (!Number.isSafeInteger(importeLinea)) {
+        return NextResponse.json(
+          { error: 'El importe del pedido excede el límite permitido.' },
+          { status: 400 }
+        );
+      }
+
+      totalCentavos += importeLinea;
+
+      if (!Number.isSafeInteger(totalCentavos)) {
+        return NextResponse.json(
+          { error: 'El importe total excede el límite permitido.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    const totalInformadoCentavos = Math.round(totalInformado * 100);
+
+    if (
+      !Number.isSafeInteger(totalInformadoCentavos) ||
+      Math.abs(totalInformado * 100 - totalInformadoCentavos) > 0.000001 ||
+      totalInformadoCentavos !== totalCentavos
+    ) {
+      return NextResponse.json(
+        {
+          error: 'El total del pedido no coincide con los precios vigentes. Actualizá el carrito.',
+        },
+        { status: 409 }
+      );
+    }
+
+    const total = totalCentavos / 100;
 const mesaResolution = await resolveMesaIdForPedido(
   rawMesaId,
   tipoServicio,
