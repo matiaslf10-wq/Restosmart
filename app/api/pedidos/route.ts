@@ -957,21 +957,16 @@ const mesaResolution = await resolveMesaIdForPedido(
   mesa_id: mesaIdResolved,
   estado: estadoInicial,
   total,
-  paga_efectivo:
-    typeof body?.paga_efectivo === 'boolean'
-      ? body.paga_efectivo
-      : formaPago === 'efectivo',
+  // La forma de pago se normaliza en el servidor.
+  paga_efectivo: formaPago === 'efectivo',
   forma_pago: formaPago,
   origen,
   tipo_servicio: tipoServicio,
-  medio_pago: String(body?.medio_pago ?? '').trim() || formaPago,
-  estado_pago:
-    String(body?.estado_pago ?? '').trim() ||
-    (formaPago === 'efectivo' ? 'aprobado' : 'pendiente'),
-  efectivo_aprobado:
-    typeof body?.efectivo_aprobado === 'boolean'
-      ? body.efectivo_aprobado
-      : formaPago === 'efectivo',
+  // B7.6A: el cliente no puede confirmar pagos.
+  // La acreditacion se realiza exclusivamente por un flujo autorizado.
+  medio_pago: formaPago,
+  estado_pago: 'pendiente',
+  efectivo_aprobado: false,
   cliente_nombre: clienteNombre,
 cliente_telefono: clienteTelefono,
 notificar_whatsapp: notificarWhatsapp && !!clienteTelefono,
