@@ -492,7 +492,10 @@ const multiBrandAddonEnabled =
   );
 
   const addonCards = useMemo(
-  () => addonItems.map((item) => getAddonCard(item, plan)),
+  () =>
+    addonItems
+      .filter((item) => item.key !== 'whatsapp_delivery' && item.key !== 'billing')
+      .map((item) => getAddonCard(item, plan)),
   [addonItems, plan]
 );
 

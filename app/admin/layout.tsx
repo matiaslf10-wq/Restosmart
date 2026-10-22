@@ -275,7 +275,7 @@ const multiBrandEnabled =
     {
       href: scopedHref('/admin/delivery'),
       label: 'Delivery',
-      visible: !!capabilities.delivery,
+      visible: false, // B6: modulo del bot fuera del piloto
     },
     {
   href: scopedHref('/admin/analytics'),

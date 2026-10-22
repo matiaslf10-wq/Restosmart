@@ -639,6 +639,8 @@ const hasWhatsappDelivery = addons.whatsapp_delivery === true;
       : 'pro',
   });
 
+  // B6: no publicar el bot en el piloto.
+  if (false) {
   links.push({
     href: hasWhatsappDelivery
       ? '/admin/delivery'
@@ -650,6 +652,7 @@ const hasWhatsappDelivery = addons.whatsapp_delivery === true;
     badge: hasWhatsappDelivery ? 'Activo' : 'Add-on',
     tone: 'addon',
   });
+  }
 
   return links;
 }, [canUseAnalytics, canUseReports, hasWhatsappDelivery]);
