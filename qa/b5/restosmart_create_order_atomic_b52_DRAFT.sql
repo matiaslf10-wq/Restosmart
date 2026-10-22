@@ -55,13 +55,15 @@ BEGIN
     RAISE EXCEPTION 'ORDER_VALIDATION: total invalido';
   END IF;
   -- B5.2: una solicitud no confirma por si misma un pago virtual.
-  IF p_pedido->>'forma_pago' = 'virtual'
-     AND (
-       coalesce(p_pedido->>'estado_pago', 'pendiente') <> 'pendiente'
-       OR coalesce((p_pedido->>'efectivo_aprobado')::boolean, false)
-     )
+  -- B7.9: ninguna alta publica puede acreditar pagos.
+  IF coalesce(p_pedido->>'forma_pago', '') NOT IN ('efectivo', 'virtual') THEN
+    RAISE EXCEPTION 'ORDER_VALIDATION: forma de pago invalida';
+  END IF;
+
+  IF coalesce(p_pedido->>'estado_pago', 'pendiente') <> 'pendiente'
+     OR coalesce((p_pedido->>'efectivo_aprobado')::boolean, false)
   THEN
-    RAISE EXCEPTION 'ORDER_VALIDATION: pago virtual no confirmado';
+    RAISE EXCEPTION 'ORDER_VALIDATION: pago no confirmado';
   END IF;
   v_restaurant := (p_pedido->>'restaurant_id')::bigint;
   IF v_restaurant IS NULL OR NOT EXISTS (
@@ -151,13 +153,13 @@ BEGIN
     (p_pedido->>'mesa_id')::bigint,
     p_pedido->>'estado',
     (p_pedido->>'total')::numeric,
-    coalesce((p_pedido->>'paga_efectivo')::boolean, false),
+    (p_pedido->>'forma_pago' = 'efectivo'),
     p_pedido->>'forma_pago',
     p_pedido->>'origen',
     p_pedido->>'tipo_servicio',
-    p_pedido->>'medio_pago',
-    p_pedido->>'estado_pago',
-    coalesce((p_pedido->>'efectivo_aprobado')::boolean, false),
+    p_pedido->>'forma_pago',
+    'pendiente',
+    false,
     p_pedido->>'cliente_nombre',
     p_pedido->>'cliente_telefono',
     coalesce((p_pedido->>'notificar_whatsapp')::boolean, false),
