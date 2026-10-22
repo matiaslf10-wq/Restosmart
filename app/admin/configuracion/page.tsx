@@ -1105,9 +1105,11 @@ async function contratarAddon(item: AddonCard) {
               <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold">
                 Mozo {waiterModeStatus}
               </span>
+{false && (
               <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold">
                 WhatsApp Delivery {deliveryAddonEnabled ? 'activo' : 'no activo'}
               </span>
+)}
             </div>
 
             {!hasSucursalContext ? (
@@ -1795,7 +1797,8 @@ async function contratarAddon(item: AddonCard) {
   </section>
 ) : null}
 
-        <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        {false && (
+<section className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-medium">Delivery y WhatsApp de la sucursal</h2>
@@ -1966,6 +1969,7 @@ async function contratarAddon(item: AddonCard) {
             </div>
           )}
         </section>
+)}
 
         <div className="flex gap-3">
           <button
