@@ -148,6 +148,17 @@ export async function POST(
       );
     }
 
+    // Solo un pago pendiente puede recibir una decision.
+    if (
+      !['pendiente', 'esperando_aprobacion'].includes(estadoPago) ||
+      pedido.efectivo_aprobado !== false
+    ) {
+      return NextResponse.json(
+        { error: 'El pago ya no esta pendiente de decision.' },
+        { status: 409 }
+      );
+    }
+
     const payload =
       accion === 'aprobar'
         ? {
@@ -166,6 +177,9 @@ export async function POST(
       .update(payload)
       .eq('id', pedidoId)
       .eq('restaurant_id', restaurantId)
+      .eq('estado_pago', estadoPago)
+      .eq('efectivo_aprobado', false)
+      .eq('estado', pedido.estado)
       .select(
         `
           id,
@@ -174,7 +188,7 @@ export async function POST(
           efectivo_aprobado
         `
       )
-      .single();
+      .maybeSingle();
 
     if (error) {
       return NextResponse.json(
@@ -182,6 +196,13 @@ export async function POST(
           error: `No se pudo actualizar el pedido: ${error.message}`,
         },
         { status: 500 }
+      );
+    }
+
+    if (!data) {
+      return NextResponse.json(
+        { error: 'El pedido cambio mientras se procesaba la decision. Actualiza la lista.' },
+        { status: 409 }
       );
     }
 
