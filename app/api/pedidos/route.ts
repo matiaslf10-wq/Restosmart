@@ -447,9 +447,14 @@ async function resolveRestaurantContextForRequest(request: NextRequest) {
 
   if (requestedRestaurantId) {
     const byId = await getRestaurantById(requestedRestaurantId);
-    if (byId?.id) return byId;
+    if (!byId?.id) return null;
 
-    return null;
+    // B7.18: ID y slug deben identificar la misma sucursal.
+    if (requestedRestaurantSlug && byId.slug !== requestedRestaurantSlug) {
+      return null;
+    }
+
+    return byId;
   }
 
   if (requestedRestaurantSlug) {
