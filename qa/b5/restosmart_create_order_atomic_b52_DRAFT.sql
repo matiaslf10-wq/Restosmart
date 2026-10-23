@@ -75,14 +75,13 @@ BEGIN
 
   -- B5.1: impedir asociaciones de mesas entre restaurantes.
   -- Los pedidos de mostrador/delivery utilizan la mesa virtual existente.
-  IF coalesce(p_pedido->>'tipo_servicio', 'mesa') = 'mesa'
-     AND NOT EXISTS (
-       SELECT 1
-       FROM public.mesas
-       WHERE id = (p_pedido->>'mesa_id')::bigint
-         AND restaurant_id = v_restaurant
-     )
-  THEN
+  -- B7.19D: cualquier mesa, fisica o virtual, pertenece a la sucursal.
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.mesas
+    WHERE id = (p_pedido->>'mesa_id')::bigint
+      AND restaurant_id = v_restaurant
+  ) THEN
     RAISE EXCEPTION 'ORDER_VALIDATION: mesa fuera del restaurante';
   END IF;
   -- Evitar escribir cualquier registro antes de validar todos los productos.

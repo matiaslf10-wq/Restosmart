@@ -497,7 +497,36 @@ async function resolveMesaIdForPedido(
   restaurantId: string | number
 ) {
   if (tipoServicio !== 'mesa') {
-    return { ok: true as const, mesaId: SIN_MESA_ID };
+    // Cada restaurante necesita su propia mesa virtual.
+    // Nunca utilizar la mesa global con ID 0.
+    const { data: virtual, error: virtualError } = await supabaseAdmin
+      .from('mesas')
+      .select('id')
+      .eq('restaurant_id', restaurantId)
+      .eq('nombre', '__RESTOSMART_VIRTUAL__')
+      .maybeSingle();
+
+    if (virtualError) {
+      return {
+        ok: false as const,
+        response: NextResponse.json(
+          { error: 'No se pudo resolver la mesa virtual del restaurante.' },
+          { status: 500 }
+        ),
+      };
+    }
+
+    if (!virtual?.id && virtual?.id !== 0) {
+      return {
+        ok: false as const,
+        response: NextResponse.json(
+          { error: 'La sucursal no tiene configurada su mesa virtual.' },
+          { status: 409 }
+        ),
+      };
+    }
+
+    return { ok: true as const, mesaId: Number(virtual.id) };
   }
 
   if (!Number.isFinite(rawMesaId) || rawMesaId <= SIN_MESA_ID) {
