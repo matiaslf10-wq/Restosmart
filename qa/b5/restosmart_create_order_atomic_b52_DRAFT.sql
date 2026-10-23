@@ -126,7 +126,15 @@ BEGIN
       RAISE EXCEPTION 'ORDER_VALIDATION: producto fuera del menu';
     END IF;
 
-    IF (SELECT lower(coalesce(plan::text, 'esencial')) IN ('pro', 'intelligence') FROM public.restaurants WHERE id = v_restaurant) AND v_stock.control_stock THEN
+    -- B7.17: respetar el control solicitado por el servidor,
+    -- las capacidades del plan y la configuracion del producto.
+    IF p_control_stock
+       AND (SELECT lower(coalesce(plan::text, 'esencial'))
+              IN ('pro', 'intelligence')
+            FROM public.restaurants
+            WHERE id = v_restaurant)
+       AND v_stock.control_stock IS TRUE
+    THEN
       IF NOT v_stock.permitir_sin_stock AND v_stock.stock_actual < v_line.cantidad THEN
         RAISE EXCEPTION 'STOCK_CONFLICT: existencias insuficientes';
       END IF;
