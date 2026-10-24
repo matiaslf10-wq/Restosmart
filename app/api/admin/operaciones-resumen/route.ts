@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireAdminAuth } from '@/lib/adminAuth';
-import { getRestaurantContext } from '@/lib/tenant';
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -168,7 +168,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const restaurant = await getRestaurantContext().catch(() => null);
+    let access;
+    try {
+      access = await resolveAuthorizedAdminAccess(auth.session, { restaurantId: request.nextUrl.searchParams.get('restaurantId') ?? request.nextUrl.searchParams.get('restaurant_id') });
+    } catch { return NextResponse.json({ error: 'Acceso denegado.' }, { status: 403 }); }
+    const restaurant = access.restaurant;
+    if (!restaurant) return NextResponse.json({ error: 'Acceso denegado.' }, { status: 403 });
 
     const pedidoSelect = `
       id,
@@ -191,37 +196,20 @@ export async function GET(request: NextRequest) {
       await Promise.all([
         supabaseAdmin
           .from('mesas')
-          .select('id, numero, nombre')
+          .select('id, numero, nombre').eq('restaurant_id', restaurant.id)
           .order('id', { ascending: true }),
         supabaseAdmin
           .from('pedidos')
-          .select(pedidoSelect)
+          .select(pedidoSelect).eq('restaurant_id', restaurant.id)
           .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
           .order('creado_en', { ascending: false }),
         supabaseAdmin
           .from('pedidos')
-          .select(pedidoSelect)
+          .select(pedidoSelect).eq('restaurant_id', restaurant.id)
           .in('estado', ['entregado', 'cerrado', 'cancelado'])
           .order('id', { ascending: false })
           .limit(50),
-        supabaseAdmin
-          .from('whatsapp_alertas')
-          .select(
-            `
-              id,
-              telefono,
-              pedido_id,
-              motivo,
-              mensaje,
-              prioridad,
-              requiere_atencion_humana,
-              resuelta,
-              created_at
-            `
-          )
-          .eq('resuelta', false)
-          .order('created_at', { ascending: false })
-          .limit(20),
+        Promise.resolve({ data: [], error: new Error('Alertas bloqueadas hasta verificar su aislamiento por restaurante.') }),
       ]);
 
     if (mesasResult.error) {

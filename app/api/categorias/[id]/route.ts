@@ -1,7 +1,8 @@
+import type { AdminSession } from '@/lib/adminAuth';
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
-  resolveAdminAccess,
   type AdminAccessResolutionOptions,
   type AdminAccessSnapshot,
 } from '@/lib/adminAccess';
@@ -108,7 +109,7 @@ async function resolveAccessForRequest(
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
-    return await resolveAdminAccess(requestedContext);
+    return await resolveAuthorizedAdminAccess(session as AdminSession, requestedContext);
   } catch (error) {
     console.error('Categoria por ID access resolution error:', error);
     return null;

@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { operateOrder } from '@/lib/orderOperationsClient';
 import {
   formatBusinessModeLabel,
   formatPlanLabel,
@@ -303,14 +303,6 @@ function parseKitchenMeta(comment: string | null | undefined) {
     kitchenState: match[1].toLowerCase() as KitchenPrepState,
     comentarioVisible: visible || null,
   };
-}
-
-function buildKitchenComment(
-  comment: string | null | undefined,
-  kitchenState: KitchenPrepState
-) {
-  const visible = String(comment ?? '').trim();
-  return `[[COCINA:${kitchenState}]]${visible ? ` ${visible}` : ''}`;
 }
 
 function isDeliveryPedido(pedido: Pedido) {
@@ -1387,16 +1379,7 @@ function renderMarcaBadge(
     setMensaje(null);
     setError(null);
 
-    let updateQuery = supabase
-  .from('pedidos')
-  .update({ estado: nuevoEstado })
-  .eq('id', pedidoId);
-
-if (currentRestaurantId != null) {
-  updateQuery = updateQuery.eq('restaurant_id', currentRestaurantId);
-}
-
-const { error: updateError } = await updateQuery;
+    const { error: updateError } = await operateOrder(currentRestaurantId, { action: 'estado', pedidoId, estado: nuevoEstado });
 
     if (updateError) {
       console.error('No se pudo actualizar el pedido:', updateError);
@@ -1417,12 +1400,7 @@ const { error: updateError } = await updateQuery;
     setMensaje(null);
     setError(null);
 
-    const { error: updateError } = await supabase
-      .from('items_pedido')
-      .update({
-        comentarios: buildKitchenComment(item.comentarioVisible, 'pendiente'),
-      })
-      .eq('id', item.id);
+    const { error: updateError } = await operateOrder(currentRestaurantId, { action: 'enviar_cocina', pedidoId, itemId: item.id });
 
     if (updateError) {
       console.error('No se pudo enviar el ítem a cocina:', updateError);
@@ -1431,26 +1409,6 @@ const { error: updateError } = await updateQuery;
       return;
     }
 
-    let pedidoUpdateQuery = supabase
-  .from('pedidos')
-  .update({ estado: 'en_preparacion' })
-  .eq('id', pedidoId);
-
-if (currentRestaurantId != null) {
-  pedidoUpdateQuery = pedidoUpdateQuery.eq('restaurant_id', currentRestaurantId);
-}
-
-const { error: pedidoError } = await pedidoUpdateQuery;
-
-    if (pedidoError) {
-      console.error(
-        'No se pudo actualizar el pedido al enviar ítem a cocina:',
-        pedidoError
-      );
-      setError('No se pudo actualizar el pedido al enviar ítem a cocina.');
-      setActualizandoItemId(null);
-      return;
-    }
 
     setMensaje(`Ítem enviado a cocina en el pedido #${pedidoId}.`);
     setActualizandoItemId(null);
@@ -1468,18 +1426,8 @@ const { error: pedidoError } = await pedidoUpdateQuery;
     setMensaje(null);
     setError(null);
 
-    const updates = await Promise.all(
-      itemsMostrador.map((item) =>
-        supabase
-          .from('items_pedido')
-          .update({
-            comentarios: buildKitchenComment(item.comentarioVisible, 'pendiente'),
-          })
-          .eq('id', item.id)
-      )
-    );
-
-    const failed = updates.find((result) => result.error);
+    const result = await operateOrder(currentRestaurantId, { action: 'enviar_cocina', pedidoId: pedido.id });
+    const failed = result.error ? result : undefined;
 
     if (failed?.error) {
       console.error('No se pudo enviar todo el pedido a cocina:', failed.error);
@@ -1488,26 +1436,6 @@ const { error: pedidoError } = await pedidoUpdateQuery;
       return;
     }
 
-    let pedidoUpdateQuery = supabase
-  .from('pedidos')
-  .update({ estado: 'en_preparacion' })
-  .eq('id', pedido.id);
-
-if (currentRestaurantId != null) {
-  pedidoUpdateQuery = pedidoUpdateQuery.eq('restaurant_id', currentRestaurantId);
-}
-
-const { error: pedidoError } = await pedidoUpdateQuery;
-
-    if (pedidoError) {
-      console.error(
-        'No se pudo actualizar el pedido al enviarlo a cocina:',
-        pedidoError
-      );
-      setError('No se pudo actualizar el pedido al enviarlo a cocina.');
-      setEnviandoPedidoACocinaId(null);
-      return;
-    }
 
     setMensaje(`Pedido #${pedido.id} enviado a cocina.`);
     setEnviandoPedidoACocinaId(null);
@@ -1531,16 +1459,7 @@ const { error: pedidoError } = await pedidoUpdateQuery;
 
     const ids = mesa.pedidos.map((pedido) => pedido.id);
 
-    let cerrarQuery = supabase
-  .from('pedidos')
-  .update({ estado: 'cerrado', pasado_a_caja: false })
-  .in('id', ids);
-
-if (currentRestaurantId != null) {
-  cerrarQuery = cerrarQuery.eq('restaurant_id', currentRestaurantId);
-}
-
-const { error: updateError } = await cerrarQuery;
+    const { error: updateError } = await operateOrder(currentRestaurantId, { action: 'cerrar', pedidoIds: ids });
 
     if (updateError) {
       console.error('No se pudo cerrar la cuenta de la mesa:', updateError);
@@ -1588,8 +1507,6 @@ const { error: updateError } = await cerrarQuery;
             : 'takeaway_manual_mostrador',
         tipo_servicio: manualOrderMode === 'salon' ? 'mesa' : 'takeaway',
         medio_pago: manualFormaPago,
-        estado_pago: manualFormaPago === 'efectivo' ? 'aprobado' : 'pendiente',
-        efectivo_aprobado: manualFormaPago === 'efectivo',
         paga_efectivo: manualFormaPago === 'efectivo',
         cliente_nombre:
           manualOrderMode === 'takeaway'

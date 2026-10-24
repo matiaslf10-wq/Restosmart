@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import {
-  getFallbackAdminAccess,
-  resolveAdminAccess,
   type AdminAccessResolutionOptions,
 } from '@/lib/adminAccess';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -916,7 +915,7 @@ async function getRestaurantIdsForTenant(
     supabaseAdmin
       .from('restaurants')
       .select('id, slug, owner_tenant_id')
-      .eq('slug', tenantId),
+      .eq('slug', tenantId).eq('owner_tenant_id', tenantId),
   ]);
 
   if (byOwner.error) {
@@ -976,7 +975,7 @@ async function getRestaurantOptionsForTenant(
       supabaseAdmin
         .from('restaurants')
         .select('id, slug, owner_tenant_id')
-        .eq('slug', tenantId),
+        .eq('slug', tenantId).eq('owner_tenant_id', tenantId),
     ]);
 
     if (byOwner.error) {
@@ -1489,12 +1488,13 @@ export async function GET(request: NextRequest) {
 
   const requestedContext = extractRequestedTenantContext(request, auth.session);
 
-  let access = getFallbackAdminAccess();
+  let access;
 
   try {
-    access = await resolveAdminAccess(requestedContext);
+    access = await resolveAuthorizedAdminAccess(auth.session, requestedContext);
   } catch (error) {
     console.error('GET /api/admin/analytics access resolution error:', error);
+    return NextResponse.json({ error: 'Acceso denegado.' }, { status: 403 });
   }
 
   const canAccessReports =
@@ -1580,11 +1580,7 @@ if (analyticsScope.restaurantIds.length === 0) {
         .lte('creado_en', isoHasta)
     : null;
 
-  const unscopedCountResult = await supabaseAdmin
-    .from('pedidos')
-    .select('id', { count: 'exact', head: true })
-    .gte('creado_en', isoDesde)
-    .lte('creado_en', isoHasta);
+  const unscopedCountResult = scopedCountResult;
 
   const latestPedidosResult = await supabaseAdmin
     .from('pedidos')
@@ -1600,6 +1596,7 @@ if (analyticsScope.restaurantIds.length === 0) {
       total
     `
     )
+    .in('restaurant_id', analyticsScope.restaurantIds)
     .order('creado_en', { ascending: false })
     .limit(15);
 
@@ -1620,8 +1617,8 @@ if (analyticsScope.restaurantIds.length === 0) {
   accessTenantId: access.tenantId,
   scopedCount: scopedCountResult?.count ?? null,
   scopedError: scopedCountResult?.error?.message ?? null,
-  unscopedCount: unscopedCountResult.count ?? null,
-  unscopedError: unscopedCountResult.error?.message ?? null,
+  unscopedCount: unscopedCountResult?.count ?? null,
+  unscopedError: unscopedCountResult?.error?.message ?? null,
   latestPedidos: latestPedidosResult.data ?? [],
   latestPedidosError: latestPedidosResult.error?.message ?? null,
 }

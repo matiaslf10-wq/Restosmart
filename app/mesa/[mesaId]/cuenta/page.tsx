@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { loadOperationalOrders, operateOrder } from '@/lib/orderOperationsClient';
 
 type ItemPedido = {
   id: number;
@@ -51,35 +51,20 @@ export default function CuentaMesaPage() {
   const [cargando, setCargando] = useState(true);
   const [cerrando, setCerrando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
-  const [procesandoPago, setProcesandoPago] = useState(false);
+  const procesandoPago = false;
 
-  const cargarPedidos = async () => {
+  const cargarPedidos = useCallback(async () => {
     if (!mesaId) return;
     setCargando(true);
     setMensaje(null);
 
-    const { data, error } = await supabase
-      .from('pedidos')
-      .select(`
-        id,
-        mesa_id,
-        creado_en,
-        estado,
-        paga_efectivo,
-        items_pedido (
-          id,
-          cantidad,
-          comentarios,
-          producto:productos ( nombre, precio )
-        )
-      `)
-      .eq('mesa_id', mesaId)
-      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
-      .order('creado_en', { ascending: true });
+    const scope = new URLSearchParams(window.location.search);
+    const { data: orders, error } = await loadOperationalOrders(scope.get('restaurantId') ?? scope.get('restaurant_id')).catch(() => ({ data: null, error: new Error('Sin conexión') }));
+    const data = orders?.filter((pedido: { mesa_id: number }) => pedido.mesa_id === mesaId);
 
     if (error) {
       console.error('Error al cargar pedidos de la mesa:', error);
-      setMensaje('No se pudo cargar la cuenta de la mesa.');
+      setMensaje('La cuenta requiere una sesión autorizada del personal. Pedí la cuenta al personal del local.');
       setPedidos([]);
       setCargando(false);
       return;
@@ -100,11 +85,11 @@ export default function CuentaMesaPage() {
     }
 
     setCargando(false);
-  };
+  }, [mesaId]);
 
   useEffect(() => {
     cargarPedidos();
-  }, [mesaId]);
+  }, [cargarPedidos]);
 
   const subtotalPedido = (p: Pedido) =>
     p.items.reduce((acc, item) => {
@@ -127,10 +112,8 @@ export default function CuentaMesaPage() {
 
     const ids = pedidos.map((p) => p.id);
 
-    const { error } = await supabase
-      .from('pedidos')
-      .update({ estado: 'cerrado' })
-      .in('id', ids);
+    const scope = new URLSearchParams(window.location.search);
+    const { error } = await operateOrder(scope.get('restaurantId') ?? scope.get('restaurant_id'), { action: 'cerrar', pedidoIds: ids });
 
     if (error) {
       console.error(error);
@@ -144,32 +127,8 @@ export default function CuentaMesaPage() {
     setCerrando(false);
   };
 
-  const marcarPagoEfectivoDesdeCliente = async () => {
-    if (!mesaId) return;
-    if (pedidos.length === 0) {
-      setMensaje('No hay pedidos abiertos para marcar como efectivo.');
-      return;
-    }
-
-    setProcesandoPago(true);
-    setMensaje(null);
-
-    const { error } = await supabase
-      .from('pedidos')
-      .update({ paga_efectivo: true })
-      .eq('mesa_id', mesaId)
-      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
-
-    if (error) {
-      console.error('Error al marcar pago en efectivo desde cliente:', error);
-      setMensaje('No se pudo registrar el pago en efectivo. Avisá al personal.');
-      setProcesandoPago(false);
-      return;
-    }
-
-    setMensaje('Listo, registramos que vas a pagar en efectivo 💵');
-    await cargarPedidos();
-    setProcesandoPago(false);
+  const marcarPagoEfectivoDesdeCliente = () => {
+    setMensaje('Para solicitar efectivo sobre pedidos existentes, avisá al personal. Esta solicitud no acredita un pago.');
   };
 
   const pagarVirtual = () => {

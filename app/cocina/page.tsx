@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { operateOrder } from '@/lib/orderOperationsClient';
 import {
   normalizeBusinessMode,
   type BusinessMode,
@@ -193,14 +193,6 @@ function parseKitchenMeta(comment: string | null | undefined) {
     kitchenState: match[1].toLowerCase() as KitchenPrepState,
     comentarioVisible: visible || null,
   };
-}
-
-function buildKitchenComment(
-  comment: string | null | undefined,
-  kitchenState: KitchenPrepState
-) {
-  const visible = String(comment ?? '').trim();
-  return `[[COCINA:${kitchenState}]]${visible ? ` ${visible}` : ''}`;
 }
 
 function getKitchenItems(pedido: Pedido) {
@@ -462,6 +454,7 @@ const restaurantScopeQuery = useMemo(() => {
     });
   }, []);
 
+  const previousKitchen = useRef<{ scope: string; states: Map<number, string | null> } | null>(null);
   const cargarPedidos = useCallback(async () => {
   if (!currentRestaurantId || !restaurantScopeQuery) {
     setPedidos([]);
@@ -474,7 +467,6 @@ const restaurantScopeQuery = useMemo(() => {
     return;
   }
 
-  setCargando(true);
   setError(null);
 
   try {
@@ -550,6 +542,20 @@ const restaurantScopeQuery = useMemo(() => {
       })
       .filter((pedido) => getKitchenItems(pedido).length > 0);
 
+    const previous = previousKitchen.current;
+    const states = new Map<number, string | null>();
+    const arrivals: number[] = [];
+    for (const pedido of formateados) {
+      for (const item of getKitchenItems(pedido)) {
+        states.set(item.id, item.kitchenState);
+        if (previous?.scope === currentRestaurantId && item.kitchenState === 'pendiente' && previous.states.get(item.id) !== 'pendiente') arrivals.push(pedido.id);
+      }
+    }
+    previousKitchen.current = { scope: currentRestaurantId, states };
+    if (arrivals.length) {
+      setDestacados(prev => [...new Set([...arrivals, ...prev])]);
+      reproducirSonido();
+    }
     setPedidos(formateados);
 
     const map: Record<number, MesaRef> = {};
@@ -566,62 +572,15 @@ const restaurantScopeQuery = useMemo(() => {
   } finally {
     setCargando(false);
   }
-}, [currentRestaurantId, pedidosEndpoint, restaurantScopeQuery]);
+}, [currentRestaurantId, pedidosEndpoint, restaurantScopeQuery, reproducirSonido]);
 
   useEffect(() => {
   if (checkingAccess || !hasRestaurantScope) return;
 
   void cargarPedidos();
 
-  const canalPedidos = supabase
-      .channel('realtime-pedidos-cocina')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pedidos' },
-        () => {
-          void cargarPedidos();
-        }
-      )
-      .subscribe();
-
-    const canalItems = supabase
-      .channel('realtime-items-cocina')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'items_pedido' },
-        (payload) => {
-          const nuevo = payload.new as any;
-          const viejo = payload.old as any;
-
-          const parsedNuevo = parseKitchenMeta(nuevo?.comentarios ?? null);
-          const parsedViejo = parseKitchenMeta(viejo?.comentarios ?? null);
-
-          const ingresoNuevoAPendiente =
-            parsedNuevo.prepTarget === 'cocina' &&
-            parsedNuevo.kitchenState === 'pendiente' &&
-            !(
-              parsedViejo.prepTarget === 'cocina' &&
-              parsedViejo.kitchenState === 'pendiente'
-            );
-
-          if (ingresoNuevoAPendiente && Number.isFinite(Number(nuevo?.pedido_id))) {
-            const pedidoId = Number(nuevo.pedido_id);
-
-            setDestacados((prev) =>
-              prev.includes(pedidoId) ? prev : [pedidoId, ...prev]
-            );
-            reproducirSonido();
-          }
-
-          void cargarPedidos();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(canalPedidos);
-      supabase.removeChannel(canalItems);
-    };
+  const timer = window.setInterval(() => { void cargarPedidos(); }, 5000);
+  return () => window.clearInterval(timer);
  }, [checkingAccess, hasRestaurantScope, cargarPedidos, reproducirSonido]);
 
   const actualizarEstadoItemsCocina = async (
@@ -650,48 +609,8 @@ const restaurantScopeQuery = useMemo(() => {
         return;
       }
 
-      const updates = await Promise.all(
-  itemsAActualizar.map((item) =>
-    supabase
-      .from('items_pedido')
-      .update({
-        comentarios: buildKitchenComment(
-          item.comentarioVisible,
-          nuevoEstado
-        ),
-      })
-      .eq('id', item.id)
-      .eq('pedido_id', pedido.id)
-  )
-);
-
-      const failed = updates.find((result) => result.error);
-
-      if (failed?.error) {
-        throw failed.error;
-      }
-
-      let pedidoUpdateQuery = supabase
-  .from('pedidos')
-  .update({
-    estado: nuevoEstado === 'listo' ? 'listo' : 'en_preparacion',
-  })
-  .eq('id', pedido.id);
-
-const scopedRestaurantId = pedido.restaurant_id ?? currentRestaurantId;
-
-if (scopedRestaurantId != null) {
-  pedidoUpdateQuery = pedidoUpdateQuery.eq(
-    'restaurant_id',
-    scopedRestaurantId
-  );
-}
-
-const { error: pedidoError } = await pedidoUpdateQuery;
-
-      if (pedidoError) {
-        throw pedidoError;
-      }
+      const result = await operateOrder(currentRestaurantId, { action: 'cocina', pedidoId: pedido.id, estado: nuevoEstado });
+      if (result.error) throw result.error;
 
       setDestacados((prev) => prev.filter((id) => id !== pedido.id));
       await cargarPedidos();

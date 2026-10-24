@@ -1,5 +1,7 @@
 'use client';
 
+import { supabase } from '@/lib/supabaseClient';
+
 import Link from 'next/link';
 import {
   Suspense,
@@ -10,7 +12,6 @@ import {
   useState,
 } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
 
 const DELIVERY_MESA_ID = 0;
 
@@ -292,48 +293,7 @@ const productosPromise = fetch(productosEndpoint, {
   void cargarDatosIniciales();
 }, [mesaRutaId, mesaValida, productosEndpoint, currentRestaurantId, hasRestaurantScope]);
 
-  useEffect(() => {
-    if (!mesa?.id) return;
-
-    const channel = supabase
-      .channel(`mesa-${mesa.id}-notifs-cliente`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'pedidos',
-          filter: `mesa_id=eq.${mesa.id}`,
-        },
-        (payload) => {
-          const nuevo: any = payload.new;
-          const viejo: any = payload.old;
-
-          if (
-            viejo?.estado !== 'en_preparacion' &&
-            nuevo?.estado === 'en_preparacion'
-          ) {
-            setMensaje('Tu pedido está en preparación 🍳');
-          }
-
-          if (viejo?.estado !== 'listo' && nuevo?.estado === 'listo') {
-            setMensaje('¡Tu pedido ya está listo! Podés acercarte a retirarlo. 🍽️');
-
-            if (audioRef.current) {
-              audioRef.current.currentTime = 0;
-              audioRef.current.play().catch((err) =>
-                console.log('No se pudo reproducir el sonido:', err)
-              );
-            }
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [mesa?.id]);
+  // El seguimiento público requiere una autorización de cuenta aún no disponible.
 
   const agregarAlCarrito = (producto: Producto) => {
     if (isProductoAgotado(producto)) {
@@ -444,8 +404,6 @@ const productosPromise = fetch(productosEndpoint, {
         origen: 'salon',
         tipo_servicio: 'mesa',
         medio_pago: formaPago === 'efectivo' ? 'efectivo' : 'virtual',
-        estado_pago: formaPago === 'efectivo' ? 'aprobado' : 'pendiente',
-        efectivo_aprobado: formaPago === 'efectivo',
         items: carrito.map((item) => ({
           producto_id: item.producto.id,
           cantidad: item.cantidad,
@@ -501,28 +459,8 @@ const productosPromise = fetch(productosEndpoint, {
 
         setMensaje(getMensajePedidoCreado(pedido, 'efectivo'));
       } else {
-        const { error } = await supabase
-          .from('pedidos')
-          .update({
-            paga_efectivo: true,
-            forma_pago: 'efectivo',
-            origen: 'salon',
-            tipo_servicio: 'mesa',
-            medio_pago: 'efectivo',
-            estado_pago: 'aprobado',
-            efectivo_aprobado: true,
-          })
-          .eq('restaurant_id', currentRestaurantId)
-.eq('mesa_id', mesa.id)
-.in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
-
-        if (error) {
-          console.error('No se pudo marcar pago en efectivo:', error);
-          setMensaje('No se pudo registrar el pago en efectivo.');
-          return;
-        }
-
-        setMensaje('Registramos que vas a pagar en efectivo 💵');
+        setMensaje('Para cambiar el medio de pago de pedidos existentes, avisá al personal. Solicitar efectivo no acredita un pago.');
+        return;
       }
     } finally {
       setProcesandoPago(false);
@@ -550,28 +488,8 @@ const productosPromise = fetch(productosEndpoint, {
 
         setMensaje(getMensajePedidoCreado(pedido, 'virtual'));
       } else {
-        const { error } = await supabase
-          .from('pedidos')
-          .update({
-            paga_efectivo: false,
-            forma_pago: 'virtual',
-            origen: 'salon',
-            tipo_servicio: 'mesa',
-            medio_pago: 'virtual',
-            estado_pago: 'pendiente',
-            efectivo_aprobado: false,
-          })
-          .eq('restaurant_id', currentRestaurantId)
-.eq('mesa_id', mesa.id)
-.in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
-
-        if (error) {
-          console.error('No se pudo marcar pago virtual:', error);
-          setMensaje('No se pudo registrar el pago virtual.');
-          return;
-        }
-
-        setMensaje('Registramos que vas a pagar de forma virtual 💳');
+        setMensaje('Para cambiar el medio de pago de pedidos existentes, avisá al personal. Solicitar efectivo no acredita un pago.');
+        return;
       }
     }
 

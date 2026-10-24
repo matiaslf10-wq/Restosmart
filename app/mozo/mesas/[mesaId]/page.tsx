@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { operateOrder, loadOperationalOrders } from '@/lib/orderOperationsClient';
 import {
   formatPlanLabel,
   normalizeBusinessMode,
@@ -168,14 +168,6 @@ function parseKitchenMeta(comment: string | null | undefined) {
   };
 }
 
-function buildKitchenComment(
-  comment: string | null | undefined,
-  kitchenState: KitchenPrepState
-) {
-  const visible = String(comment ?? '').trim();
-  return `[[COCINA:${kitchenState}]]${visible ? ` ${visible}` : ''}`;
-}
-
 function buildScopedHref(path: string, restaurantScopeQuery: string) {
   if (!restaurantScopeQuery) return path;
 
@@ -312,25 +304,9 @@ const restaurantScopeQuery = useMemo(() => {
     return;
   }
 
-  const { data, error } = await supabase
-    .from('pedidos')
-    .select(`
-      id,
-      mesa_id,
-      creado_en,
-      estado,
-      paga_efectivo,
-      items_pedido (
-        id,
-        cantidad,
-        comentarios,
-        producto:productos ( nombre, precio )
-      )
-    `)
-    .eq('restaurant_id', currentRestaurantId)
-    .eq('mesa_id', mesa.id)
-    .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo'])
-    .order('creado_en', { ascending: true });
+  const result = await loadOperationalOrders(currentRestaurantId);
+  const error = result.error;
+  const data = result.data?.filter((pedido: { mesa_id: number }) => pedido.mesa_id === mesa.id);
 
   if (error) {
     console.error('Error al cargar pedidos de la mesa:', error);
@@ -450,11 +426,7 @@ setBusinessMode(resolvedMode);
     setActualizandoPedidoId(pedidoId);
     setMensaje(null);
 
-    const { error } = await supabase
-      .from('pedidos')
-      .update({ estado: nuevoEstado })
-      .eq('id', pedidoId)
-.eq('restaurant_id', currentRestaurantId);
+    const { error } = await operateOrder(currentRestaurantId, { action: 'estado', pedidoId, estado: nuevoEstado });
 
     if (error) {
       console.error('Error al actualizar estado del pedido:', error);
@@ -471,13 +443,7 @@ setBusinessMode(resolvedMode);
     setActualizandoItemId(item.id);
     setMensaje(null);
 
-    const { error: itemError } = await supabase
-      .from('items_pedido')
-      .update({
-        comentarios: buildKitchenComment(item.comentarioVisible, 'pendiente'),
-      })
-      .eq('id', item.id)
-.eq('pedido_id', pedidoId);
+    const { error: itemError } = await operateOrder(currentRestaurantId, { action: 'enviar_cocina', pedidoId, itemId: item.id });
 
     if (itemError) {
       console.error('No se pudo enviar el ítem a cocina:', itemError);
@@ -486,21 +452,6 @@ setBusinessMode(resolvedMode);
       return;
     }
 
-    const { error: pedidoError } = await supabase
-      .from('pedidos')
-      .update({ estado: 'en_preparacion' })
-      .eq('id', pedidoId)
-.eq('restaurant_id', currentRestaurantId);
-
-    if (pedidoError) {
-      console.error(
-        'No se pudo actualizar el pedido al enviar ítem a cocina:',
-        pedidoError
-      );
-      setMensaje('No se pudo actualizar el pedido al enviar el ítem a cocina.');
-      setActualizandoItemId(null);
-      return;
-    }
 
     setActualizandoItemId(null);
     setMensaje(`Ítem enviado a cocina en el pedido #${pedidoId}.`);
@@ -513,12 +464,7 @@ setBusinessMode(resolvedMode);
   setDerivandoACaja(true);
   setMensaje(null);
 
-  const { error } = await supabase
-    .from('pedidos')
-    .update({ pasado_a_caja: true })
-    .eq('restaurant_id', currentRestaurantId)
-.eq('mesa_id', mesaActual.id)
-    .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
+  const { error } = await operateOrder(currentRestaurantId, { action: 'caja', pedidoIds: pedidos.map(pedido => pedido.id) });
 
   if (error) {
     console.error('No se pudo pasar la mesa a caja:', error);

@@ -639,8 +639,6 @@ if (!hasRestaurantScope) {
   origen: 'takeaway_web',
   tipo_servicio: 'takeaway',
   medio_pago: formaPago,
-  estado_pago: formaPago === 'efectivo' ? 'aprobado' : 'pendiente',
-  efectivo_aprobado: formaPago === 'efectivo',
   paga_efectivo: formaPago === 'efectivo',
   cliente_nombre: nombreRetiro,
   items,

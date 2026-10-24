@@ -1,9 +1,9 @@
+import type { AdminSession } from '@/lib/adminAuth';
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
-  getFallbackAdminAccess,
-  resolveAdminAccess,
   type AdminAccessResolutionOptions,
 } from '@/lib/adminAccess';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -172,10 +172,10 @@ async function resolveAccessForRequest(request: NextRequest, session: unknown) {
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
-    return await resolveAdminAccess(requestedContext);
+    return await resolveAuthorizedAdminAccess(session as AdminSession, requestedContext);
   } catch (error) {
     console.error('POST /api/admin/billing/checkout access error:', error);
-    return getFallbackAdminAccess();
+    return null;
   }
 }
 
@@ -217,6 +217,7 @@ export async function POST(request: NextRequest) {
   try {
     const accessToken = getMercadoPagoAccessToken();
     const access = await resolveAccessForRequest(request, auth.session);
+    if (!access) return NextResponse.json({ error: 'Acceso denegado.' }, { status: 403 });
 
     const intent = resolveCheckoutIntent(body);
 

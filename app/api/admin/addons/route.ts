@@ -1,8 +1,8 @@
+import type { AdminSession } from '@/lib/adminAuth';
+import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
-  getFallbackAdminAccess,
-  resolveAdminAccess,
   type AdminAccessResolutionOptions,
 } from '@/lib/adminAccess';
 
@@ -96,10 +96,10 @@ async function resolveAccessForRequest(request: NextRequest, session: unknown) {
   const requestedContext = extractRequestedTenantContext(request, session);
 
   try {
-    return await resolveAdminAccess(requestedContext);
+    return await resolveAuthorizedAdminAccess(session as AdminSession, requestedContext);
   } catch (error) {
     console.error('GET/PUT /api/admin/addons access resolution error:', error);
-    return getFallbackAdminAccess();
+    return null;
   }
 }
 
@@ -111,6 +111,7 @@ export async function GET(request: NextRequest) {
   }
 
   const access = await resolveAccessForRequest(request, auth.session);
+    if (!access) return NextResponse.json({ error: 'Acceso denegado.' }, { status: 403 });
 
   const multiBrandAvailable = access.plan !== 'esencial';
 
@@ -170,6 +171,7 @@ export async function PUT(request: NextRequest) {
   }
 
   const access = await resolveAccessForRequest(request, auth.session);
+    if (!access) return NextResponse.json({ error: 'Acceso denegado.' }, { status: 403 });
 
   let body: AddonUpdateBody | null = null;
 

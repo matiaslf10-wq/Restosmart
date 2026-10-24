@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { operateOrder, loadOperationalOrders } from '@/lib/orderOperationsClient';
 import {
   formatPlanLabel,
   normalizeBusinessMode,
@@ -106,14 +106,6 @@ function parseKitchenMeta(comment: string | null | undefined) {
     kitchenState: match[1].toLowerCase() as KitchenPrepState,
     comentarioVisible: visible || null,
   };
-}
-
-function buildKitchenComment(
-  comment: string | null | undefined,
-  kitchenState: KitchenPrepState
-) {
-  const visible = String(comment ?? '').trim();
-  return `[[COCINA:${kitchenState}]]${visible ? ` ${visible}` : ''}`;
 }
 
 function esPedidoDelivery(
@@ -709,8 +701,8 @@ const qrUrl = getMesaQrUrl(mesaNumeroVisible);
     }
   };
 
+  const previousOrders = useRef<{ scope: string; states: Map<number, { estado: string; efectivo: boolean }> } | null>(null);
   const cargarDatos = useCallback(async () => {
-  setCargando(true);
   setMensaje(null);
 
   if (!currentRestaurantId) {
@@ -751,40 +743,26 @@ if (resolvedMode !== 'restaurant') {
 
 const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
 
-    const { data: pedidosData, error: errorPedidos } = await supabase
-      .from('pedidos')
-      .select(`
-        id,
-        restaurant_id,
-        mesa_id,
-        creado_en,
-        estado,
-        paga_efectivo,
-        forma_pago,
-        origen,
-        tipo_servicio,
-        medio_pago,
-        estado_pago,
-        efectivo_aprobado,
-        pasado_a_caja,
-        items_pedido (
-          id,
-          cantidad,
-          comentarios,
-          producto:productos ( nombre, precio )
-        )
-      `)
-      .eq('restaurant_id', currentRestaurantId)
-      .in('estado', ['solicitado', 'pendiente', 'en_preparacion', 'listo']);
+    const { data: pedidosData, error: errorPedidos } = await loadOperationalOrders(currentRestaurantId);
 
     if (errorPedidos) {
       console.error('Error al cargar pedidos:', errorPedidos);
+      setMesas([]);
       setMensaje('Error al cargar los pedidos.');
       setCargando(false);
       return;
     }
 
     const pedidosBase: any[] = pedidosData ?? [];
+    const previous = previousOrders.current;
+    if (previous?.scope === currentRestaurantId && pedidosBase.some(p => {
+      if (!shouldShowPedidoInMozo(p)) return false;
+      const old = previous.states.get(p.id);
+      return (!old && p.estado === 'solicitado') || (old && old.estado !== 'listo' && p.estado === 'listo') || (old && !old.efectivo && !!p.paga_efectivo);
+    })) {
+      if (audioRef.current) { audioRef.current.currentTime = 0; void audioRef.current.play().catch(() => {}); }
+    }
+    previousOrders.current = { scope: currentRestaurantId, states: new Map(pedidosBase.map(p => [p.id, { estado: String(p.estado), efectivo: !!p.paga_efectivo }])) };
 
     const pedidosPorMesa: Record<number, Pedido[]> = {};
 
@@ -853,6 +831,7 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
 
     setMesas(mesasConCuenta);
   } catch (err) {
+    setMesas([]);
     console.error('Error inesperado en cargarDatos:', err);
     setMensaje('Ocurrió un error inesperado al cargar los datos.');
   } finally {
@@ -867,88 +846,9 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
 
     void cargarDatos();
 
-    const canalPedidos = supabase
-      .channel('mozo-pedidos')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pedidos' },
-        (payload) => {
-          const nuevo: any = payload.new ?? null;
-          const viejo: any = payload.old ?? null;
-
-          const nuevoPedido = {
-            mesa_id: Number(nuevo?.mesa_id ?? DELIVERY_MESA_ID),
-            origen: nuevo?.origen ?? null,
-            tipo_servicio: nuevo?.tipo_servicio ?? null,
-          };
-
-          const esSalonNuevo =
-            nuevo != null &&
-            !esPedidoDelivery(nuevoPedido) &&
-            !esPedidoTakeaway(nuevoPedido) &&
-            nuevoPedido.mesa_id !== DELIVERY_MESA_ID;
-
-          if (
-            payload.eventType === 'INSERT' &&
-            esSalonNuevo &&
-            normalizeText(nuevo?.estado) === 'solicitado'
-          ) {
-            if (audioRef.current) {
-              audioRef.current.currentTime = 0;
-              audioRef.current.play().catch(() => {});
-            }
-          }
-
-          if (
-            payload.eventType === 'UPDATE' &&
-            esSalonNuevo &&
-            normalizeText(viejo?.estado) !== 'listo' &&
-            normalizeText(nuevo?.estado) === 'listo'
-          ) {
-            if (audioRef.current) {
-              audioRef.current.currentTime = 0;
-              audioRef.current.play().catch(() => {});
-            }
-          }
-
-          const pagoAntes =
-            !!viejo?.paga_efectivo ||
-            normalizeText(viejo?.forma_pago) === 'efectivo' ||
-            normalizeText(viejo?.medio_pago) === 'efectivo';
-
-          const pagoDespues =
-            !!nuevo?.paga_efectivo ||
-            normalizeText(nuevo?.forma_pago) === 'efectivo' ||
-            normalizeText(nuevo?.medio_pago) === 'efectivo';
-
-          if (esSalonNuevo && !pagoAntes && pagoDespues) {
-            if (audioRef.current) {
-              audioRef.current.currentTime = 0;
-              audioRef.current.play().catch(() => {});
-            }
-          }
-
-          void cargarDatos();
-        }
-      )
-      .subscribe();
-
-    const canalItems = supabase
-      .channel('mozo-items')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'items_pedido' },
-        () => {
-          void cargarDatos();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(canalPedidos);
-      supabase.removeChannel(canalItems);
-    };
-  }, [canUseWaiterMode, businessMode, cargarDatos]);
+    const timer = window.setInterval(() => { void cargarDatos(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [canUseWaiterMode, businessMode, cargarDatos, currentRestaurantId]);
 
   const calcularEstadoMesa = (mesa: MesaConCuenta): EstadoMesa => {
     if (mesa.pedidos.length === 0) return 'libre';
@@ -1078,11 +978,7 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
     try {
       const idsPedidos = mesa.pedidos.map((pedido) => pedido.id);
 
-      const { error } = await supabase
-  .from('pedidos')
-  .update({ pasado_a_caja: true })
-  .eq('restaurant_id', currentRestaurantId)
-  .in('id', idsPedidos);
+      const { error } = await operateOrder(currentRestaurantId, { action: 'caja', pedidoIds: idsPedidos });
 
       if (error) {
         console.error('No se pudo pasar la mesa a caja:', error);
@@ -1110,11 +1006,7 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
 
     setMensaje(null);
 
-    const { error } = await supabase
-      .from('pedidos')
-      .update({ estado: 'cancelado' })
-      .eq('id', pedidoId)
-.eq('restaurant_id', currentRestaurantId);
+    const { error } = await operateOrder(currentRestaurantId, { action: 'estado', pedidoId, estado: 'cancelado' });
 
     if (error) {
       console.error(error);
@@ -1133,11 +1025,7 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
     setActualizandoPedidoId(pedidoId);
     setMensaje(null);
 
-    const { error } = await supabase
-      .from('pedidos')
-      .update({ estado: nuevoEstado })
-      .eq('id', pedidoId)
-.eq('restaurant_id', currentRestaurantId);
+    const { error } = await operateOrder(currentRestaurantId, { action: 'estado', pedidoId, estado: nuevoEstado });
 
     if (error) {
       console.error('Error al actualizar estado del pedido:', error);
@@ -1154,13 +1042,7 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
   setActualizandoItemId(item.id);
   setMensaje(null);
 
-  const { error: itemError } = await supabase
-    .from('items_pedido')
-    .update({
-      comentarios: buildKitchenComment(item.comentarioVisible, 'pendiente'),
-    })
-    .eq('id', item.id)
-.eq('pedido_id', pedidoId)
+  const { error: itemError } = await operateOrder(currentRestaurantId, { action: 'enviar_cocina', pedidoId, itemId: item.id });
 
   if (itemError) {
     console.error('No se pudo pasar el ítem a cocina:', itemError);
@@ -1169,21 +1051,6 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
     return;
   }
 
-  const { error: pedidoError } = await supabase
-    .from('pedidos')
-    .update({ estado: 'en_preparacion' })
-    .eq('id', pedidoId)
-.eq('restaurant_id', currentRestaurantId);
-
-  if (pedidoError) {
-    console.error(
-      'No se pudo actualizar el pedido al pasar el ítem a cocina:',
-      pedidoError
-    );
-    setMensaje('No se pudo actualizar el pedido al pasar el ítem a cocina.');
-    setActualizandoItemId(null);
-    return;
-  }
 
   setActualizandoItemId(null);
   setMensaje(`Ítem enviado a cocina en el pedido #${pedidoId}.`);
