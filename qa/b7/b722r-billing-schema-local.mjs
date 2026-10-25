@@ -31,3 +31,8 @@ test('Pago conservado en checkout', () => {
 test('Checkouts antiguos rechazados', () => {
   assert.match(sql, /BILLING_STALE_CHECKOUT/);
 });
+
+test('Identificador de pago unico en PostgreSQL', () => {
+  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS billing_checkout_sessions_mp_payment_id_unique/);
+  assert.match(sql, /ON public\.billing_checkout_sessions \(mp_payment_id\)/);
+});

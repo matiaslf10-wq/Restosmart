@@ -177,3 +177,9 @@ REVOKE ALL ON FUNCTION public.restosmart_apply_billing_payment_v1(
 GRANT EXECUTE ON FUNCTION public.restosmart_apply_billing_payment_v1(
     text, text, numeric, text, text
 ) TO service_role;
+
+-- B7.22Z: impedir reutilizacion de identificadores de pago.
+CREATE UNIQUE INDEX IF NOT EXISTS billing_checkout_sessions_mp_payment_id_unique
+ON public.billing_checkout_sessions (mp_payment_id)
+WHERE mp_payment_id IS NOT NULL
+  AND btrim(mp_payment_id) <> '';
