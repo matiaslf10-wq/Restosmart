@@ -59,8 +59,10 @@ export default function CuentaMesaPage() {
     setMensaje(null);
 
     const scope = new URLSearchParams(window.location.search);
-    const { data: orders, error } = await loadOperationalOrders(scope.get('restaurantId') ?? scope.get('restaurant_id')).catch(() => ({ data: null, error: new Error('Sin conexión') }));
-    const data = orders?.filter((pedido: { mesa_id: number }) => pedido.mesa_id === mesaId);
+    const restaurantId = scope.get('restaurantId') ?? scope.get('restaurant_id');
+    const { data, error } = restaurantId
+      ? await loadOperationalOrders(restaurantId, mesaId).catch(() => ({ data: null, error: new Error('Sin conexión') }))
+      : { data: null, error: new Error('Falta la sucursal del QR') };
 
     if (error) {
       console.error('Error al cargar pedidos de la mesa:', error);

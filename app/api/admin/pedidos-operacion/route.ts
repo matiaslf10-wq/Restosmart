@@ -22,11 +22,23 @@ async function accessFor(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const access = await accessFor(request);
   if (!access.ok) return access.response;
-  const { data, error } = await supabaseAdmin.from('pedidos')
+  const numero = request.nextUrl.searchParams.get('mesaNumero');
+  let mesaId: number | undefined;
+  if (numero !== null) {
+    if (!Number.isSafeInteger(Number(numero)) || Number(numero) <= 0) return NextResponse.json({ error: 'Mesa inválida.' }, { status: 400 });
+    const mesa = await supabaseAdmin.from('mesas').select('id')
+      .eq('restaurant_id', access.restaurantId).eq('numero', Number(numero)).gt('id', 0).maybeSingle();
+    if (mesa.error) return NextResponse.json({ error: 'No se pudo verificar la mesa.' }, { status: 500 });
+    if (!mesa.data) return NextResponse.json({ error: 'Mesa no disponible.' }, { status: 404 });
+    mesaId = mesa.data.id;
+  }
+  let query = supabaseAdmin.from('pedidos')
     .select(`id, restaurant_id, mesa_id, creado_en, estado, paga_efectivo,
       forma_pago, origen, tipo_servicio, medio_pago, estado_pago, efectivo_aprobado, pasado_a_caja,
       items_pedido(id, cantidad, comentarios, producto:productos(nombre, precio))`)
     .eq('restaurant_id', access.restaurantId).in('estado', active).order('creado_en', { ascending: true });
+  if (mesaId !== undefined) query = query.eq('mesa_id', mesaId);
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: 'No se pudieron cargar los pedidos.' }, { status: 500 });
   try {
     return NextResponse.json({ pedidos: await maskBlockedKitchen(data ?? [], access.restaurantId) }, { headers: { 'Cache-Control': 'private, no-store' } });

@@ -37,7 +37,7 @@ export async function resolveAuthorizedAdminAccess(
   const tenantId = clean(admin?.tenant_id);
   if (
     !admin ||
-    admin.activo === false ||
+    admin.activo !== true ||
     !tenantId ||
     clean(admin.email)?.toLowerCase() !== email.toLowerCase() ||
     (byId && String(admin.id) !== adminId) ||
