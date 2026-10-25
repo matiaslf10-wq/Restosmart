@@ -1,4 +1,4 @@
-﻿-- B7.24: migration prepared locally; NOT EXECUTED.
+-- B7.24: migration prepared locally; NOT EXECUTED.
 -- Prerequisite: schema/RPC in qa/b5/restosmart_create_order_atomic_b52_DRAFT.sql.
 BEGIN;
 DO $$ BEGIN
@@ -42,6 +42,7 @@ REVOKE ALL ON public.order_collection_configs, public.order_collections, public.
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.order_collection_configs TO service_role;
 GRANT SELECT, INSERT, UPDATE ON public.order_collections TO service_role;
 GRANT SELECT, INSERT ON public.order_collection_events TO service_role;
+REVOKE ALL ON SEQUENCE public.order_collection_events_id_seq FROM PUBLIC, anon, authenticated;
 GRANT USAGE, SELECT ON SEQUENCE public.order_collection_events_id_seq TO service_role;
 
 CREATE FUNCTION public.b724_order_guard() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
@@ -122,7 +123,7 @@ BEGIN
   SELECT jsonb_build_object('token',token,'method',method,'amount',amount,'currency',currency,'state',state,'require_payment',require_payment)
   FROM public.order_collections WHERE order_id = (result->'pedido'->>'id')::bigint
  ));
-END $;
+END $$;
 
 CREATE FUNCTION public.restosmart_collection_action_v1(p_tenant text,p_restaurant bigint,p_order bigint,p_token uuid,p_action text,p_operator text,p_note text DEFAULT NULL)
  RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
