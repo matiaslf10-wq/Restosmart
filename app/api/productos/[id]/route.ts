@@ -1,3 +1,4 @@
+import { ownsProductInRestaurant } from '@/lib/adminProductAccess';
 import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth, type AdminSession } from '@/lib/adminAuth';
@@ -26,11 +27,6 @@ const PRODUCTO_SELECT = `
 
 type Params = {
   params: Promise<{ id: string }>;
-};
-
-type ProductoOwnershipRow = {
-  id: number;
-  marca_id: string | null;
 };
 
 type ProductRestaurantRow = {
@@ -476,77 +472,9 @@ async function validateProductBelongsToAccess(
   productoId: number,
   access: AdminAccessSnapshot
 ) {
-  const { data: producto, error: productoError } = await supabaseAdmin
-    .from('productos')
-    .select('id, marca_id')
-    .eq('id', productoId)
-    .maybeSingle();
-
-  if (productoError) {
-    throw productoError;
+  if (!await ownsProductInRestaurant(productoId, access)) {
+    return NextResponse.json({ error: 'Producto no encontrado para esta sucursal.' }, { status: 404 });
   }
-
-  if (!producto?.id) {
-    return NextResponse.json(
-      { error: 'Producto no encontrado.' },
-      { status: 404 }
-    );
-  }
-
-  const activeRestaurants = await getActiveRestaurantsForTenant(access);
-  const allowedRestaurantIds = activeRestaurants.map((restaurant) =>
-    String(restaurant.id)
-  );
-
-  if (allowedRestaurantIds.length === 0) {
-    return NextResponse.json(
-      { error: 'No hay sucursales activas para este tenant.' },
-      { status: 403 }
-    );
-  }
-
-  const { data: productRestaurant, error: productRestaurantError } =
-    await supabaseAdmin
-      .from('producto_restaurantes')
-      .select('producto_id, restaurant_id')
-      .eq('producto_id', productoId)
-      .in('restaurant_id', allowedRestaurantIds)
-      .limit(1)
-      .maybeSingle();
-
-  if (productRestaurantError) {
-    throw productRestaurantError;
-  }
-
-  if (!productRestaurant?.producto_id) {
-    return NextResponse.json(
-      { error: 'Producto no encontrado para este tenant.' },
-      { status: 404 }
-    );
-  }
-
-  const productoRow = producto as ProductoOwnershipRow;
-
-  if (productoRow.marca_id) {
-    const { data: marca, error: marcaError } = await supabaseAdmin
-      .from('marcas')
-      .select('id')
-      .eq('id', productoRow.marca_id)
-      .eq('tenant_id', access.tenantId)
-      .maybeSingle();
-
-    if (marcaError) {
-      throw marcaError;
-    }
-
-    if (!marca?.id) {
-      return NextResponse.json(
-        { error: 'La marca del producto no pertenece a este tenant.' },
-        { status: 404 }
-      );
-    }
-  }
-
   return null;
 }
 
@@ -845,6 +773,16 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
     const accessError = await validateProductBelongsToAccess(productoId, access);
     if (accessError) return accessError;
+
+    const { data: images, error: imagesError } = await supabaseAdmin
+      .from('producto_imagenes').select('id').eq('producto_id', productoId).limit(1);
+    if (imagesError) throw imagesError;
+    if (images?.length) {
+      return NextResponse.json(
+        { error: 'El producto tiene imágenes. Su eliminación está bloqueada hasta habilitar la limpieza segura de Storage.' },
+        { status: 409 }
+      );
+    }
 
     const { data, error } = await supabaseAdmin
       .from('productos')

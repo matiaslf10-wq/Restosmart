@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { useSearchParams } from 'next/navigation';
 import type { BusinessMode } from '@/lib/plans';
-import { supabase } from '@/lib/supabaseClient';
+
 
 type ProductRestaurantConfig = {
   restaurant_id: string;
@@ -358,90 +358,18 @@ const reproducirSonidoPedidoListo = useCallback(async () => {
       );
     }
 
-    let restaurantContext: RestaurantPublicContext | null = null;
-
-if (!restaurantId) {
-  throw new Error(
-    'Falta identificar la sucursal del pedido. Volvé a abrir el link desde el QR o desde Inicio.'
-  );
-}
-
-const { data, error: restaurantError } = await supabase
-  .from('restaurants')
-  .select('id, slug, plan, estado, owner_tenant_id')
-  .eq('id', restaurantId)
-  .maybeSingle();
-
-if (restaurantError) {
-  console.warn(
-    'No se pudo cargar el restaurante público en /pedir:',
-    restaurantError
-  );
-}
-
-if (!data?.id) {
-  throw new Error(
-    'No encontramos el local asociado a este QR. Revisá que el enlace sea correcto.'
-  );
-}
-
-if (isRestaurantClosedForOrdering(data.estado)) {
-  throw new Error('Este local ya no está recibiendo pedidos desde este QR.');
-}
-
-restaurantContext = data as RestaurantPublicContext;
-
-       const configPromise = supabase
-  .from('configuracion_local')
-  .select('nombre_local, direccion, horario_atencion, business_mode')
-  .eq('restaurant_id', restaurantContext.id)
-  .limit(1)
-  .maybeSingle();
-
-        const tenantId = restaurantContext.owner_tenant_id ?? restaurantContext.slug;
-
-const marcasPromise = supabase
-  .from('marcas')
-  .select('id, nombre, descripcion, logo_url, color_hex, activa, orden')
-  .eq('tenant_id', tenantId)
-  .eq('activa', true)
-  .order('orden', { ascending: true })
-  .order('nombre', { ascending: true });
-
-        const [configRes, productosRes, marcasRes] = await Promise.all([
-          configPromise,
-          fetch(productosEndpoint, {
-            method: 'GET',
-            cache: 'no-store',
-          }),
-          marcasPromise,
+        const [contextRes, productosRes] = await Promise.all([
+          fetch(`/api/public/contexto?restaurantId=${encodeURIComponent(restaurantId ?? '')}`, { cache: 'no-store' }),
+          fetch(productosEndpoint, { cache: 'no-store' }),
         ]);
-
+        const contextBody = await contextRes.json();
+        if (!contextRes.ok) throw new Error(contextBody.error || 'No se pudo cargar el local.');
         if (!activo) return;
 
-        if (configRes.error) {
-          console.warn(
-            'No se pudo cargar configuracion_local en /pedir:',
-            configRes.error
-          );
-        } else {
-          setLocalConfig((configRes.data as LocalPublicConfig | null) ?? null);
-        }
-
-        if (marcasRes.error) {
-          console.warn('No se pudieron cargar marcas en /pedir:', marcasRes.error);
-          setMarcas([]);
-          setMarcaSeleccionada('todas');
-        } else {
-          const listaMarcas = (marcasRes.data as Marca[]) ?? [];
-          setMarcas(listaMarcas);
-          setMarcaSeleccionada((prev) => {
-            if (prev === 'todas') return prev;
-            return listaMarcas.some((marca) => marca.id === prev)
-              ? prev
-              : 'todas';
-          });
-        }
+        setLocalConfig((contextBody.config as LocalPublicConfig | null) ?? null);
+        const listaMarcas = (contextBody.marcas as Marca[]) ?? [];
+        setMarcas(listaMarcas);
+        setMarcaSeleccionada(prev => prev === 'todas' || listaMarcas.some(marca => marca.id === prev) ? prev : 'todas');
 
         const productosBody = await productosRes.json().catch(() => null);
 

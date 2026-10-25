@@ -8,7 +8,7 @@ import {
   type ChangeEvent,
 } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabaseClient';
+
 import { formatPlanLabel, type PlanCode } from '@/lib/plans';
 
 type Marca = {
@@ -216,27 +216,7 @@ const editandoMarcaPrincipal = !!marcaEditando && isMarcaPrincipal(marcaEditando
   setError(null);
 
   try {
-    const ext = file.name.split('.').pop() || 'jpg';
-    const baseName = sanitizeFileName(file.name.replace(/\.[^.]+$/, ''));
-    const path = `marcas/${Date.now()}-${baseName}.${ext}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('productos')
-      .upload(path, file, {
-        upsert: false,
-        cacheControl: '3600',
-      });
-
-    if (uploadError) throw uploadError;
-
-    const { data } = supabase.storage.from('productos').getPublicUrl(path);
-
-    setForm((prev) => ({
-      ...prev,
-      logo_url: data.publicUrl,
-    }));
-
-    setMensaje('Logo cargado correctamente. No te olvides de guardar la marca.');
+    throw new Error('Subida de logos bloqueada: migraci?n segura de Storage pendiente.');
   } catch (err) {
     console.error('Error subiendo logo de marca:', err);
     setError(
@@ -593,10 +573,10 @@ productos, operación y lectura comercial.
       <button
         type="button"
         onClick={() => logoInputRef.current?.click()}
-        disabled={subiendoLogo}
+        disabled
         className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
       >
-        {subiendoLogo ? 'Subiendo logo...' : 'Seleccionar logo'}
+        Subida de logos temporalmente bloqueada
       </button>
 
       {form.logo_url ? (

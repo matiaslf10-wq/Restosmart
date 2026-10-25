@@ -2,7 +2,7 @@
 import { CollectionMethods, CollectionReceipt, type PaymentReceipt } from '@/components/CollectionCheckout';
 import type { Method } from '@/lib/cobros/model';
 
-import { supabase } from '@/lib/supabaseClient';
+
 
 import Link from 'next/link';
 import {
@@ -16,6 +16,12 @@ import {
 import { useParams, useSearchParams } from 'next/navigation';
 
 const DELIVERY_MESA_ID = 0;
+
+async function leerMesaPublica(restaurantId: string, numero: number) {
+  const response = await fetch(`/api/public/mesa?restaurantId=${encodeURIComponent(restaurantId)}&numero=${numero}`, { cache: 'no-store' });
+  const body = await response.json();
+  return response.ok ? { data: body, error: null } : { data: null, error: { message: body.error } };
+}
 
 type Producto = {
   id: number;
@@ -146,12 +152,7 @@ const pedidosEndpoint = useMemo(
     return null;
   }
 
-  const { data: mesaData, error: mesaError } = await supabase
-    .from('mesas')
-    .select('id, numero, nombre, restaurant_id')
-    .eq('restaurant_id', currentRestaurantId)
-    .eq('numero', mesaRutaId)
-    .maybeSingle();
+  const { data: mesaData, error: mesaError } = await leerMesaPublica(currentRestaurantId, mesaRutaId);
 
   if (mesaError) {
     console.error('Error cargando mesa:', {
@@ -234,12 +235,7 @@ const pedidosEndpoint = useMemo(
   return;
 }
 
-const mesaPromise = supabase
-  .from('mesas')
-  .select('id, numero, nombre, restaurant_id')
-  .eq('restaurant_id', currentRestaurantId)
-  .eq('numero', mesaRutaId)
-  .maybeSingle();
+const mesaPromise = leerMesaPublica(currentRestaurantId, mesaRutaId);
 
 const productosPromise = fetch(productosEndpoint, {
   method: 'GET',

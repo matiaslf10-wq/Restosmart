@@ -1,9 +1,8 @@
+import { readPublicOrderingContext } from '@/lib/publicOrderingContext';
 import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import {
-  getFallbackAdminAccess,
-  resolveAdminAccess,
   type AdminAccessResolutionOptions,
   type AdminAccessSnapshot,
 } from '@/lib/adminAccess';
@@ -189,20 +188,6 @@ function extractRequestedTenantContext(
   };
 }
 
-async function resolveAccessForRequest(
-  request: NextRequest,
-  session: unknown
-): Promise<AdminAccessSnapshot> {
-  const requestedContext = extractRequestedTenantContext(request, session);
-
-  try {
-    return await resolveAdminAccess(requestedContext);
-  } catch (error) {
-    console.error('Productos access resolution error:', error);
-    return getFallbackAdminAccess();
-  }
-}
-
 function canUseMultiBrand(access: AdminAccessSnapshot) {
   const accessRecord = asRecord(access);
   const addonsRecord = asRecord(accessRecord?.addons);
@@ -317,69 +302,6 @@ async function getVisibleProductConfigsForRestaurant(
   }
 
   return configsByProductId;
-}
-
-async function enrichProductsWithRestaurantIds(products: ProductoRow[]) {
-  if (products.length === 0) return [];
-
-  const productIds = products.map((product) => product.id);
-
-  const { data, error } = await supabaseAdmin
-    .from('producto_restaurantes')
-    .select(
-      'producto_id, restaurant_id, visible_en_menu, control_stock, stock_actual, permitir_sin_stock'
-    )
-    .in('producto_id', productIds);
-
-  if (error) {
-    console.error('Error leyendo sucursales de productos:', error);
-
-    return products.map((product) => ({
-      ...product,
-      restaurant_ids: [],
-      restaurant_configs: [],
-    }));
-  }
-
-  const configsByProductId = new Map<
-  number,
-  Map<string, ProductRestaurantConfig>
->();
-
-for (const row of (data ?? []) as ProductRestaurantRow[]) {
-  if (row.producto_id === null || row.producto_id === undefined) continue;
-  if (row.restaurant_id === null || row.restaurant_id === undefined) continue;
-
-  const productId = Number(row.producto_id);
-  const restaurantId = String(row.restaurant_id);
-
-  const currentByRestaurant =
-    configsByProductId.get(productId) ?? new Map<string, ProductRestaurantConfig>();
-
-  currentByRestaurant.set(restaurantId, {
-    restaurant_id: restaurantId,
-    visible_en_menu: row.visible_en_menu !== false,
-    control_stock: row.control_stock === true,
-    stock_actual: normalizeStockQuantity(row.stock_actual),
-    permitir_sin_stock: row.permitir_sin_stock !== false,
-  });
-
-  configsByProductId.set(productId, currentByRestaurant);
-}
-
-return products.map((product) => {
-  const configs = Array.from(
-    configsByProductId.get(Number(product.id))?.values() ?? []
-  );
-
-  return {
-    ...product,
-    restaurant_ids: configs
-      .filter((config) => config.visible_en_menu)
-      .map((config) => config.restaurant_id),
-    restaurant_configs: configs,
-  };
-});
 }
 
 async function getActiveRestaurantsForTenant(access: AdminAccessSnapshot) {
@@ -618,8 +540,8 @@ if (!requestedRestaurantId) {
   );
 }
 
-const access = await resolveAccessForRequest(req, null);
-const restaurantId = access.restaurant?.id ?? null;
+const context = await readPublicOrderingContext(requestedRestaurantId);
+const restaurantId = context?.restaurant.id ?? null;
 
 if (!restaurantId || String(restaurantId) !== String(requestedRestaurantId)) {
   return NextResponse.json(
@@ -664,9 +586,9 @@ if (visibleProductIds.length === 0) {
 
     const productosData = (data ?? []) as ProductoRow[];
 
-    const enriched = (await enrichProductsWithRestaurantIds(
-      productosData
-    )) as ProductoConSucursales[];
+    const enriched: ProductoConSucursales[] = productosData.map(product => ({
+      ...product, restaurant_ids: [], restaurant_configs: [],
+    }));
 
     const productsWithEffectiveStock = enriched.map((product) => {
       const restaurantConfig = visibleProductConfigs
@@ -804,6 +726,15 @@ export async function POST(req: NextRequest) {
           stock_actual: control_stock ? stock_actual : 0,
           permitir_sin_stock,
         }));
+
+    // Validate every selected branch before inserting a global product row.
+    try {
+      await validateRestaurantIdsForTenant(
+        restaurantConfigsToUse.map(config => config.restaurant_id), access
+      );
+    } catch {
+      return NextResponse.json({ error: 'Sucursales no autorizadas.' }, { status: 403 });
+    }
 
     const { data, error } = await supabaseAdmin
       .from('productos')

@@ -7,7 +7,7 @@ import {
   useState,
   type ChangeEvent,
 } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+
 import { formatPlanLabel, type PlanCode } from '@/lib/plans';
 
 type Categoria = {
@@ -98,15 +98,6 @@ type AdminSessionPayload = {
     multi_brand?: boolean;
   };
 };
-
-function sanitizeFileName(name: string) {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\w.-]+/g, '-')
-    .replace(/-+/g, '-')
-    .toLowerCase();
-}
 
 function ensureOneCover(
   existing: ProductoImagen[],
@@ -399,7 +390,7 @@ export default function AdminProductosPage() {
   }
 
   try {
-    const res = await fetch(buildTenantApiUrl('/api/productos'), {
+    const res = await fetch(buildTenantApiUrl('/api/admin/productos'), {
       cache: 'no-store',
     });
 
@@ -583,25 +574,19 @@ const cargarRestaurantes = async () => {
 
   const cargarImagenesProducto = async (productoId: number) => {
     setCargandoImagenes(true);
-
-    const { data, error } = await supabase
-      .from('producto_imagenes')
-      .select('id, producto_id, image_url, storage_path, es_portada, orden')
-      .eq('producto_id', productoId)
-      .order('orden', { ascending: true })
-      .order('id', { ascending: true });
-
-    if (error) {
-      console.error('Error cargando imágenes del producto:', error);
+    try {
+      const response = await fetch(buildTenantApiUrl(`/api/admin/productos/${productoId}/imagenes`), { cache: 'no-store' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'No se pudieron cargar las im?genes.');
+      const normalized = ensureOneCover((body as ProductoImagen[]) ?? [], []);
+      setImagenesExistentes(normalized.existing);
+    } catch (error) {
+      console.error('Error cargando im?genes del producto:', error);
       setImagenesExistentes([]);
+      setMensaje('No se pudieron cargar las im?genes del producto.');
+    } finally {
       setCargandoImagenes(false);
-      return;
     }
-
-    const imgs = (data as ProductoImagen[]) ?? [];
-    const normalized = ensureOneCover(imgs, []);
-    setImagenesExistentes(normalized.existing);
-    setCargandoImagenes(false);
   };
 
     const resetForm = () => {
@@ -925,90 +910,29 @@ const cargarRestaurantes = async () => {
     }
   };
 
-  const subirImagenes = async (productoId: number) => {
-    if (imagenesPendientes.length === 0) {
-      return [] as ProductoImagen[];
-    }
-
-    const maxOrdenExistente =
-      imagenesExistentes.reduce((acc, img) => Math.max(acc, img.orden ?? 0), 0) || 0;
-
-    const inserts: Omit<ProductoImagen, 'id'>[] = [];
-
-    for (let index = 0; index < imagenesPendientes.length; index += 1) {
-      const img = imagenesPendientes[index];
-      const ext = img.file.name.split('.').pop() || 'jpg';
-      const safeName = sanitizeFileName(img.file.name.replace(/\.[^.]+$/, ''));
-      const path = `${productoId}/${Date.now()}-${index}-${safeName}.${ext}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('productos')
-        .upload(path, img.file, {
-          upsert: false,
-          cacheControl: '3600',
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: publicData } = supabase.storage
-        .from('productos')
-        .getPublicUrl(path);
-
-      inserts.push({
-        producto_id: productoId,
-        image_url: publicData.publicUrl,
-        storage_path: path,
-        es_portada: img.isCover,
-        orden: maxOrdenExistente + index + 1,
-      });
-    }
-
-    const { data, error } = await supabase
-      .from('producto_imagenes')
-      .insert(inserts)
-      .select('id, producto_id, image_url, storage_path, es_portada, orden');
-
-    if (error) throw error;
-
-    return (data as ProductoImagen[]) ?? [];
+  const subirImagenes = async (_productoId: number): Promise<ProductoImagen[]> => {
+    if (imagenesPendientes.length) throw new Error('Subida de im?genes bloqueada: migraci?n segura de Storage pendiente.');
+    return [];
   };
 
-  const sincronizarPortada = async (
-    productoId: number,
-    existing: ProductoImagen[],
-    uploaded: ProductoImagen[]
-  ) => {
+  const sincronizarPortada = async (productoId: number, existing: ProductoImagen[], uploaded: ProductoImagen[]) => {
     const all = [...existing, ...uploaded];
-
-    let portada = all.find((img) => img.es_portada) ?? null;
-    if (!portada && all.length > 0) {
-      portada = all[0];
-    }
-
-    if (all.length > 0 && portada) {
-      for (const img of all) {
-        const { error } = await supabase
-          .from('producto_imagenes')
-          .update({ es_portada: img.id === portada.id })
-          .eq('id', img.id);
-
-        if (error) throw error;
-      }
-    }
-
-    const portadaUrl = portada?.image_url ?? productoEditando?.imagen_url ?? null;
-
-    const { error: errorProducto } = await supabase
-      .from('productos')
-      .update({ imagen_url: portadaUrl })
-      .eq('id', productoId);
-
-    if (errorProducto) throw errorProducto;
+    const portada = all.find(img => img.es_portada) ?? all[0];
+    if (!portada) return;
+    const response = await fetch(buildTenantApiUrl(`/api/admin/productos/${productoId}/imagenes`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: portada.id }),
+    });
+    if (!response.ok) throw new Error((await response.json()).error || 'No se pudo actualizar la portada.');
   };
 
   const guardarProducto = async () => {
   setGuardando(true);
   setMensaje(null);
+  if (imagenesPendientes.length) {
+    setMensaje('Subida de im?genes bloqueada: migraci?n segura de Storage pendiente. Quit? los archivos para guardar.');
+    setGuardando(false);
+    return;
+  }
 
   const precioNumber = parseFloat(form.precio.replace(',', '.'));
 
@@ -1228,34 +1152,20 @@ const cargarRestaurantes = async () => {
     setMensaje(null);
 
     try {
-      const { data: imagenes } = await supabase
-        .from('producto_imagenes')
-        .select('id, storage_path')
-        .eq('producto_id', id);
-
-      const paths = (imagenes ?? [])
-        .map((img: any) => img.storage_path)
-        .filter(Boolean);
-
-      if (paths.length > 0) {
-        await supabase.storage.from('productos').remove(paths);
-      }
-
-      await supabase.from('producto_imagenes').delete().eq('producto_id', id);
-
       const res = await fetch(buildTenantApiUrl(`/api/productos/${id}`), {
         method: 'DELETE',
       });
 
       if (!res.ok) {
-        throw new Error('No se pudo eliminar el producto.');
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || 'No se pudo eliminar el producto.');
       }
 
       setProductos((prev) => prev.filter((p) => p.id !== id));
       setMensaje('Producto eliminado correctamente.');
     } catch (error) {
       console.error('Error eliminando producto:', error);
-      setMensaje('No se pudo eliminar el producto.');
+      setMensaje(error instanceof Error ? error.message : 'No se pudo eliminar el producto.');
     } finally {
       setEliminandoId(null);
     }
@@ -1749,6 +1659,7 @@ const selectedRestaurant = restaurantes.find(
 
           <input
             type="file"
+            disabled
             accept="image/*"
             multiple
             onChange={onSelectFiles}

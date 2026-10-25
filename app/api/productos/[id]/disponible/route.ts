@@ -1,3 +1,4 @@
+import { ownsProductInRestaurant } from '@/lib/adminProductAccess';
 import type { AdminSession } from '@/lib/adminAuth';
 import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { NextRequest, NextResponse } from 'next/server';
@@ -125,109 +126,10 @@ async function resolveAccessForRequest(
   }
 }
 
-function canUseMultiBrand(access: AdminAccessSnapshot) {
-  const accessRecord = asRecord(access);
-  const addonsRecord = asRecord(accessRecord?.addons);
-
-  return (
-    !!access.capabilities?.multi_brand ||
-    addonsRecord?.multi_brand === true
-  );
-}
-
-async function getActiveRestaurantsForTenant(access: AdminAccessSnapshot) {
-  const { data, error } = await supabaseAdmin
-    .from('restaurants')
-    .select('id, slug, estado, owner_tenant_id')
-    .eq('owner_tenant_id', access.tenantId)
-    .neq('estado', 'cerrado')
-    .order('slug', { ascending: true });
-
-  if (error) {
-    console.error('Error leyendo restaurantes del tenant:', error);
-    throw new Error('No se pudieron leer las sucursales del tenant.');
+async function validateProductBelongsToAccess(productoId: number, access: AdminAccessSnapshot) {
+  if (!await ownsProductInRestaurant(productoId, access)) {
+    return NextResponse.json({ error: 'Producto no encontrado para esta sucursal.' }, { status: 404 });
   }
-
-  return ((data ?? []) as RestaurantRow[]).filter(
-    (restaurant) => restaurant.id !== null && restaurant.id !== undefined
-  );
-}
-
-async function validateProductBelongsToAccess(
-  productoId: number,
-  access: AdminAccessSnapshot
-) {
-  const { data: producto, error: productoError } = await supabaseAdmin
-    .from('productos')
-    .select('id, marca_id')
-    .eq('id', productoId)
-    .maybeSingle();
-
-  if (productoError) {
-    throw productoError;
-  }
-
-  if (!producto?.id) {
-    return NextResponse.json(
-      { error: 'Producto no encontrado.' },
-      { status: 404 }
-    );
-  }
-
-  const activeRestaurants = await getActiveRestaurantsForTenant(access);
-  const allowedRestaurantIds = activeRestaurants.map((restaurant) =>
-    String(restaurant.id)
-  );
-
-  if (allowedRestaurantIds.length === 0) {
-    return NextResponse.json(
-      { error: 'No hay sucursales activas para este tenant.' },
-      { status: 403 }
-    );
-  }
-
-  const { data: productRestaurant, error: productRestaurantError } =
-    await supabaseAdmin
-      .from('producto_restaurantes')
-      .select('producto_id, restaurant_id')
-      .eq('producto_id', productoId)
-      .in('restaurant_id', allowedRestaurantIds)
-      .limit(1)
-      .maybeSingle();
-
-  if (productRestaurantError) {
-    throw productRestaurantError;
-  }
-
-  if (!productRestaurant?.producto_id) {
-    return NextResponse.json(
-      { error: 'Producto no encontrado para este tenant.' },
-      { status: 404 }
-    );
-  }
-
-  const productoRow = producto as ProductoOwnershipRow;
-
-  if (productoRow.marca_id) {
-    const { data: marca, error: marcaError } = await supabaseAdmin
-      .from('marcas')
-      .select('id')
-      .eq('id', productoRow.marca_id)
-      .eq('tenant_id', access.tenantId)
-      .maybeSingle();
-
-    if (marcaError) {
-      throw marcaError;
-    }
-
-    if (!marca?.id) {
-      return NextResponse.json(
-        { error: 'La marca del producto no pertenece a este tenant.' },
-        { status: 404 }
-      );
-    }
-  }
-
   return null;
 }
 
