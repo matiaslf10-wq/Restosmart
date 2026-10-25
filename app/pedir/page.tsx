@@ -1,4 +1,6 @@
 'use client';
+import { CollectionMethods, CollectionReceipt, type PaymentReceipt } from '@/components/CollectionCheckout';
+import type { Method } from '@/lib/cobros/model';
 
 import {
   Suspense,
@@ -236,6 +238,7 @@ export default function PedirPage() {
 }
 
 function PedirPageContent() {
+  const [collectionPayment, setCollectionPayment] = useState<PaymentReceipt | null>(null);
   const searchParams = useSearchParams();
   const restaurantId = useMemo(() => {
   return normalizePublicSlug(
@@ -589,7 +592,7 @@ const marcasPromise = supabase
     [carrito]
   );
 
-  async function confirmarPedido(formaPago: FormaPago) {
+  async function confirmarPedido(formaPago: FormaPago, paymentMethod?: Method['kind']) {
 if (!hasRestaurantScope) {
   setError(
     'Falta identificar la sucursal del pedido. Volvé a abrir el link desde el QR o desde Inicio.'
@@ -636,6 +639,7 @@ if (!hasRestaurantScope) {
       const payload = {
   total,
   forma_pago: formaPago,
+        payment_method: paymentMethod,
   origen: 'takeaway_web',
   tipo_servicio: 'takeaway',
   medio_pago: formaPago,
@@ -658,6 +662,7 @@ if (!hasRestaurantScope) {
         throw new Error(body?.error || 'No se pudo crear el pedido.');
       }
 
+      setCollectionPayment(body.payment ?? null);
       const pedido = body.pedido as PedidoCreado;
       setPedidoEnSeguimiento(pedido);
 setEstadoPedidoSeguimiento(pedido.estado ?? 'solicitado');
@@ -1196,29 +1201,8 @@ await cargarProductos();
                   Total: {formatMoney(total)}
                 </p>
 
-                <div className="mt-4 flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => confirmarPedido('virtual')}
-                    disabled={enviando || carrito.length === 0}
-                    className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
-                  >
-                    {enviando
-                      ? 'Confirmando...'
-                      : 'Confirmar pedido con pago virtual'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => confirmarPedido('efectivo')}
-                    disabled={enviando || carrito.length === 0}
-                    className="w-full rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
-                  >
-                    {enviando
-                      ? 'Confirmando...'
-                      : 'Confirmar pedido para pagar al retirar'}
-                  </button>
-                </div>
+                <CollectionReceipt payment={collectionPayment} />
+                <CollectionMethods restaurantId={restaurantId} disabled={enviando || carrito.length === 0} onChoose={method => { void confirmarPedido(method === 'efectivo' ? 'efectivo' : 'virtual', method); }} />
 
                 <p className="mt-3 text-xs leading-relaxed text-slate-500">
                   {helperText}

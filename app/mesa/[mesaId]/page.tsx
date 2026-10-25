@@ -1,4 +1,6 @@
 'use client';
+import { CollectionMethods, CollectionReceipt, type PaymentReceipt } from '@/components/CollectionCheckout';
+import type { Method } from '@/lib/cobros/model';
 
 import { supabase } from '@/lib/supabaseClient';
 
@@ -84,6 +86,7 @@ function buildScopedEndpoint(basePath: string, restaurantScopeQuery: string) {
 
 function MesaPageContent() {
   const params = useParams();
+  const [collectionPayment, setCollectionPayment] = useState<PaymentReceipt | null>(null);
   const searchParams = useSearchParams();
   const rawMesaIdParam = params?.id ?? params?.mesaId;
 const rawMesaId = rawMesaIdParam as string | string[] | undefined;
@@ -132,7 +135,6 @@ const pedidosEndpoint = useMemo(
   const [cargando, setCargando] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
-  const [procesandoPago, setProcesandoPago] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -360,24 +362,8 @@ const productosPromise = fetch(productosEndpoint, {
     [carrito]
   );
 
-  const getMensajePedidoCreado = (
-    pedido: PedidoCreado,
-    formaPago: 'virtual' | 'efectivo'
-  ) => {
-    const pagoTexto =
-      formaPago === 'efectivo'
-        ? 'Registramos que vas a pagar en efectivo 💵'
-        : 'Abrimos el pago virtual en una nueva ventana 💳';
-
-    if (pedido.estado === 'solicitado') {
-      return `Pedido generado. Quedó registrado y ahora espera validación del salón. ${pagoTexto}`;
-    }
-
-    return `Pedido generado y enviado a cocina. ${pagoTexto}`;
-  };
-
   const crearPedidoDesdeCarrito = async (
-    formaPago: 'virtual' | 'efectivo'
+    formaPago: 'virtual' | 'efectivo', paymentMethod?: Method['kind']
   ): Promise<PedidoCreado | null> => {
     if (!hasRestaurantScope) {
   setMensaje(
@@ -400,6 +386,7 @@ const productosPromise = fetch(productosEndpoint, {
         mesa_id: mesa.id,
         total,
         forma_pago: formaPago,
+        payment_method: paymentMethod,
         paga_efectivo: formaPago === 'efectivo',
         origen: 'salon',
         tipo_servicio: 'mesa',
@@ -431,69 +418,17 @@ const productosPromise = fetch(productosEndpoint, {
         return null;
       }
 
+      setCollectionPayment(body.payment ?? null);
+      setMensaje(`Pedido #${body.pedido.id} registrado. El pago sigue pendiente hasta la verificación del comercio.`);
       setCarrito([]);
       await cargarProductos();
       return body.pedido as PedidoCreado;
+    } catch {
+      setMensaje('No se pudo conectar. Revisá el pedido antes de reintentar.');
+      return null;
     } finally {
       setEnviando(false);
     }
-  };
-
-    const marcarPagoEfectivoDesdeCliente = async () => {
-    if (!mesa?.id) return;
-
-    setProcesandoPago(true);
-    setMensaje(null);
-
-    if (!currentRestaurantId) {
-  setMensaje(
-    'Falta identificar la sucursal de esta mesa. Volvé a abrir el QR desde Inicio o desde Mesas y QR.'
-  );
-  return;
-}
-
-    try {
-      if (carrito.length > 0) {
-        const pedido = await crearPedidoDesdeCarrito('efectivo');
-        if (!pedido) return;
-
-        setMensaje(getMensajePedidoCreado(pedido, 'efectivo'));
-      } else {
-        setMensaje('Para cambiar el medio de pago de pedidos existentes, avisá al personal. Solicitar efectivo no acredita un pago.');
-        return;
-      }
-    } finally {
-      setProcesandoPago(false);
-    }
-  };
-
-  const pagarVirtual = async () => {
-    const urlPago =
-      process.env.NEXT_PUBLIC_PAGO_VIRTUAL_URL ||
-      'https://www.mercadopago.com.ar';
-
-    setMensaje(null);
-
-    if (!currentRestaurantId) {
-  setMensaje(
-    'Falta identificar la sucursal de esta mesa. Volvé a abrir el QR desde Inicio o desde Mesas y QR.'
-  );
-  return;
-}
-
-    if (mesa?.id) {
-      if (carrito.length > 0) {
-        const pedido = await crearPedidoDesdeCarrito('virtual');
-        if (!pedido) return;
-
-        setMensaje(getMensajePedidoCreado(pedido, 'virtual'));
-      } else {
-        setMensaje('Para cambiar el medio de pago de pedidos existentes, avisá al personal. Solicitar efectivo no acredita un pago.');
-        return;
-      }
-    }
-
-    window.open(urlPago, '_blank', 'noopener,noreferrer');
   };
 
   if (!mesaValida) {
@@ -856,31 +791,8 @@ const productosPromise = fetch(productosEndpoint, {
               : 'Si ya tenés un pedido abierto, podés actualizar cómo lo vas a pagar.'}
           </p>
 
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={pagarVirtual}
-              className="w-full px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-60"
-              disabled={enviando}
-            >
-              {enviando
-                ? 'Generando pedido...'
-                : hayItemsEnCarrito
-                ? 'Confirmar pedido con pago virtual'
-                : 'Pago virtual (tarjeta / billetera)'}
-            </button>
-
-            <button
-              onClick={marcarPagoEfectivoDesdeCliente}
-              disabled={procesandoPago || enviando}
-              className="w-full px-4 py-2 rounded-lg bg-emerald-700 text-emerald-50 font-semibold text-sm hover:bg-emerald-800 disabled:opacity-60"
-            >
-              {procesandoPago
-                ? 'Marcando...'
-                : hayItemsEnCarrito
-                ? 'Confirmar pedido para pagar en efectivo'
-                : 'Pagar en efectivo'}
-            </button>
-          </div>
+          <CollectionReceipt payment={collectionPayment} />
+          <CollectionMethods restaurantId={currentRestaurantId ? String(currentRestaurantId) : null} disabled={enviando || !hayItemsEnCarrito} onChoose={method => { void crearPedidoDesdeCarrito(method === 'efectivo' ? 'efectivo' : 'virtual', method); }} />
 
           <p className="text-xs text-slate-500">
             {hayItemsEnCarrito

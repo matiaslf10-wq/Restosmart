@@ -12,7 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(__dirname, '../..', 'app/api/admin/pedidos-operacion/route.ts'), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 
-function setup({ authenticated = true, authorized = true, orders = [{ id: 10, estado: 'pendiente' }], items = [] } = {}) {
+function setup({ authenticated = true, authorized = true, orders = [{ id: 10, estado: 'pendiente' }], items = [], collections = [] } = {}) {
   const calls = [];
   const accessCalls = [];
   const admin = { from(table) {
@@ -21,10 +21,11 @@ function setup({ authenticated = true, authorized = true, orders = [{ id: 10, es
     const query = {
       select() { return query; }, order() { return query; },
       eq(...args) { call.filters.push(['eq', ...args]); return query; },
+      neq(...args) { call.filters.push(['neq', ...args]); return query; },
       in(...args) { call.filters.push(['in', ...args]); return query; },
       is(...args) { call.filters.push(['is', ...args]); return query; },
       update(payload) { call.payload = payload; return query; },
-      then(resolve, reject) { return Promise.resolve({ data: call.payload ? [{ id: table === 'pedidos' ? 10 : 1 }] : table === 'pedidos' ? orders : items, error: null }).then(resolve, reject); },
+      then(resolve, reject) { return Promise.resolve({ data: call.payload ? [{ id: table === 'pedidos' ? 10 : 1 }] : table === 'pedidos' ? orders : table === 'order_collections' ? collections : items, error: null }).then(resolve, reject); },
     };
     return query;
   } };
@@ -37,6 +38,7 @@ function setup({ authenticated = true, authorized = true, orders = [{ id: 10, es
       if (!authorized) throw Error('Denied');
       return { restaurant: { id: 'restaurant-A' } };
     } };
+    if (name === '@/lib/cobros/kitchen') return { async maskBlockedKitchen(orders) { return orders; } };
     if (name === '@/lib/supabaseAdmin') return { supabaseAdmin: admin };
     throw Error('Unexpected import: ' + name);
   } });
@@ -108,4 +110,12 @@ test('Rechaza mutaciones de otro origen', async () => {
   const s = setup();
   assert.equal((await s.route.POST(s.request({ action: 'cerrar', pedidoId: 10 }, 'https://otro.test'))).status, 403);
   assert.equal(s.calls.length, 0);
+});
+
+test('B724: pago pendiente bloquea cocina antes de cualquier escritura', async () => {
+  const s = setup({ collections: [{ order_id: 10 }], items: [{ id: 1, comentarios: 'Sin sal' }] });
+  assert.equal((await s.route.POST(s.request({ action: 'enviar_cocina', pedidoId: 10 }))).status, 409);
+  assert.ok(s.calls.every(c => !c.payload));
+  const read = s.calls.find(c => c.table === 'order_collections');
+  assert.ok(read.filters.some(f => f[1] === 'restaurant_id' && f[2] === 'restaurant-A'));
 });

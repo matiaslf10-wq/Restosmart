@@ -267,7 +267,8 @@ const multiBrandEnabled =
       label: 'Take Away',
       visible: businessMode === 'takeaway',
     },
-    {
+    { href: scopedHref('/admin/cobros'), label: 'Cobros propios', visible: true },
+{
   href: scopedHref('/admin/configuracion'),
   label: 'Administración',
   visible: true,

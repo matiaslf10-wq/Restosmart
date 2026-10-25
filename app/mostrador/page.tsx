@@ -1,4 +1,6 @@
 'use client';
+import { CollectionMethods, CollectionReceipt, type PaymentReceipt } from '@/components/CollectionCheckout';
+import type { Method } from '@/lib/cobros/model';
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -93,7 +95,7 @@ type ItemCarrito = {
 };
 
 type PedidoKind = 'salon' | 'takeaway' | 'delivery';
-type FormaPago = 'efectivo' | 'virtual';
+
 type PrimaryMode = 'salon' | 'takeaway';
 
 type AdminSessionPayload = {
@@ -629,7 +631,7 @@ const [restaurantOptionsError, setRestaurantOptionsError] = useState<
 
   const [manualMesaId, setManualMesaId] = useState<string>('');
   const [manualClienteNombre, setManualClienteNombre] = useState('');
-  const [manualFormaPago, setManualFormaPago] = useState<FormaPago>('efectivo');
+  const [manualPayment, setManualPayment] = useState<PaymentReceipt | null>(null);
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
 
   const [cargando, setCargando] = useState(true);
@@ -1473,7 +1475,8 @@ function renderMarcaBadge(
     await cargarDatos();
   }
 
-  async function crearPedidoManual() {
+  async function crearPedidoManual(method: Method['kind']) {
+    const manualFormaPago = method === 'efectivo' ? 'efectivo' : 'virtual';
     if (carrito.length === 0) {
       setError('Agregá al menos un producto al pedido.');
       return;
@@ -1501,6 +1504,7 @@ function renderMarcaBadge(
         mesa_id: manualOrderMode === 'salon' ? Number(manualMesaId) : undefined,
         total: totalCarrito,
         forma_pago: manualFormaPago,
+        payment_method: method,
         origen:
           manualOrderMode === 'salon'
             ? 'salon_manual_mostrador'
@@ -1535,6 +1539,7 @@ function renderMarcaBadge(
         throw new Error(body?.error || 'No se pudo crear el pedido manual.');
       }
 
+      setManualPayment(body.payment ?? null);
       const pedidoId = Number(body.pedido.id);
 
       setCarrito([]);
@@ -1771,7 +1776,7 @@ function renderMarcaBadge(
                     Foco en mesa {focusMesaId}
                   </span>
                 ) : null}
-                
+
               </div>
 
               <h1 className="mt-4 text-3xl font-bold text-slate-900">
@@ -1943,19 +1948,7 @@ function renderMarcaBadge(
                 </label>
               )}
 
-              <label className="grid gap-2">
-                <span className="text-sm font-medium text-slate-700">
-                  Forma de pago
-                </span>
-                <select
-                  value={manualFormaPago}
-                  onChange={(e) => setManualFormaPago(e.target.value as FormaPago)}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="efectivo">Efectivo</option>
-                  <option value="virtual">Virtual</option>
-                </select>
-              </label>
+
 
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-semibold text-slate-900">
@@ -2238,20 +2231,8 @@ function renderMarcaBadge(
                   Total: {formatMoney(totalCarrito)}
                 </p>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    void crearPedidoManual();
-                  }}
-                  disabled={creandoPedido || carrito.length === 0}
-                  className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
-                >
-                  {creandoPedido
-                    ? 'Creando pedido...'
-                    : manualOrderMode === 'salon'
-                    ? 'Crear pedido para mesa'
-                    : 'Crear pedido take away'}
-                </button>
+                <CollectionReceipt payment={manualPayment} />
+                <CollectionMethods restaurantId={currentRestaurantId ? String(currentRestaurantId) : null} disabled={creandoPedido || carrito.length === 0} onChoose={method => { void crearPedidoManual(method); }} />
               </div>
             </aside>
           </div>

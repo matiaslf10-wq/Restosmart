@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { maskBlockedKitchen } from '@/lib/cobros/kitchen';
+import { readCollectionConfig } from '@/lib/cobros/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
@@ -44,6 +46,7 @@ type SanitizedPedidoItemInput = {
 };
 
 type CreatePedidoBody = {
+  payment_method?: string;
   mesa_id?: number | null;
   total: number;
   forma_pago: 'virtual' | 'efectivo';
@@ -755,7 +758,7 @@ medio_pago,
     }
 
     return NextResponse.json({
-      pedidos: pedidos ?? [],
+      pedidos: await maskBlockedKitchen(pedidos ?? [], String(ctx.id)),
       mesas: mesas ?? [],
       restaurant: {
         id: String(ctx.id),
@@ -809,7 +812,12 @@ const businessMode = await resolveBusinessMode(restaurant);
 
     const rawMesaId = Number(body?.mesa_id);
     const totalInformado = Number(body?.total ?? 0);
-    const formaPago = body?.forma_pago === 'efectivo' ? 'efectivo' : 'virtual';
+    const collection = await readCollectionConfig(String(restaurant.owner_tenant_id ?? ''), String(restaurant.id));
+    const paymentMethod = body.payment_method ?? (body.forma_pago === 'efectivo' ? 'efectivo' : '');
+    if (collection.effective && !collection.effective.methods.some(method => method.kind === paymentMethod)) {
+      return NextResponse.json({ error: 'Elegí un medio habilitado por el comercio.' }, { status: 400 });
+    }
+    const formaPago = collection.effective ? (paymentMethod === 'efectivo' ? 'efectivo' : 'virtual') : body?.forma_pago === 'efectivo' ? 'efectivo' : 'virtual';
     const requestedTipoServicio = body?.tipo_servicio;
     const tipoServicio = normalizeTipoServicio(
       requestedTipoServicio,
@@ -1096,8 +1104,9 @@ direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
     // Pedido, items y stock: una sola transaccion PostgreSQL.
     // La funcion RPC solo es ejecutable por service_role.
     const { data: result, error: transactionError } = await supabaseAdmin.rpc(
-      'restosmart_create_order_atomic_v1',
+      collection.effective ? 'restosmart_create_order_collection_v1' : 'restosmart_create_order_atomic_v1',
       {
+        ...(collection.effective ? { p_method: paymentMethod } : {}),
         p_pedido: payloadPedido,
         p_items: payloadItems,
         p_control_stock: stockControlEnabled,
@@ -1128,6 +1137,7 @@ direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
     const orderResult = result as {
       pedido?: Record<string, unknown>;
       stock_updates?: number;
+      payment?: Record<string, unknown>;
     } | null;
     if (!orderResult?.pedido) {
       return NextResponse.json(
@@ -1137,10 +1147,12 @@ direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
     }
     const pedido = orderResult.pedido;
     const stockUpdates = Number(orderResult.stock_updates ?? 0);
+    const payment = orderResult.payment ?? null;
 
     return NextResponse.json(
       {
         ok: true,
+        payment,
         pedido,
         meta: {
           plan,
@@ -1148,7 +1160,7 @@ direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
           identidad_principal:
             businessMode === 'takeaway' ? 'persona' : 'mesa',
           identity_kind: identityKind,
-          estado_inicial: estadoInicial,
+          estado_inicial: pedido.estado,
           mesa_id_resuelto: mesaIdResolved,
           tipo_servicio: tipoServicio,
           origen,

@@ -1,3 +1,4 @@
+import { maskBlockedKitchen } from '@/lib/cobros/kitchen';
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
@@ -27,7 +28,9 @@ export async function GET(request: NextRequest) {
       items_pedido(id, cantidad, comentarios, producto:productos(nombre, precio))`)
     .eq('restaurant_id', access.restaurantId).in('estado', active).order('creado_en', { ascending: true });
   if (error) return NextResponse.json({ error: 'No se pudieron cargar los pedidos.' }, { status: 500 });
-  return NextResponse.json({ pedidos: data }, { headers: { 'Cache-Control': 'private, no-store' } });
+  try {
+    return NextResponse.json({ pedidos: await maskBlockedKitchen(data ?? [], access.restaurantId) }, { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch { return NextResponse.json({ error: 'No se pudo verificar la política de cocina.' }, { status: 503 }); }
 }
 export async function POST(request: NextRequest) {
   const access = await accessFor(request);
@@ -47,6 +50,12 @@ export async function POST(request: NextRequest) {
       .eq('restaurant_id', access.restaurantId).in('id', ids).in('estado', active);
     if (readError) throw readError;
     if (!orders || orders.length !== new Set(ids).size) return NextResponse.json({ error: 'Pedido no disponible en esta sucursal.' }, { status: 409 });
+    if (['cocina', 'enviar_cocina', 'cerrar'].includes(action) || (action === 'estado' && body.estado !== 'cancelado')) {
+      const blocked = await supabaseAdmin.from('order_collections').select('order_id').eq('restaurant_id', access.restaurantId)
+        .eq('require_payment', true).neq('state', 'confirmed').in('order_id', ids);
+      if (blocked.error && !['42P01', 'PGRST205'].includes(blocked.error.code)) throw blocked.error;
+      if (blocked.data?.length) return NextResponse.json({ error: 'El comercio exige confirmar el pago antes de preparar el pedido.' }, { status: 409 });
+    }
     if (action === 'cocina' || action === 'enviar_cocina') {
       const { data: items, error } = await supabaseAdmin.from('items_pedido').select('id, comentarios').eq('pedido_id', ids[0]);
       if (error) throw error;
