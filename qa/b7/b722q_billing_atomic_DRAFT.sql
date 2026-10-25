@@ -114,22 +114,19 @@ BEGIN
 
         INSERT INTO public.tenant_subscriptions (
             tenant_id, plan, status, provider,
-            external_reference, mp_payment_id,
-            paid_at, updated_at
+            external_reference, paid_at, updated_at
         )
         VALUES (
             v_session.tenant_id, v_session.target_plan,
             'active', 'mercadopago',
-            v_session.external_reference, p_payment_id,
-            v_now, v_now
+            v_session.external_reference, v_now, v_now
         )
         ON CONFLICT (tenant_id) DO UPDATE
           SET plan = EXCLUDED.plan,
               status = 'active',
               provider = 'mercadopago',
               external_reference = EXCLUDED.external_reference,
-              mp_payment_id = EXCLUDED.mp_payment_id,
-              paid_at = EXCLUDED.paid_at,
+paid_at = EXCLUDED.paid_at,
               updated_at = EXCLUDED.updated_at;
 
         UPDATE public.restaurants
