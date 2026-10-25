@@ -437,33 +437,9 @@ export async function POST(request: NextRequest) {
       })
       .eq('external_reference', externalReference);
 
-    if (intent.kind === 'plan_change' && targetPlan) {
-      const { error: subscriptionError } = await supabaseAdmin
-        .from('tenant_subscriptions')
-        .upsert(
-          {
-            tenant_id: access.tenantId,
-            plan: targetPlan,
-            status: 'pending_payment',
-            provider: 'mercadopago',
-            external_reference: externalReference,
-            mp_preference_id: mpBody.id,
-            checkout_url: checkoutUrl,
-            updated_at: new Date().toISOString(),
-          },
-          {
-            onConflict: 'tenant_id',
-          }
-        );
-
-      if (subscriptionError) {
-        console.warn(
-          'No se pudo actualizar tenant_subscriptions. El checkout igual quedó registrado en billing_checkout_sessions:',
-          subscriptionError
-        );
-      }
-    }
-
+    // B7.22Q: iniciar un checkout no altera la suscripcion activa.
+    // El plan se activara exclusivamente después de verificar el pago
+    // y aplicar la operacion transaccional en PostgreSQL.
     return NextResponse.json({
       ok: true,
       tenantId: access.tenantId,
