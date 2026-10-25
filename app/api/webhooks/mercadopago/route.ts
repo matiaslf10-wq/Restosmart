@@ -59,71 +59,6 @@ function verifyMercadoPagoSignature(request: NextRequest, dataId: string | null)
   return hash === v1;
 }
 
-async function setTenantAddon(
-  tenantId: string,
-  addonKey: string,
-  enabled: boolean
-) {
-  const { data: existing, error: readError } = await supabaseAdmin
-    .from('tenant_addons')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('addon_key', addonKey)
-    .maybeSingle();
-
-  if (readError) throw readError;
-
-  if (existing?.id) {
-    const { error } = await supabaseAdmin
-      .from('tenant_addons')
-      .update({
-        enabled,
-        actualizado_en: new Date().toISOString(),
-      })
-      .eq('id', existing.id);
-
-    if (error) throw error;
-    return;
-  }
-
-  const { error } = await supabaseAdmin.from('tenant_addons').insert([
-    {
-      tenant_id: tenantId,
-      addon_key: addonKey,
-      enabled,
-    },
-  ]);
-
-  if (error) throw error;
-}
-
-async function applyApprovedCheckout(session: CheckoutSessionRow) {
-  if (session.kind === 'plan_change') {
-    if (!session.target_plan) {
-      throw new Error('La sesión de checkout no tiene target_plan.');
-    }
-
-    const { error } = await supabaseAdmin
-  .from('restaurants')
-  .update({
-    plan: session.target_plan,
-  })
-  .or(`owner_tenant_id.eq.${session.tenant_id},slug.eq.${session.tenant_id}`);
-
-    if (error) throw error;
-
-    return;
-  }
-
-  if (session.kind === 'addon_activation') {
-    if (!session.addon_key) {
-      throw new Error('La sesión de checkout no tiene addon_key.');
-    }
-
-    await setTenantAddon(session.tenant_id, session.addon_key, true);
-  }
-}
-
 export async function POST(request: NextRequest) {
   const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
 
@@ -256,13 +191,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (session.status === 'approved') {
-    return NextResponse.json({
-      ok: true,
-      already_processed: true,
-    });
-  }
-
   const paymentStatus = String(payment?.status ?? '').trim().toLowerCase();
 
   if (paymentStatus !== 'approved') {
@@ -287,44 +215,32 @@ export async function POST(request: NextRequest) {
     });
   }
 
- await applyApprovedCheckout(session);
+  // B7.22S: aprobacion atomica controlada en PostgreSQL.
+  const { data: result, error: rpcError } = await supabaseAdmin.rpc(
+    'restosmart_apply_billing_payment_v1',
+    {
+      p_external_reference: session.external_reference,
+      p_payment_id: String(payment?.id ?? paymentId),
+      p_amount: paidAmount,
+      p_currency: paidCurrency,
+      p_preference_id: paidPreferenceId || null,
+    }
+  );
 
-const now = new Date().toISOString();
-
-await supabaseAdmin
-  .from('billing_checkout_sessions')
-  .update({
-    status: 'approved',
-    mp_payment_id: String(payment?.id ?? paymentId),
-    approved_at: now,
-    updated_at: now,
-  })
-  .eq('id', session.id);
-
-if (session.kind === 'plan_change' && session.target_plan) {
-  await supabaseAdmin
-    .from('tenant_subscriptions')
-    .upsert(
-      {
-        tenant_id: session.tenant_id,
-        plan: session.target_plan,
-        status: 'active',
-        provider: 'mercadopago',
-        external_reference: session.external_reference,
-        mp_payment_id: String(payment?.id ?? paymentId),
-        updated_at: now,
-      },
-      {
-        onConflict: 'tenant_id',
-      }
+  if (rpcError) {
+    console.error('Error de aplicacion atomica Mercado Pago:', {
+      code: rpcError.code,
+      checkoutSessionId: session.id,
+    });
+    return NextResponse.json(
+      { error: 'No se pudo aplicar el pago de forma segura.' },
+      { status: 409 }
     );
-}
+  }
 
   return NextResponse.json({
     ok: true,
-    payment_status: paymentStatus,
     activated: true,
-    kind: session.kind,
-    tenantId: session.tenant_id,
+    already_processed: Boolean(result?.already_processed),
   });
 }
