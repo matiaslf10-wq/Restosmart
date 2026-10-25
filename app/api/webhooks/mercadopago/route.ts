@@ -194,44 +194,16 @@ export async function POST(request: NextRequest) {
   const paymentStatus = String(payment?.status ?? '').trim().toLowerCase();
 
   if (paymentStatus !== 'approved') {
-    // No revertir aprobaciones ni estados terminales por webhooks tardios.
-    const nextStatus =
-      paymentStatus === 'rejected' ||
-      paymentStatus === 'cancelled' ||
-      paymentStatus === 'expired'
-        ? paymentStatus
-        : 'pending';
-
-    const { data: changed, error: updateError } = await supabaseAdmin
-      .from('billing_checkout_sessions')
-      .update({
-        status: nextStatus,
-        mp_payment_id: String(payment?.id ?? paymentId),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', session.id)
-      .eq('status', 'pending')
-      .select('id');
-
-    if (updateError) {
-      console.error('Error actualizando checkout no aprobado:', {
-        code: updateError.code,
-        checkoutSessionId: session.id,
-      });
-      return NextResponse.json(
-        { error: 'No se pudo registrar el estado del pago.' },
-        { status: 500 }
-      );
-    }
-
+    // Los estados no aprobados no activan beneficios ni cierran
+    // la sesion. Una notificacion posterior approved puede ser valida.
+    // Tampoco se reserva mp_payment_id antes de la aprobacion atomica.
     return NextResponse.json({
       ok: true,
       payment_status: paymentStatus,
       activated: false,
-      updated: Array.isArray(changed) && changed.length > 0,
+      checkout_status_unchanged: true,
     });
   }
-
   // B7.22S: aprobacion atomica controlada en PostgreSQL.
   const { data: result, error: rpcError } = await supabaseAdmin.rpc(
     'restosmart_apply_billing_payment_v1',
