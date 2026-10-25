@@ -194,24 +194,41 @@ export async function POST(request: NextRequest) {
   const paymentStatus = String(payment?.status ?? '').trim().toLowerCase();
 
   if (paymentStatus !== 'approved') {
-    await supabaseAdmin
+    // No revertir aprobaciones ni estados terminales por webhooks tardios.
+    const nextStatus =
+      paymentStatus === 'rejected' ||
+      paymentStatus === 'cancelled' ||
+      paymentStatus === 'expired'
+        ? paymentStatus
+        : 'pending';
+
+    const { data: changed, error: updateError } = await supabaseAdmin
       .from('billing_checkout_sessions')
       .update({
-        status:
-          paymentStatus === 'rejected' ||
-          paymentStatus === 'cancelled' ||
-          paymentStatus === 'expired'
-            ? paymentStatus
-            : 'pending',
+        status: nextStatus,
         mp_payment_id: String(payment?.id ?? paymentId),
         updated_at: new Date().toISOString(),
       })
-      .eq('id', session.id);
+      .eq('id', session.id)
+      .eq('status', 'pending')
+      .select('id');
+
+    if (updateError) {
+      console.error('Error actualizando checkout no aprobado:', {
+        code: updateError.code,
+        checkoutSessionId: session.id,
+      });
+      return NextResponse.json(
+        { error: 'No se pudo registrar el estado del pago.' },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       ok: true,
       payment_status: paymentStatus,
       activated: false,
+      updated: Array.isArray(changed) && changed.length > 0,
     });
   }
 
