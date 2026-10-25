@@ -14,6 +14,9 @@ type CheckoutSessionRow = {
   addon_key: 'multi_brand' | 'whatsapp_delivery' | null;
   status: string;
   external_reference: string;
+  amount: number;
+  currency: string;
+  mp_preference_id: string | null;
 };
 
 function getSignatureParts(xSignature: string | null) {
@@ -206,7 +209,7 @@ export async function POST(request: NextRequest) {
   const { data: checkoutSession, error: sessionError } = await supabaseAdmin
     .from('billing_checkout_sessions')
     .select(
-      'id, tenant_id, restaurant_id, kind, target_plan, addon_key, status, external_reference'
+      'id, tenant_id, restaurant_id, kind, target_plan, addon_key, status, external_reference, amount, currency, mp_preference_id'
     )
     .eq('external_reference', externalReference)
     .maybeSingle();
@@ -223,6 +226,35 @@ export async function POST(request: NextRequest) {
   }
 
   const session = checkoutSession as CheckoutSessionRow;
+
+  // B7.22O: validar los valores reales del pago antes de activar beneficios.
+  const expectedAmount = Number(session.amount);
+  const paidAmount = Number(payment?.transaction_amount);
+  const expectedCurrency = String(session.currency ?? '').trim().toUpperCase();
+  const paidCurrency = String(payment?.currency_id ?? '').trim().toUpperCase();
+  const paidPreferenceId = String(payment?.preference_id ?? '').trim();
+  const expectedPreferenceId = String(session.mp_preference_id ?? '').trim();
+
+  if (
+    !Number.isFinite(expectedAmount) ||
+    !Number.isFinite(paidAmount) ||
+    expectedAmount <= 0 ||
+    paidAmount <= 0 ||
+    Math.abs(expectedAmount - paidAmount) > 0.005 ||
+    expectedCurrency !== 'ARS' ||
+    paidCurrency !== expectedCurrency ||
+    (expectedPreferenceId && paidPreferenceId && paidPreferenceId !== expectedPreferenceId)
+  ) {
+    console.error('Mercado Pago: discrepancia de importe, moneda o preferencia', {
+      checkoutSessionId: session.id,
+      paymentId: String(payment?.id ?? paymentId),
+    });
+
+    return NextResponse.json(
+      { error: 'El pago no coincide con la sesion de checkout.' },
+      { status: 409 }
+    );
+  }
 
   if (session.status === 'approved') {
     return NextResponse.json({
