@@ -98,6 +98,7 @@ export default function AdminMarcasPage() {
   const [form, setForm] = useState<FormMarca>(initialForm);
   const [editandoId, setEditandoId] = useState<string | null>(null);
 
+  const [logoPendiente, setLogoPendiente] = useState<File | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 const [subiendoLogo, setSubiendoLogo] = useState(false);
 
@@ -187,11 +188,13 @@ const editandoMarcaPrincipal = !!marcaEditando && isMarcaPrincipal(marcaEditando
   }, []);
 
   const resetForm = () => {
+    setLogoPendiente(null);
     setForm(initialForm);
     setEditandoId(null);
   };
 
   const comenzarEdicion = (marca: Marca) => {
+    setLogoPendiente(null);
     setEditandoId(marca.id);
     setForm({
       nombre: marca.nombre ?? '',
@@ -216,7 +219,9 @@ const editandoMarcaPrincipal = !!marcaEditando && isMarcaPrincipal(marcaEditando
   setError(null);
 
   try {
-    throw new Error('Subida de logos bloqueada: migraci?n segura de Storage pendiente.');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || !file.size || file.size > 5 * 1024 * 1024) throw new Error('Use JPEG, PNG o WebP de hasta 5 MiB.');
+    setLogoPendiente(file);
+    setMensaje('Logo seleccionado. Guarde la marca para subirlo.');
   } catch (err) {
     console.error('Error subiendo logo de marca:', err);
     setError(
@@ -277,6 +282,15 @@ if (!nombre) {
         );
       }
 
+      if (logoPendiente) {
+        const id = editandoId || raw?.marca?.id;
+        setEditandoId(id);
+        const body = new FormData(); body.append('file', logoPendiente);
+        const upload = await fetch(`/api/admin/marcas/${id}/logo`, { method: 'POST', body });
+        const result = await upload.json();
+        if (!upload.ok) throw new Error(result.error || 'Marca guardada; no se pudo subir el logo.');
+        setLogoPendiente(null);
+      }
       setMensaje(editandoId ? 'Marca actualizada correctamente.' : 'Marca creada correctamente.');
       resetForm();
       await cargarMarcas();
@@ -565,7 +579,7 @@ productos, operación y lectura comercial.
       <input
         ref={logoInputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp"
         onChange={seleccionarLogo}
         className="hidden"
       />
@@ -573,21 +587,16 @@ productos, operación y lectura comercial.
       <button
         type="button"
         onClick={() => logoInputRef.current?.click()}
-        disabled
+        disabled={guardando || subiendoLogo}
         className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
       >
-        Subida de logos temporalmente bloqueada
+        {logoPendiente ? `Logo: ${logoPendiente.name}` : 'Seleccionar logo'}
       </button>
 
-      {form.logo_url ? (
+      {form.logo_url || logoPendiente ? (
         <button
           type="button"
-          onClick={() =>
-            setForm((prev) => ({
-              ...prev,
-              logo_url: '',
-            }))
-          }
+          onClick={() => { setLogoPendiente(null); setForm(prev => ({ ...prev, logo_url: '' })); }}
           className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
         >
           Quitar logo

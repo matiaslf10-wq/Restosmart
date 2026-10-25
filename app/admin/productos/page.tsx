@@ -910,9 +910,32 @@ const cargarRestaurantes = async () => {
     }
   };
 
-  const subirImagenes = async (_productoId: number): Promise<ProductoImagen[]> => {
-    if (imagenesPendientes.length) throw new Error('Subida de im?genes bloqueada: migraci?n segura de Storage pendiente.');
-    return [];
+  const subirImagenes = async (productoId: number): Promise<ProductoImagen[]> => {
+    const uploaded: ProductoImagen[] = [];
+    for (const pending of imagenesPendientes) {
+      const body = new FormData(); body.append('file', pending.file);
+      const response = await fetch(buildTenantApiUrl(`/api/admin/productos/${productoId}/imagenes`), { method: 'POST', body });
+      const image = await response.json();
+      if (!response.ok) throw new Error(image.error || 'No se pudo subir la imagen.');
+      uploaded.push({ ...image, es_portada: pending.isCover });
+      setImagenesPendientes(prev => prev.filter(item => item.key !== pending.key));
+      setImagenesExistentes(prev => [...prev, { ...image, es_portada: pending.isCover }]);
+    }
+    return uploaded;
+  };
+
+  const eliminarImagen = async (imageId: number) => {
+    if (!form.id) return;
+    setGuardando(true);
+    try {
+      const response = await fetch(buildTenantApiUrl(`/api/admin/productos/${form.id}/imagenes`), { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId }) });
+      if (!response.ok) throw new Error((await response.json()).error);
+      const removed = imagenesExistentes.find(image => image.id === imageId);
+      setProductoEditando(prev => prev && prev.imagen_url === removed?.image_url ? { ...prev, imagen_url: null } : prev);
+      await cargarImagenesProducto(form.id);
+      await cargarProductos();
+    } catch (error) { setMensaje(error instanceof Error ? error.message : 'No se pudo quitar la imagen.'); }
+    finally { setGuardando(false); }
   };
 
   const sincronizarPortada = async (productoId: number, existing: ProductoImagen[], uploaded: ProductoImagen[]) => {
@@ -928,11 +951,6 @@ const cargarRestaurantes = async () => {
   const guardarProducto = async () => {
   setGuardando(true);
   setMensaje(null);
-  if (imagenesPendientes.length) {
-    setMensaje('Subida de im?genes bloqueada: migraci?n segura de Storage pendiente. Quit? los archivos para guardar.');
-    setGuardando(false);
-    return;
-  }
 
   const precioNumber = parseFloat(form.precio.replace(',', '.'));
 
@@ -1102,6 +1120,9 @@ const cargarRestaurantes = async () => {
 
       const data = body as Producto;
       productoId = data.id;
+      setForm(prev => ({ ...prev, id: data.id }));
+      setModoEdicion(true);
+      setProductoEditando(data);
     }
 
     const normalized = ensureOneCover(imagenesExistentes, imagenesPendientes);
@@ -1659,8 +1680,8 @@ const selectedRestaurant = restaurantes.find(
 
           <input
             type="file"
-            disabled
-            accept="image/*"
+            disabled={guardando}
+            accept="image/jpeg,image/png,image/webp"
             multiple
             onChange={onSelectFiles}
             className="block w-full text-sm"
@@ -1686,6 +1707,7 @@ const selectedRestaurant = restaurantes.find(
           {(imagenesExistentes.length > 0 || imagenesPendientes.length > 0) && (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
               {imagenesExistentes.map((img) => (
+                <div key={`saved-${img.id}`}>
                 <button
                   key={`exist-${img.id}`}
                   type="button"
@@ -1704,6 +1726,8 @@ const selectedRestaurant = restaurantes.find(
                     {img.es_portada ? 'Portada' : 'Tocar para portada'}
                   </div>
                 </button>
+                <button type="button" disabled={guardando} onClick={() => void eliminarImagen(img.id)} className="text-xs text-rose-700">Quitar imagen</button>
+                </div>
               ))}
 
               {imagenesPendientes.map((img) => (
