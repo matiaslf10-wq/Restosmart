@@ -1,0 +1,288 @@
+{
+  "status": "FINALIZATION_VERIFIED",
+  "ensayoRealEjecutado": true,
+  "revocationConfirmed": true,
+  "errors": [],
+  "startup": {
+    "status": "VERIFIED"
+  },
+  "cycle": {
+    "status": "FINALIZATION_VERIFIED",
+    "revocationConfirmed": true,
+    "errors": []
+  },
+  "stop": {
+    "status": "STOPPED"
+  },
+  "events": [
+    {
+      "phase": "preflight-port"
+    },
+    {
+      "phase": "binary-check-initdb"
+    },
+    {
+      "phase": "binary-check-pg_ctl"
+    },
+    {
+      "phase": "binary-check-psql"
+    },
+    {
+      "phase": "binary-check-pg_controldata"
+    },
+    {
+      "phase": "binary-check-postgres"
+    },
+    {
+      "phase": "initdb---version"
+    },
+    {
+      "phase": "initdb---version",
+      "exitCode": 0
+    },
+    {
+      "phase": "pg_ctl---version"
+    },
+    {
+      "phase": "pg_ctl---version",
+      "exitCode": 0
+    },
+    {
+      "phase": "pg_ctl---version"
+    },
+    {
+      "phase": "pg_ctl---version",
+      "exitCode": 0
+    },
+    {
+      "phase": "postgres---version"
+    },
+    {
+      "phase": "postgres---version",
+      "exitCode": 0
+    },
+    {
+      "phase": "create-destination"
+    },
+    {
+      "phase": "create-evidence"
+    },
+    {
+      "phase": "create-private"
+    },
+    {
+      "phase": "private-acl"
+    },
+    {
+      "phase": "private-acl",
+      "exitCode": 0
+    },
+    {
+      "phase": "generate-owner"
+    },
+    {
+      "phase": "write-password-file"
+    },
+    {
+      "phase": "initdb--D"
+    },
+    {
+      "phase": "initdb--D",
+      "exitCode": 0
+    },
+    {
+      "phase": "remove-initdb-password"
+    },
+    {
+      "phase": "configure-server"
+    },
+    {
+      "phase": "configure-hba"
+    },
+    {
+      "phase": "pin-cluster"
+    },
+    {
+      "phase": "pin-cluster"
+    },
+    {
+      "phase": "pin-cluster",
+      "exitCode": 0
+    },
+    {
+      "phase": "save-identity"
+    },
+    {
+      "phase": "start-port-check"
+    },
+    {
+      "phase": "pg_ctl-start"
+    },
+    {
+      "phase": "pg_ctl-start",
+      "exitCode": 0
+    },
+    {
+      "phase": "bootstrap-identity"
+    },
+    {
+      "phase": "bootstrap-identity"
+    },
+    {
+      "phase": "bootstrap-identity",
+      "exitCode": 0
+    },
+    {
+      "phase": "provision-role"
+    },
+    {
+      "phase": "provision-role"
+    },
+    {
+      "phase": "provision-role",
+      "exitCode": 0
+    },
+    {
+      "phase": "provision-database"
+    },
+    {
+      "phase": "provision-database"
+    },
+    {
+      "phase": "provision-database",
+      "exitCode": 0
+    },
+    {
+      "phase": "provision-http"
+    },
+    {
+      "phase": "provision-http"
+    },
+    {
+      "phase": "provision-http",
+      "exitCode": 0
+    },
+    {
+      "phase": "provision-http"
+    },
+    {
+      "phase": "provision-http",
+      "exitCode": 0
+    },
+    {
+      "phase": "cycle"
+    },
+    {
+      "phase": "assignment-open"
+    },
+    {
+      "phase": "assignment-logging"
+    },
+    {
+      "phase": "assignment-identity"
+    },
+    {
+      "phase": "assignment-begin"
+    },
+    {
+      "phase": "assignment-lock"
+    },
+    {
+      "phase": "assignment-serialize"
+    },
+    {
+      "phase": "assignment-initial"
+    },
+    {
+      "phase": "assignment-assignment"
+    },
+    {
+      "phase": "assignment-commit"
+    },
+    {
+      "phase": "assignment-close"
+    },
+    {
+      "phase": "assignment-process-close",
+      "exitCode": null
+    },
+    {
+      "phase": "mutation-open"
+    },
+    {
+      "phase": "mutation-logging"
+    },
+    {
+      "phase": "mutation-identity"
+    },
+    {
+      "phase": "mutation-begin"
+    },
+    {
+      "phase": "mutation-lock"
+    },
+    {
+      "phase": "mutation-serialize"
+    },
+    {
+      "phase": "mutation-ownership"
+    },
+    {
+      "phase": "mutation-alter"
+    },
+    {
+      "phase": "mutation-commit"
+    },
+    {
+      "phase": "mutation-close"
+    },
+    {
+      "phase": "mutation-process-close",
+      "exitCode": null
+    },
+    {
+      "phase": "verification-open"
+    },
+    {
+      "phase": "verification-logging"
+    },
+    {
+      "phase": "verification-identity"
+    },
+    {
+      "phase": "verification-verify"
+    },
+    {
+      "phase": "verification-sessions"
+    },
+    {
+      "phase": "verification-close"
+    },
+    {
+      "phase": "verification-process-close",
+      "exitCode": null
+    },
+    {
+      "phase": "temporary-password-cleanup"
+    },
+    {
+      "phase": "stop-identity"
+    },
+    {
+      "phase": "stop-identity"
+    },
+    {
+      "phase": "stop-identity",
+      "exitCode": 0
+    },
+    {
+      "phase": "pg_ctl-stop"
+    },
+    {
+      "phase": "pg_ctl-stop",
+      "exitCode": 0
+    }
+  ],
+  "phase": "pg_ctl-stop",
+  "clusterStopped": true
+}

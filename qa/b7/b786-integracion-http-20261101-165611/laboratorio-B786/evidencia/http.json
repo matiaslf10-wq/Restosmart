@@ -1,0 +1,20 @@
+{
+  "handler": {
+    "path": "/api/admin/logout",
+    "method": "POST",
+    "status": 200,
+    "authenticated": false,
+    "reachesPostgrest": false
+  },
+  "postgrest": {
+    "path": "/probe?select=id,synthetic",
+    "method": "GET",
+    "status": 200,
+    "jwtRole": "b786_reader",
+    "row": {
+      "id": 786,
+      "synthetic": true
+    }
+  },
+  "controlledFailure": false
+}

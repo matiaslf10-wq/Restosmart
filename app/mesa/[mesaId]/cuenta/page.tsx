@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { loadOperationalOrders, operateOrder } from '@/lib/orderOperationsClient';
+import { persistedOrderTotal, persistedAccountTotal } from '@/lib/orderAmounts';
 
 type ItemPedido = {
   id: number;
@@ -10,17 +11,22 @@ type ItemPedido = {
   comentarios: string | null;
   producto: {
     nombre: string;
-    precio: number | null;
   } | null;
 };
 
 type Pedido = {
   id: number;
   mesa_id: number;
+  total: number | null;
   creado_en: string;
   estado: string;
   paga_efectivo?: boolean;
   items: ItemPedido[];
+};
+
+type PedidoOperativo = Omit<Pedido, 'items' | 'total'> & {
+  total: unknown;
+  items_pedido?: ItemPedido[] | null;
 };
 
 function getEstadoLabel(estado: string) {
@@ -53,53 +59,53 @@ export default function CuentaMesaPage() {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const procesandoPago = false;
 
-  const cargarPedidos = useCallback(async () => {
-    if (!mesaId) return;
+  const [recarga, setRecarga] = useState(0);
+
+  const cargarPedidos = () => {
     setCargando(true);
     setMensaje(null);
-
-    const scope = new URLSearchParams(window.location.search);
-    const restaurantId = scope.get('restaurantId') ?? scope.get('restaurant_id');
-    const { data, error } = restaurantId
-      ? await loadOperationalOrders(restaurantId, mesaId).catch(() => ({ data: null, error: new Error('Sin conexión') }))
-      : { data: null, error: new Error('Falta la sucursal del QR') };
-
-    if (error) {
-      console.error('Error al cargar pedidos de la mesa:', error);
-      setMensaje('La cuenta requiere una sesión autorizada del personal. Pedí la cuenta al personal del local.');
-      setPedidos([]);
-      setCargando(false);
-      return;
-    }
-
-    if (data) {
-      const formateados: Pedido[] = data.map((p: any) => ({
-        id: p.id,
-        mesa_id: p.mesa_id,
-        creado_en: p.creado_en,
-        estado: p.estado,
-        paga_efectivo: p.paga_efectivo,
-        items: p.items_pedido ?? [],
-      }));
-      setPedidos(formateados);
-    } else {
-      setPedidos([]);
-    }
-
-    setCargando(false);
-  }, [mesaId]);
+    setRecarga((actual) => actual + 1);
+  };
 
   useEffect(() => {
-    cargarPedidos();
-  }, [cargarPedidos]);
+    if (!mesaId) return;
+    let vigente = true;
 
-  const subtotalPedido = (p: Pedido) =>
-    p.items.reduce((acc, item) => {
-      const precio = item.producto?.precio ?? 0;
-      return acc + item.cantidad * precio;
-    }, 0);
+    async function cargar() {
+      const scope = new URLSearchParams(window.location.search);
+      const restaurantId = scope.get('restaurantId') ?? scope.get('restaurant_id');
+      try {
+        if (!restaurantId) throw new Error('Falta la sucursal del QR');
+        const { data, error } = await loadOperationalOrders(restaurantId, mesaId);
+        if (error) throw error;
+        const pedidosOperativos: PedidoOperativo[] = data ?? [];
+        const formateados: Pedido[] = pedidosOperativos.map((p) => ({
+          id: p.id,
+          mesa_id: p.mesa_id,
+          total: persistedOrderTotal(p.total),
+          creado_en: p.creado_en,
+          estado: p.estado,
+          paga_efectivo: p.paga_efectivo,
+          items: p.items_pedido ?? [],
+        }));
+        if (vigente) setPedidos(formateados);
+      } catch (error) {
+        if (vigente) {
+          console.error('Error al cargar pedidos de la mesa:', error);
+          setMensaje('La cuenta requiere una sesión autorizada del personal. Pedí la cuenta al personal del local.');
+          setPedidos([]);
+        }
+      } finally {
+        if (vigente) setCargando(false);
+      }
+    }
 
-  const totalMesa = pedidos.reduce((acc, p) => acc + subtotalPedido(p), 0);
+    void cargar();
+    return () => { vigente = false; };
+  }, [mesaId, recarga]);
+
+  const totalMesa = persistedAccountTotal(pedidos);
+  const mostrarImporte = (total: number | null) => total === null ? 'Importe no disponible' : `$${total}`;
 
   const cerrarCuenta = async () => {
     if (pedidos.length === 0) {
@@ -213,9 +219,7 @@ export default function CuentaMesaPage() {
                           <span>
                             {item.cantidad} × {item.producto?.nombre ?? '—'}
                           </span>
-                          <span>
-                            ${(item.producto?.precio ?? 0) * item.cantidad}
-                          </span>
+
                         </div>
                         {item.comentarios && (
                           <p className="text-xs text-slate-600 ml-4">
@@ -226,8 +230,11 @@ export default function CuentaMesaPage() {
                     ))}
                   </ul>
 
+                  <p className="mt-2 text-xs text-slate-500">
+                    El importe guardado corresponde al pedido completo. No hay desglose histórico de precios por ítem.
+                  </p>
                   <p className="mt-2 text-right font-semibold">
-                    Subtotal: ${subtotalPedido(p)}
+                    Subtotal: {mostrarImporte(p.total)}
                   </p>
                 </article>
               ))}
@@ -235,7 +242,7 @@ export default function CuentaMesaPage() {
 
             <footer className="border-t border-slate-300 pt-3 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <p className="text-lg font-bold">Total mesa: ${totalMesa}</p>
+                <p className="text-lg font-bold">Total mesa: {mostrarImporte(totalMesa)}</p>
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={pagarVirtual}

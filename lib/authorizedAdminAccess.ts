@@ -1,5 +1,6 @@
 import 'server-only';
 
+import type { Authority } from '@/lib/atomicContract';
 import type { AdminSession } from '@/lib/adminAuth';
 import {
   resolveAdminAccess,
@@ -16,7 +17,7 @@ function clean(value: unknown): string | null {
 export async function resolveAuthorizedAdminAccess(
   session: AdminSession,
   requested: AdminAccessResolutionOptions = {}
-): Promise<AdminAccessSnapshot> {
+): Promise<AdminAccessSnapshot & { authority: Authority }> {
   const adminId = clean(session.adminId);
   const email = clean(session.email);
   if (!adminId || !email) {
@@ -69,7 +70,7 @@ export async function resolveAuthorizedAdminAccess(
   if (
     !restaurant ||
     restaurant.owner_tenant_id !== tenantId ||
-    restaurant.estado === 'cerrado' ||
+    !['activo', 'pausado'].includes(String(restaurant.estado)) ||
     (restaurantId && String(restaurant.id) !== restaurantId) ||
     (tenantSlug &&
       tenantSlug !== tenantId &&
@@ -89,5 +90,5 @@ export async function resolveAuthorizedAdminAccess(
     throw new Error('RESTAURANT_ACCESS_DENIED');
   }
 
-  return access;
+  return { ...access, authority: { adminId: String(admin.id), email: String(admin.email).trim().toLowerCase(), tenantId } };
 }

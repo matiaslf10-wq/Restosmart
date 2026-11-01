@@ -235,12 +235,7 @@ export function requireAdminAuth(request: NextRequest) {
   const session = verifyAdminSessionToken(token);
 
   if (!session) {
-    console.log('ADMIN AUTH DEBUG', {
-      hasAdminCookie: !!token,
-      cookieNames: request.cookies.getAll().map((c) => c.name),
-      tokenPreview: token ? `${token.slice(0, 24)}...` : null,
-      secretPresent: !!(process.env.ADMIN_SESSION_SECRET || '').trim(),
-    });
+    console.log('ADMIN AUTH REJECTED');
 
     return {
       ok: false as const,

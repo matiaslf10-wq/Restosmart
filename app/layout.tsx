@@ -1,16 +1,5 @@
 import type { Metadata } from 'next';
-import { Inter, Manrope } from 'next/font/google';
 import './globals.css';
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-});
-
-const manrope = Manrope({
-  subsets: ['latin'],
-  variable: '--font-manrope',
-});
 
 export const metadata: Metadata = {
   title: {
@@ -41,7 +30,7 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body
-        className={`${inter.variable} ${manrope.variable} antialiased bg-white text-slate-900`}
+        className="antialiased bg-white text-slate-900"
       >
         {children}
       </body>

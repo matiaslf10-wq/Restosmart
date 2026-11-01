@@ -1,11 +1,25 @@
+import { rpcResponse, authorityArgs, positiveId } from '@/lib/atomicContract';
 import { maskBlockedKitchen } from '@/lib/cobros/kitchen';
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { requireAdminAuth } from '@/lib/adminAuth';
 import { resolveAuthorizedAdminAccess } from '@/lib/authorizedAdminAccess';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
 const active = ['solicitado', 'pendiente', 'en_preparacion', 'listo'];
+function requestOrigin(request: NextRequest) {
+  // NextURL normalizes 127.0.0.1 to localhost. Recover only the exact authority
+  // of the opted-in loopback lab, never an alias supplied by Origin/Forwarded.
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development' &&
+    !process.env.VERCEL && !process.env.CI &&
+    process.env.RESTOSMART_KITCHEN_B751F_LAB === 'B751F_LOOPBACK_RPC_LAB_ONLY' &&
+    process.env.NEXT_PUBLIC_SUPABASE_URL === 'http://127.0.0.1:54321' &&
+    request.nextUrl.origin === 'http://localhost:3000' &&
+    request.headers.get('host') === '127.0.0.1:3000') {
+    return 'http://127.0.0.1:3000';
+  }
+  return request.nextUrl.origin;
+}
 async function accessFor(request: NextRequest) {
   const auth = requireAdminAuth(request);
   if (!auth.ok) return auth;
@@ -14,7 +28,7 @@ async function accessFor(request: NextRequest) {
       restaurantId: request.nextUrl.searchParams.get('restaurantId') ?? request.nextUrl.searchParams.get('restaurant_id'),
     });
     if (!access.restaurant?.id) throw new Error('Denied');
-    return { ok: true as const, restaurantId: access.restaurant.id };
+    return { ok: true as const, restaurantId: access.restaurant.id, authority: access.authority };
   } catch {
     return { ok: false as const, response: NextResponse.json({ error: 'Acceso al restaurante denegado.' }, { status: 403 }) };
   }
@@ -33,7 +47,7 @@ export async function GET(request: NextRequest) {
     mesaId = mesa.data.id;
   }
   let query = supabaseAdmin.from('pedidos')
-    .select(`id, restaurant_id, mesa_id, creado_en, estado, paga_efectivo,
+    .select(`id, restaurant_id, mesa_id, creado_en, estado, total, paga_efectivo,
       forma_pago, origen, tipo_servicio, medio_pago, estado_pago, efectivo_aprobado, pasado_a_caja,
       items_pedido(id, cantidad, comentarios, producto:productos(nombre, precio))`)
     .eq('restaurant_id', access.restaurantId).in('estado', active).order('creado_en', { ascending: true });
@@ -48,51 +62,44 @@ export async function POST(request: NextRequest) {
   const access = await accessFor(request);
   if (!access.ok) return access.response;
   const origin = request.headers.get('origin');
-  if (origin && origin !== request.nextUrl.origin) return NextResponse.json({ error: 'Origen no permitido.' }, { status: 403 });
+  if (origin && origin !== requestOrigin(request))
+    return NextResponse.json({ error: 'Origen no permitido.' }, { status: 403 });
+  let body;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: 'Solicitud inválida.' }, { status: 400 }); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Solicitud inválida.' }, { status: 400 });
+  const ids: unknown[] = Array.isArray(body.pedidoIds) ? body.pedidoIds : [body.pedidoId];
+  if (!ids.length || ids.length > 100 || ids.some(id => !positiveId(id)) || new Set(ids).size !== ids.length ||
+      (body.itemId != null && !positiveId(body.itemId))) return NextResponse.json({ error: 'Identificadores inválidos.' }, { status: 400 });
+  if (!['estado', 'caja', 'cerrar', 'enviar_cocina', 'cocina'].includes(body.action) ||
+      (body.action === 'estado' && !['pendiente', 'en_preparacion', 'listo', 'entregado', 'cancelado'].includes(body.estado)) ||
+      (body.action === 'cocina' && !['en_preparacion', 'listo'].includes(body.estado)) ||
+      (['cocina','enviar_cocina'].includes(body.action) && ids.length !== 1)) return NextResponse.json({ error: 'Operación inválida.' }, { status: 400 });
   try {
-    const body = await request.json();
-    const ids: unknown[] = Array.isArray(body.pedidoIds) ? body.pedidoIds : [body.pedidoId];
-    if (!ids.length || ids.length > 100 || ids.some(id => !Number.isSafeInteger(id) || Number(id) <= 0)) return NextResponse.json({ error: 'Pedidos inválidos.' }, { status: 400 });
-    const action = body.action;
-    if (!['estado', 'caja', 'cerrar', 'enviar_cocina', 'cocina'].includes(action) ||
-      (action === 'estado' && !['pendiente', 'en_preparacion', 'listo', 'entregado', 'cancelado'].includes(body.estado)) ||
-      (action === 'cocina' && !['en_preparacion', 'listo'].includes(body.estado)) ||
-      (['cocina', 'enviar_cocina'].includes(action) && ids.length !== 1)) return NextResponse.json({ error: 'Operación inválida.' }, { status: 400 });
-    const { data: orders, error: readError } = await supabaseAdmin.from('pedidos').select('id, estado')
+    const orders = await supabaseAdmin.from('pedidos').select('id, estado')
       .eq('restaurant_id', access.restaurantId).in('id', ids).in('estado', active);
-    if (readError) throw readError;
-    if (!orders || orders.length !== new Set(ids).size) return NextResponse.json({ error: 'Pedido no disponible en esta sucursal.' }, { status: 409 });
-    if (['cocina', 'enviar_cocina', 'cerrar'].includes(action) || (action === 'estado' && body.estado !== 'cancelado')) {
-      const blocked = await supabaseAdmin.from('order_collections').select('order_id').eq('restaurant_id', access.restaurantId)
-        .eq('require_payment', true).neq('state', 'confirmed').in('order_id', ids);
-      if (blocked.error && !['42P01', 'PGRST205'].includes(blocked.error.code)) throw blocked.error;
-      if (blocked.data?.length) return NextResponse.json({ error: 'El comercio exige confirmar el pago antes de preparar el pedido.' }, { status: 409 });
+    if (orders.error) return NextResponse.json({ error: 'No se pudo completar la operación. Actualizá antes de reintentar.' }, { status: 500 });
+    if (!orders.data || orders.data.length !== ids.length) return NextResponse.json({ error: 'Pedido no disponible en esta sucursal.' }, { status: 409 });
+    if (orders.data.some(order => !positiveId(order.id) || !ids.includes(order.id) || !active.includes(order.estado)) ||
+        new Set(orders.data.map(order => order.id)).size !== ids.length)
+      return NextResponse.json({ error: 'Snapshot no disponible.' }, { status: 503 });
+    if (!['cocina', 'enviar_cocina'].includes(body.action)) {
+      const result = await supabaseAdmin.rpc('restosmart_orders_b762l_v1', {
+        ...authorityArgs(access.authority, access.restaurantId), p_action: body.action,
+        p_estado: body.action === 'estado' ? body.estado : null,
+        p_expected_orders: orders.data.map(order => ({ id: order.id, estado: order.estado })),
+      });
+      return rpcResponse(result.data, result.error);
     }
-    if (action === 'cocina' || action === 'enviar_cocina') {
-      const { data: items, error } = await supabaseAdmin.from('items_pedido').select('id, comentarios').eq('pedido_id', ids[0]);
-      if (error) throw error;
-      if (body.itemId != null && !items?.some(item => item.id === body.itemId)) return NextResponse.json({ error: 'Ítem no disponible en este pedido.' }, { status: 409 });
-      for (const item of items ?? []) {
-        if (body.itemId != null && item.id !== body.itemId) continue;
-        const raw = String(item.comentarios ?? '');
-        const match = raw.match(/^\[\[COCINA:(pendiente|en_preparacion|listo)\]\]\s*([\s\S]*)$/i);
-        if (action === 'enviar_cocina' && match) continue;
-        if (action === 'cocina' && (!match || match[1] === 'listo' || (body.estado === 'en_preparacion' && match[1] !== 'pendiente'))) continue;
-        const state = action === 'enviar_cocina' ? 'pendiente' : body.estado;
-        const comment = match ? match[2] : raw;
-        let update = supabaseAdmin.from('items_pedido').update({ comentarios: `[[COCINA:${state}]]${comment ? ` ${comment}` : ''}` }).eq('id', item.id).eq('pedido_id', ids[0]);
-        update = item.comentarios === null ? update.is('comentarios', null) : update.eq('comentarios', item.comentarios);
-        const result = await update.select('id');
-        if (result.error) throw result.error;
-        if (!result.data?.length) return NextResponse.json({ error: 'El ítem cambió. Actualizá y reintentá.' }, { status: 409 });
-      }
-    }
-    const payload = action === 'caja' ? { pasado_a_caja: true } : action === 'cerrar' ? { estado: 'cerrado', pasado_a_caja: false } : { estado: action === 'enviar_cocina' ? 'en_preparacion' : body.estado };
-    const result = await supabaseAdmin.from('pedidos').update(payload).eq('restaurant_id', access.restaurantId).in('id', ids).in('estado', active).select('id');
-    if (result.error) throw result.error;
-    if (result.data?.length !== new Set(ids).size) return NextResponse.json({ error: 'Los pedidos cambiaron. Actualizá la pantalla.' }, { status: 409 });
-    return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: 'No se pudo completar la operación. Actualizá antes de reintentar.' }, { status: 500 });
-  }
+    const items = await supabaseAdmin.from('items_pedido').select('id,comentarios').eq('pedido_id', ids[0]);
+    if (items.error) return rpcResponse(null, items.error);
+    if (!items.data || items.data.some(item => !positiveId(item.id) || (item.comentarios !== null && typeof item.comentarios !== 'string')) ||
+        new Set(items.data.map(item => item.id)).size !== items.data.length) return NextResponse.json({ error: 'Snapshot no disponible.' }, { status: 503 });
+    if (body.itemId != null && !items.data.some(item => item.id === body.itemId)) return NextResponse.json({ error: 'Ítem no disponible.' }, { status: 409 });
+    const result = await supabaseAdmin.rpc('restosmart_kitchen_b762l_v1', {
+      ...authorityArgs(access.authority, access.restaurantId), p_pedido_id: ids[0],
+      p_expected_estado: orders.data[0].estado, p_expected_items: items.data.map(item => ({ id: item.id, comentarios: item.comentarios })),
+      p_action: body.action, p_estado: body.action === 'enviar_cocina' ? null : body.estado, p_item_id: body.itemId ?? null,
+    });
+    return rpcResponse(result.data, result.error);
+  } catch { return rpcResponse(null, { code: 'TRANSPORT_UNKNOWN', message: '' }); }
 }
