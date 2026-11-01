@@ -76,8 +76,8 @@ function buildTenantHref(path: string, slug: string) {
   return `${path}?tenant=${encodeURIComponent(slug)}`;
 }
 
-function buildPublicOrderHref(slug: string) {
-  return `/pedir?restaurant=${encodeURIComponent(slug)}`;
+function buildPublicOrderHref(restaurantId: string) {
+  return `/pedir?restaurantId=${encodeURIComponent(restaurantId)}`;
 }
 
 function formatDateTimeAR(value: string | null | undefined) {
@@ -401,7 +401,7 @@ const closedCount = useMemo(
                 placeholder="demo-centro"
               />
               <span className="text-xs text-slate-500">
-                El QR público usará /pedir?restaurant={form.slug || 'slug'}
+                El QR público incluirá el ID de la sucursal una vez guardada.
               </span>
             </label>
 
@@ -611,7 +611,7 @@ const closedCount = useMemo(
   <div className="mt-4">
     <TakeAwayQrCard
       localName={item.nombre_local || item.slug}
-      routePath={buildPublicOrderHref(item.slug)}
+      routePath={buildPublicOrderHref(item.id)}
       title="QR público del restaurante"
       description="Escaneando este QR, el cliente entra al menú público de esta sucursal para hacer un pedido de retiro."
       badgeLabel="QR TAKE AWAY"
@@ -657,7 +657,7 @@ const closedCount = useMemo(
     </Link>
 
     <Link
-      href={buildPublicOrderHref(item.slug)}
+      href={buildPublicOrderHref(item.id)}
       className="rounded-xl bg-amber-500 px-4 py-2 text-center text-sm font-semibold text-white hover:bg-amber-600"
     >
       Probar QR público
