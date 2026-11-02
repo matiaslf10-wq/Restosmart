@@ -1,3 +1,4 @@
+import { createOrderTrackingToken, orderTrackingSecret } from '@/lib/orderTracking';
 import { NextRequest, NextResponse } from 'next/server';
 import { maskBlockedKitchen } from '@/lib/cobros/kitchen';
 import { readCollectionConfig } from '@/lib/cobros/server';
@@ -788,6 +789,8 @@ medio_pago,
 
 export async function POST(request: NextRequest) {
   try {
+    // Validate the existing server secret before any order can be written.
+    const trackingSecret = orderTrackingSecret();
     const body = (await request.json()) as Partial<CreatePedidoBody>;
 
     const restaurant = await resolveRestaurantContextForRequest(request);
@@ -1153,7 +1156,7 @@ direccion_entrega: tipoServicio === 'delivery' ? direccionEntrega : null,
       {
         ok: true,
         payment,
-        pedido,
+        pedido: { ...pedido, tracking_token: createOrderTrackingToken(Number(pedido.id), String(restaurant.id), trackingSecret) },
         meta: {
           plan,
           business_mode_resuelto: businessMode,

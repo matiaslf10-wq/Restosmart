@@ -1381,7 +1381,7 @@ function renderMarcaBadge(
     setMensaje(null);
     setError(null);
 
-    const { error: updateError } = await operateOrder(currentRestaurantId, { action: 'estado', pedidoId, estado: nuevoEstado });
+    const { error: updateError } = await operateOrder(currentRestaurantId, { action: nuevoEstado === 'cerrado' ? 'cerrar' : 'estado', pedidoId, estado: nuevoEstado });
 
     if (updateError) {
       console.error('No se pudo actualizar el pedido:', updateError);

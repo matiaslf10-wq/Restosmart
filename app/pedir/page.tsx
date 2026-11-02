@@ -72,6 +72,7 @@ type LocalPublicConfig = {
 
 type PedidoCreado = {
   id: number;
+  tracking_token?: string;
   estado?: string | null;
   codigo_publico?: string | null;
   cliente_nombre?: string | null;
@@ -287,6 +288,8 @@ const [estadoPedidoSeguimiento, setEstadoPedidoSeguimiento] =
   useState<string | null>(null);
 
 const [pedidoListoAlertado, setPedidoListoAlertado] = useState(false);
+const [trackingError, setTrackingError] = useState<string | null>(null);
+const [soundBlocked, setSoundBlocked] = useState(false);
 
 const readyAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -309,7 +312,9 @@ const reproducirSonidoPedidoListo = useCallback(async () => {
   try {
     audio.currentTime = 0;
     await audio.play();
+    setSoundBlocked(false);
   } catch (error) {
+    setSoundBlocked(true);
     console.warn('No se pudo reproducir el aviso sonoro del pedido listo:', error);
   }
 }, []);
@@ -593,6 +598,13 @@ if (!hasRestaurantScope) {
       setCollectionPayment(body.payment ?? null);
       const pedido = body.pedido as PedidoCreado;
       setPedidoEnSeguimiento(pedido);
+      setTrackingError(null);
+      try {
+        localStorage.setItem('restosmart:takeaway:' + restaurantId, JSON.stringify({
+          id: pedido.id, estado: pedido.estado, codigo_publico: pedido.codigo_publico,
+          tracking_token: pedido.tracking_token,
+        }));
+      } catch { /* Tracking also works when storage is unavailable. */ }
 setEstadoPedidoSeguimiento(pedido.estado ?? 'solicitado');
 setPedidoListoAlertado(false);
 
@@ -617,35 +629,65 @@ await cargarProductos();
   }
 
   useEffect(() => {
+    setPedidoEnSeguimiento(null);
+    setEstadoPedidoSeguimiento(null);
+    setPedidoListoAlertado(false);
+    setTrackingError(null);
+    if (!restaurantId) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem('restosmart:takeaway:' + restaurantId) || 'null');
+      if (saved && Number.isSafeInteger(saved.id) && saved.id > 0 && typeof saved.tracking_token === 'string') {
+        setPedidoEnSeguimiento(saved as PedidoCreado);
+        setEstadoPedidoSeguimiento(saved.estado ?? null);
+      }
+    } catch { /* No saved order. */ }
+  }, [restaurantId]);
+
+  useEffect(() => {
   const pedidoSeguimientoId = pedidoEnSeguimiento?.id;
 
   if (!pedidoSeguimientoId || !hasRestaurantScope) return;
+  const token = pedidoEnSeguimiento?.tracking_token;
+  if (!token) {
+    setTrackingError('Este pedido anterior no tiene seguimiento en este dispositivo. Consultá su número en el mostrador.');
+    return;
+  }
 
   let active = true;
+  let inFlight = false;
 
   async function consultarEstadoPedido() {
+    if (inFlight) return;
+    inFlight = true;
     try {
-      const res = await fetch(pedidosEndpoint, {
-        method: 'GET',
+      const res = await fetch('/api/public/pedido-estado', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantId, token }),
         cache: 'no-store',
+        signal: AbortSignal.timeout(10000),
       });
 
       const body = await res.json().catch(() => null);
 
-      if (!active || !res.ok) return;
-
-      const pedidos = Array.isArray(body?.pedidos)
-        ? (body.pedidos as PedidoStatusPublico[])
-        : [];
-
-      const pedidoActual = pedidos.find(
-        (pedido) => Number(pedido.id) === Number(pedidoSeguimientoId)
-      );
-
-      if (!pedidoActual) return;
+      if (!active) return;
+      if (!res.ok) {
+        setTrackingError(body?.error || 'No se pudo actualizar el seguimiento. Reintentamos automáticamente.');
+        return;
+      }
+      const pedidoActual = body?.pedido as PedidoStatusPublico | undefined;
+      if (!pedidoActual || Number(pedidoActual.id) !== Number(pedidoSeguimientoId)) {
+        setTrackingError('No se pudo verificar el estado del pedido.');
+        return;
+      }
+      setTrackingError(null);
 
       const nuevoEstado = pedidoActual.estado ?? null;
       setEstadoPedidoSeguimiento(nuevoEstado);
+      if (nuevoEstado === 'cerrado' || nuevoEstado === 'entregado') {
+        setPedidoListoAlertado(false);
+        setMensaje('Tu pedido fue entregado. ¡Gracias!');
+      }
 
       if (isPedidoListo(nuevoEstado) && !pedidoListoAlertado) {
         setPedidoListoAlertado(true);
@@ -656,8 +698,10 @@ await cargarProductos();
         );
         void reproducirSonidoPedidoListo();
       }
-    } catch (error) {
-      console.warn('No se pudo consultar el estado del pedido:', error);
+    } catch {
+      if (active) setTrackingError('Sin conexión al seguimiento. Reintentamos automáticamente.');
+    } finally {
+      inFlight = false;
     }
   }
 
@@ -667,18 +711,25 @@ await cargarProductos();
     void consultarEstadoPedido();
   }, 5000);
 
+  const resume = () => { if (document.visibilityState === 'visible') void consultarEstadoPedido(); };
+  window.addEventListener('focus', resume);
+  document.addEventListener('visibilitychange', resume);
   return () => {
     active = false;
     clearInterval(interval);
+    window.removeEventListener('focus', resume);
+    document.removeEventListener('visibilitychange', resume);
   };
 }, [
   hasRestaurantScope,
   pedidoEnSeguimiento?.id,
+  pedidoEnSeguimiento?.tracking_token,
   pedidoListoAlertado,
-  pedidosEndpoint,
+  restaurantId,
   reproducirSonidoPedidoListo,
 ]);
 
+  const pedidoEntregado = ['cerrado', 'entregado'].includes(estadoPedidoSeguimiento ?? '');
   const localNombre = localConfig?.nombre_local?.trim() || 'RestoSmart';
   const localDireccion = localConfig?.direccion?.trim() || '';
   const localHorario = localConfig?.horario_atencion?.trim() || '';
@@ -735,6 +786,11 @@ await cargarProductos();
           </div>
         ) : null}
 
+        {trackingError ? <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900">{trackingError}</p> : null}
+        {soundBlocked && pedidoListoAlertado ? (
+          <button type="button" onClick={() => { void reproducirSonidoPedidoListo(); }}
+            className="rounded-xl bg-emerald-700 p-3 text-white">Tu pedido está listo · Reproducir aviso</button>
+        ) : null}
         {pedidoEnSeguimiento ? (
   <section
     className={`rounded-3xl border p-5 shadow-sm ${
@@ -752,11 +808,11 @@ await cargarProductos();
               : 'bg-amber-200 text-amber-900'
           }`}
         >
-          {pedidoListoAlertado ? 'LISTO PARA RETIRAR' : 'PEDIDO EN CURSO'}
+          {pedidoEntregado ? 'PEDIDO ENTREGADO' : pedidoListoAlertado ? 'LISTO PARA RETIRAR' : 'PEDIDO EN CURSO'}
         </span>
 
         <h2 className="mt-3 text-2xl font-bold text-slate-900">
-          {pedidoListoAlertado
+          {pedidoEntregado ? '¡Gracias por tu pedido!' : pedidoListoAlertado
             ? '¡Tu pedido ya está listo!'
             : 'Estamos preparando tu pedido'}
         </h2>
@@ -775,15 +831,15 @@ await cargarProductos();
         </p>
 
         <p className="mt-1 text-sm text-slate-600">
-  {pedidoListoAlertado
+  {pedidoEntregado ? 'El local confirmó la entrega de tu pedido.' : pedidoListoAlertado
     ? 'Acercate al mostrador para retirarlo.'
     : 'No cierres esta página. Cuando el local marque tu pedido como listo, te avisamos acá con un cartel y sonido.'}
 </p>
 
-{!pedidoListoAlertado ? (
+{!pedidoListoAlertado && !pedidoEntregado ? (
   <div className="mt-4 rounded-2xl border border-amber-300 bg-white/70 px-4 py-3 text-sm text-amber-900">
     <strong>Importante:</strong> mantené esta pantalla abierta para recibir el aviso.
-    Si cerrás la página, no vamos a poder mostrarte la notificación sonora.
+    El aviso aparece con esta página abierta; al volver a ella actualizamos el estado. El sonido depende de los permisos del celular.
   </div>
 ) : null}
         
