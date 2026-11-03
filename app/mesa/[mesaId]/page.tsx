@@ -1,4 +1,6 @@
 'use client';
+
+import TableOrderTracking, { type TrackedTableOrder } from '@/components/TableOrderTracking';
 import { CollectionMethods, CollectionReceipt, type PaymentReceipt } from '@/components/CollectionCheckout';
 import type { Method } from '@/lib/cobros/model';
 
@@ -10,7 +12,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
@@ -142,7 +143,7 @@ const pedidosEndpoint = useMemo(
   const [enviando, setEnviando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [trackedOrder, setTrackedOrder] = useState<TrackedTableOrder | null>(null);
 
   const mesaValida = Number.isFinite(mesaRutaId) && mesaRutaId > DELIVERY_MESA_ID;
 
@@ -415,6 +416,7 @@ const productosPromise = fetch(productosEndpoint, {
       }
 
       setCollectionPayment(body.payment ?? null);
+      setTrackedOrder(body.pedido as TrackedTableOrder);
       setMensaje(`Pedido #${body.pedido.id} registrado. El pago sigue pendiente hasta la verificación del comercio.`);
       setCarrito([]);
       await cargarProductos();
@@ -536,7 +538,7 @@ const productosPromise = fetch(productosEndpoint, {
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center px-4 py-6">
-      <audio ref={audioRef} src="/sounds/sonido.wav" preload="auto" className="hidden" />
+      {currentRestaurantId && <TableOrderTracking key={`${currentRestaurantId}:${mesaRutaId}`} restaurantId={currentRestaurantId} table={mesaRutaId} order={trackedOrder} />}
 
       <div className="w-full max-w-lg space-y-4">
         <header className="text-center space-y-2">

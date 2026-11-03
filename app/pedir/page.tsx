@@ -607,14 +607,24 @@ await cargarProductos();
     setTrackingError(null);
     setCollectionPayment(null);
     if (!restaurantId) return;
-    try {
-      const saved = JSON.parse(localStorage.getItem('restosmart:takeaway:' + restaurantId) || 'null');
-      if (saved?.payment?.token) setCollectionPayment(saved.payment);
-      if (saved && Number.isSafeInteger(saved.id) && saved.id > 0 && typeof saved.tracking_token === 'string') {
-        setPedidoEnSeguimiento(saved as PedidoCreado);
-        setEstadoPedidoSeguimiento(saved.estado ?? null);
-      }
-    } catch { /* No saved order. */ }
+    let live = true;
+    const key = 'restosmart:takeaway:' + restaurantId;
+    async function restoreActiveOrder() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(key) || 'null');
+        if (!saved || !Number.isSafeInteger(saved.id) || typeof saved.tracking_token !== 'string') return;
+        const response = await fetch('/api/public/pedido-estado', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantId, token: saved.tracking_token }), cache: 'no-store', signal: AbortSignal.timeout(10000) });
+        const body = await response.json();
+        if (!live) return;
+        if (!response.ok || body.pedido?.id !== saved.id) return;
+        if (['cerrado','entregado','cancelado'].includes(body.pedido.estado)) { localStorage.removeItem(key); return; }
+        if (saved.payment?.token) setCollectionPayment(saved.payment);
+        setPedidoEnSeguimiento({ ...saved, estado: body.pedido.estado } as PedidoCreado);
+        setEstadoPedidoSeguimiento(body.pedido.estado);
+      } catch { /* A previous order is shown only after its active state is verified. */ }
+    }
+    void restoreActiveOrder();
+    return () => { live = false; };
   }, [restaurantId]);
 
   useEffect(() => {
@@ -657,6 +667,9 @@ await cargarProductos();
       setTrackingError(null);
 
       const nuevoEstado = pedidoActual.estado ?? null;
+      if (['cerrado','entregado','cancelado'].includes(nuevoEstado || '')) {
+        try { localStorage.removeItem('restosmart:takeaway:' + restaurantId); } catch { /* Storage can be unavailable. */ }
+      }
       setEstadoPedidoSeguimiento(nuevoEstado);
       if (nuevoEstado === 'cerrado' || nuevoEstado === 'entregado') {
         setPedidoListoAlertado(false);
