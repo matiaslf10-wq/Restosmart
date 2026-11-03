@@ -1,5 +1,8 @@
 'use client';
 
+import { useOrderAlerts } from '@/lib/useOrderAlerts';
+import OrderAlertControl from '@/components/OrderAlertControl';
+
 import BranchPicker from '@/components/BranchPicker';
 
 import {
@@ -322,7 +325,8 @@ const restaurantScopeQuery = useMemo(() => {
 
   const [ahora, setAhora] = useState<number>(Date.now());
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const alerts = useOrderAlerts('/sounds/mozo.wav');
+  const { notify: notifyOrderAlert } = alerts;
 
   useEffect(() => {
     let active = true;
@@ -762,7 +766,8 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
       const old = previous.states.get(p.id);
       return (!old && p.estado === 'solicitado') || (old && old.estado !== 'listo' && p.estado === 'listo') || (old && !old.efectivo && !!p.paga_efectivo);
     })) {
-      if (audioRef.current) { audioRef.current.currentTime = 0; void audioRef.current.play().catch(() => {}); }
+      const ready = pedidosBase.filter(p => shouldShowPedidoInMozo(p) && previous.states.get(p.id)?.estado !== 'listo' && p.estado === 'listo');
+      void notifyOrderAlert(ready.length ? 'Mozo: pedido listo para servir' : 'Mozo: nueva atención', ready.length ? ready.map(p => `Pedido #${p.id}`).join(', ') : 'Hay nuevos pedidos o una actualización de atención. Revisá las mesas.', `mozo-${currentRestaurantId}`);
     }
     previousOrders.current = { scope: currentRestaurantId, states: new Map(pedidosBase.map(p => [p.id, { estado: String(p.estado), efectivo: !!p.paga_efectivo }])) };
 
@@ -839,7 +844,7 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
   } finally {
     setCargando(false);
   }
-}, [currentRestaurantId]);
+}, [currentRestaurantId, notifyOrderAlert]);
 
   useEffect(() => {
   if (!canUseWaiterMode || businessMode !== 'restaurant' || !currentRestaurantId) {
@@ -1172,14 +1177,8 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6">
-      <audio
-        ref={audioRef}
-        src="/sounds/mozo.wav"
-        preload="auto"
-        className="hidden"
-      />
-
       <div className="max-w-6xl mx-auto space-y-4">
+        <OrderAlertControl alerts={alerts} />
         <header className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>

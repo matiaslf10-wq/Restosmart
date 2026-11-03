@@ -1,4 +1,7 @@
 'use client';
+
+import { useOrderAlerts } from '@/lib/useOrderAlerts';
+import OrderAlertControl from '@/components/OrderAlertControl';
 import { CollectionMethods, CollectionReceipt, type PaymentReceipt } from '@/components/CollectionCheckout';
 import type { Method } from '@/lib/cobros/model';
 
@@ -7,7 +10,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -289,35 +291,17 @@ const [estadoPedidoSeguimiento, setEstadoPedidoSeguimiento] =
 
 const [pedidoListoAlertado, setPedidoListoAlertado] = useState(false);
 const [trackingError, setTrackingError] = useState<string | null>(null);
-const [soundBlocked, setSoundBlocked] = useState(false);
-
-const readyAudioRef = useRef<HTMLAudioElement | null>(null);
-
+const alerts = useOrderAlerts('/sounds/PedidoListo.mp3');
+const { notify: notifyOrderAlert } = alerts;
 
   const businessMode = normalizeBusinessModeForPublic(
     localConfig?.business_mode
   );
   const isTakeawayMode = businessMode === 'takeaway';
 
-  useEffect(() => {
-  const audio = new Audio('/sounds/PedidoListo.mp3');
-  audio.preload = 'auto';
-  readyAudioRef.current = audio;
-}, []);
-
 const reproducirSonidoPedidoListo = useCallback(async () => {
-  const audio = readyAudioRef.current;
-  if (!audio) return;
-
-  try {
-    audio.currentTime = 0;
-    await audio.play();
-    setSoundBlocked(false);
-  } catch (error) {
-    setSoundBlocked(true);
-    console.warn('No se pudo reproducir el aviso sonoro del pedido listo:', error);
-  }
-}, []);
+  await notifyOrderAlert('Tu pedido está listo para retirar', `Pedido #${pedidoEnSeguimiento?.id ?? ''}. Acercate al mostrador.`, `ready-${restaurantId}-${pedidoEnSeguimiento?.id}`);
+}, [notifyOrderAlert, pedidoEnSeguimiento?.id, restaurantId]);
 
   const cargarProductos = useCallback(async () => {
     const res = await fetch(productosEndpoint, {
@@ -548,19 +532,6 @@ if (!hasRestaurantScope) {
   setError(null);
   setMensaje(null);
 
-  try {
-    const audio = readyAudioRef.current;
-    if (audio) {
-      audio.muted = true;
-      await audio.play().catch(() => undefined);
-      audio.pause();
-      audio.currentTime = 0;
-      audio.muted = false;
-    }
-  } catch {
-    // El navegador puede bloquear audio; no interrumpe el pedido.
-  }
-
       const nombreRetiro = clienteNombre.trim();
 
       const items = carrito.map((item) => ({
@@ -790,10 +761,7 @@ await cargarProductos();
         ) : null}
 
         {trackingError ? <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900">{trackingError}</p> : null}
-        {soundBlocked && pedidoListoAlertado ? (
-          <button type="button" onClick={() => { void reproducirSonidoPedidoListo(); }}
-            className="rounded-xl bg-emerald-700 p-3 text-white">Tu pedido está listo · Reproducir aviso</button>
-        ) : null}
+        <OrderAlertControl alerts={alerts} />
         <CollectionReceipt payment={collectionPayment} />
         {pedidoEnSeguimiento ? (
   <section
