@@ -1,6 +1,6 @@
 'use client';
 
-import CollectionReview from '@/components/CollectionReview';
+import CollectionReview, { OrderPaymentNotice } from '@/components/CollectionReview';
 import { CollectionMethods, CollectionReceipt, type PaymentReceipt } from '@/components/CollectionCheckout';
 import type { Method } from '@/lib/cobros/model';
 
@@ -1729,9 +1729,10 @@ function renderMarcaBadge(
 }
 
   return (
+    <CollectionReview key={String(currentRestaurantId)} restaurantId={String(currentRestaurantId)}>
     <main className="min-h-screen bg-slate-100 px-4 py-6">
       <div className="mx-auto max-w-7xl space-y-4">
-        {currentRestaurantId && <CollectionReview restaurantId={String(currentRestaurantId)} />} 
+
         <header className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -2419,6 +2420,7 @@ function renderMarcaBadge(
                           <p className="mt-0.5 text-[11px] text-slate-600">
                             {pedido.codigo_publico || `Pedido #${pedido.id}`}
                           </p>
+                          <OrderPaymentNotice orderId={pedido.id} />
 
                           <p className="mt-0.5 text-[10px] text-slate-500">
                             {compactMode
@@ -2748,6 +2750,7 @@ const isPassedToCash = mesa.pasadaACaja;
                                     <span className="text-[11px] font-semibold text-slate-900">
                                       {pedido.codigo_publico || `Pedido #${pedido.id}`}
                                     </span>
+                                    <OrderPaymentNotice orderId={pedido.id} />
 
                                     {isNewPedido ? (
                                       <span className="rounded-full bg-violet-700 px-2 py-1 text-[10px] font-semibold text-white">
@@ -2970,6 +2973,7 @@ const isPassedToCash = mesa.pasadaACaja;
         </section>
       </div>
     </main>
+    </CollectionReview>
   );
 }
 
