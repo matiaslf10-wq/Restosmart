@@ -228,7 +228,7 @@ const clockInterval = setInterval(() => setNow(new Date()), CLOCK_INTERVAL_MS);
   const totalActivos = preparingTotal + readyTotal;
 
   if (!hasRestaurantScope) {
-    return <main className="min-h-screen bg-slate-100 p-6"><BranchPicker destination="/retiro" title="Preparación / Listos" /></main>;
+    return <main className="min-h-screen bg-slate-100 p-6"><BranchPicker destination="/retiro" title="Pantalla de retiro" /></main>;
   }
 
   return (

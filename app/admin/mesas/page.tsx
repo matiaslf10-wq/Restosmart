@@ -1,5 +1,7 @@
 'use client';
 
+import BranchPicker from '@/components/BranchPicker';
+
 import Link from 'next/link';
 import {
   Suspense,
@@ -374,36 +376,7 @@ try {
   }
 
   if (!currentRestaurantId) {
-    return (
-      <main className="min-h-screen bg-slate-100 px-4 py-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="rounded-3xl border border-amber-200 bg-white p-8 shadow-sm">
-            <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 border border-amber-200">
-              Falta sucursal
-            </span>
-
-            <h1 className="mt-4 text-3xl font-bold text-slate-900">
-              Administración de mesas
-            </h1>
-
-            <p className="mt-3 text-slate-600 leading-relaxed">
-              Esta pantalla ahora necesita saber a qué sucursal pertenecen las
-              mesas y los QR. Volvé a Inicio y abrí Mesas y QR desde una tarjeta
-              de sucursal.
-            </p>
-
-            <div className="mt-6">
-              <button
-                onClick={() => router.push('/inicio')}
-                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                Volver a inicio
-              </button>
-            </div>
-          </div>
-        </div>
-      </main>
-    );
+    return <main className="min-h-screen bg-slate-100 p-6"><BranchPicker destination="/admin/mesas" title="Mesas / QR" /></main>;
   }
 
   if (businessMode === 'takeaway') {

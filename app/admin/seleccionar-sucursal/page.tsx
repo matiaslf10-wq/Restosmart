@@ -3,10 +3,11 @@ import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import BranchPicker from '@/components/BranchPicker';
 const destinations = {
+  mesas: ['/admin/mesas', 'Mesas / QR'],
   cocina: ['/cocina', 'Cocina'],
   mostrador: ['/mostrador', 'Mostrador / Caja'],
   mozo: ['/mozo/mesas', 'Mozo'],
-  retiro: ['/retiro', 'Preparación / Listos'],
+  retiro: ['/retiro', 'Pantalla de retiro'],
 } as const;
 function Selection() {
   const params = useSearchParams();

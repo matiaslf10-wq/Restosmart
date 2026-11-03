@@ -252,7 +252,7 @@ const multiBrandEnabled =
       visible: true,
     },
     {
-      href: scopedHref('/admin/mesas'),
+      href: searchParams.get('restaurantId') || searchParams.get('restaurant_id') ? scopedHref('/admin/mesas') : '/admin/seleccionar-sucursal?destino=mesas',
       label: 'Mesas / QR',
       visible: businessMode === 'restaurant',
     },
@@ -266,7 +266,7 @@ const multiBrandEnabled =
       label: 'Take Away',
       visible: businessMode === 'takeaway',
     },
-    { href: searchParams.get('restaurantId') || searchParams.get('restaurant_id') ? scopedHref('/retiro') : '/admin/seleccionar-sucursal?destino=retiro', label: 'Preparación / Listos', visible: true },
+    { href: searchParams.get('restaurantId') || searchParams.get('restaurant_id') ? scopedHref('/retiro') : '/admin/seleccionar-sucursal?destino=retiro', label: 'Pantalla de retiro', visible: true },
     { href: scopedHref('/admin/cobros'), label: 'Cobros propios', visible: true },
 {
   href: scopedHref('/admin/configuracion'),
