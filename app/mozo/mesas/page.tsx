@@ -1,5 +1,7 @@
 'use client';
 
+import BranchPicker from '@/components/BranchPicker';
+
 import {
   Suspense,
   useCallback,
@@ -1079,6 +1081,10 @@ const mesasData = (mesasPayload?.mesas ?? []) as MesaConCuenta[];
         </div>
       </main>
     );
+  }
+
+  if (!currentRestaurantId) {
+    return <main className="min-h-screen bg-slate-100 p-6"><BranchPicker destination="/mozo/mesas" title="Mozo" /></main>;
   }
 
   if (businessMode === 'takeaway') {

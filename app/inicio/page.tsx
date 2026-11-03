@@ -373,6 +373,7 @@ const menuHref = getScopedHref('/admin/productos', restaurant.id);
           </>
         ) : null}
 
+        <Link href={retiroHref} className="rounded-2xl border border-amber-300 bg-white px-4 py-4 text-sm font-semibold text-amber-900 hover:bg-amber-50">📺 Preparación / Listos<span className="mt-1 block text-xs font-normal">Pantalla de pedidos en preparación y listos de esta sucursal.</span></Link>
         {isTakeAway ? (
           <>
             <Link
@@ -385,15 +386,7 @@ const menuHref = getScopedHref('/admin/productos', restaurant.id);
               </span>
             </Link>
 
-            <Link
-              href={retiroHref}
-              className="rounded-2xl border border-amber-300 bg-white px-4 py-4 text-sm font-semibold text-amber-900 hover:bg-amber-50"
-            >
-              📺 Pantalla de retiro
-              <span className="mt-1 block text-xs font-normal text-amber-800">
-                Pedidos listos y en preparación de esta sucursal.
-              </span>
-            </Link>
+
           </>
         ) : null}
       </div>

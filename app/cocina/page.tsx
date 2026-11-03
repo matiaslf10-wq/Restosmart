@@ -1,5 +1,7 @@
 'use client';
 
+import BranchPicker from '@/components/BranchPicker';
+
 import {
   Suspense,
   useCallback,
@@ -627,46 +629,8 @@ const restaurantScopeQuery = useMemo(() => {
     .sort((a, b) => b.id - a.id);
 
   if (!hasRestaurantScope) {
-  return (
-    <main className="min-h-screen bg-slate-900 text-slate-50 px-4 py-6">
-      <div className="mx-auto max-w-4xl">
-        <section className="rounded-3xl border border-amber-400/40 bg-amber-500/10 p-6 shadow-sm">
-          <span className="inline-flex rounded-full bg-amber-400/20 px-3 py-1 text-xs font-semibold text-amber-100">
-            Falta identificar la sucursal
-          </span>
-
-          <h1 className="mt-4 text-3xl font-bold">
-            Elegí una sucursal para abrir Cocina
-          </h1>
-
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-amber-50">
-            Entraste a Cocina sin una sucursal seleccionada. Para evitar mezclar
-            pedidos entre tenants o sucursales, esta pantalla necesita abrirse
-            desde Inicio o desde Mostrador con <code>restaurantId</code>.
-          </p>
-
-          <div className="mt-5 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => router.push('/inicio')}
-              className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-            >
-              Volver a Inicio
-            </button>
-
-            <button
-              type="button"
-              onClick={() => router.push('/admin/restaurantes')}
-              className="rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10"
-            >
-              Gestionar sucursales
-            </button>
-          </div>
-        </section>
-      </div>
-    </main>
-  );
-}
+    return <main className="min-h-screen bg-slate-100 p-6"><BranchPicker destination="/cocina" title="Cocina" /></main>;
+  }
 
   if (cargando) {
     return (

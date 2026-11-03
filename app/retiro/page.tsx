@@ -1,5 +1,7 @@
 'use client';
 
+import BranchPicker from '@/components/BranchPicker';
+
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
@@ -124,6 +126,7 @@ function RetiroPageContent() {
   const hasRestaurantScope = retiroQueryString.includes('restaurantId=');
 
   useEffect(() => {
+    if (!hasRestaurantScope) return;
     let activo = true;
 
     async function cargar() {
@@ -172,7 +175,7 @@ const clockInterval = setInterval(() => setNow(new Date()), CLOCK_INTERVAL_MS);
       clearInterval(refreshInterval);
       clearInterval(clockInterval);
     };
-  }, [retiroApiPath]);
+  }, [retiroApiPath, hasRestaurantScope]);
 
   const localNombre = data?.local?.nombre?.trim() || 'RestoSmart';
 
@@ -225,25 +228,8 @@ const clockInterval = setInterval(() => setNow(new Date()), CLOCK_INTERVAL_MS);
   const totalActivos = preparingTotal + readyTotal;
 
   if (!hasRestaurantScope) {
-  return (
-    <main className="flex h-screen items-center justify-center bg-slate-950 px-4 text-white">
-      <div className="max-w-lg rounded-3xl border border-amber-400/30 bg-slate-900 p-8 text-center shadow-2xl">
-        <p className="text-xs font-bold uppercase tracking-[0.22em] text-amber-200">
-          Falta sucursal
-        </p>
-
-        <h1 className="mt-3 text-3xl font-black tracking-tight">
-          Esta pantalla de retiro no identifica un local
-        </h1>
-
-        <p className="mt-4 text-sm leading-relaxed text-slate-300">
-          Para mostrar pedidos listos, el enlace debe incluir la sucursal.
-          Abrí esta pantalla desde Inicio o desde la tarjeta de la sucursal.
-        </p>
-      </div>
-    </main>
-  );
-}
+    return <main className="min-h-screen bg-slate-100 p-6"><BranchPicker destination="/retiro" title="Preparación / Listos" /></main>;
+  }
 
   return (
     <main className="h-screen overflow-hidden bg-slate-950 text-white">

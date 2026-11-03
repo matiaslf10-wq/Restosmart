@@ -224,8 +224,7 @@ const multiBrandEnabled =
 
   
 
-  const navItems = useMemo<NavItem[]>(() => {
-  return [
+  const navItems: NavItem[] = [
     { href: '/inicio', label: 'Inicio', visible: true },
     {
       href: '/admin/restaurantes',
@@ -243,12 +242,12 @@ const multiBrandEnabled =
       visible: multiBrandEnabled,
     },
     {
-      href: scopedHref('/cocina'),
+      href: searchParams.get('restaurantId') || searchParams.get('restaurant_id') ? scopedHref('/cocina') : '/admin/seleccionar-sucursal?destino=cocina',
       label: 'Cocina',
       visible: true,
     },
     {
-      href: scopedHref('/mostrador'),
+      href: searchParams.get('restaurantId') || searchParams.get('restaurant_id') ? scopedHref('/mostrador') : '/admin/seleccionar-sucursal?destino=mostrador',
       label: 'Mostrador / Caja',
       visible: true,
     },
@@ -258,7 +257,7 @@ const multiBrandEnabled =
       visible: businessMode === 'restaurant',
     },
     {
-      href: scopedHref('/mozo/mesas'),
+      href: searchParams.get('restaurantId') || searchParams.get('restaurant_id') ? scopedHref('/mozo/mesas') : '/admin/seleccionar-sucursal?destino=mozo',
       label: 'Mozo',
       visible: businessMode === 'restaurant' && !!capabilities.waiter_mode,
     },
@@ -267,6 +266,7 @@ const multiBrandEnabled =
       label: 'Take Away',
       visible: businessMode === 'takeaway',
     },
+    { href: searchParams.get('restaurantId') || searchParams.get('restaurant_id') ? scopedHref('/retiro') : '/admin/seleccionar-sucursal?destino=retiro', label: 'Preparación / Listos', visible: true },
     { href: scopedHref('/admin/cobros'), label: 'Cobros propios', visible: true },
 {
   href: scopedHref('/admin/configuracion'),
@@ -284,13 +284,7 @@ const multiBrandEnabled =
   visible: hasOperationalManagement || !!capabilities.analytics,
 },
   ].filter((item) => item.visible);
-}, [
-  businessMode,
-  capabilities,
-  hasOperationalManagement,
-  multiBrandEnabled,
-  restaurantScopeQuery,
-]);
+
 
   const getHrefPath = (href: string) => href.split('?')[0] || href;
 
