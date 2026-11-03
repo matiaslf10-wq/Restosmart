@@ -181,10 +181,10 @@ export default function RestoSmartLanding() {
             <a href="#pasos" className="hover:text-zinc-900">
               Cómo funciona
             </a>
+            <a href="#quienes" className="hover:text-zinc-900">Quiénes somos</a>
             <a href="#faq" className="hover:text-zinc-900">
               FAQ
             </a>
-            <a href="#quienes" className="hover:text-zinc-900">Quiénes somos</a>
 
             <Link
   href={LOGIN_HREF}
@@ -225,7 +225,7 @@ export default function RestoSmartLanding() {
           </div>
         </div>
         <nav aria-label="Secciones" className="mx-auto flex max-w-6xl flex-wrap justify-center gap-x-5 gap-y-2 px-5 pb-3 text-sm text-zinc-700 md:hidden">
-          <a href="#funciones">Funciones</a><a href="#pasos">Cómo funciona</a><a href="#faq">FAQ</a><a href="#quienes">Quiénes somos</a><Link href="/demo">Probar demo</Link>
+          <a href="#funciones">Funciones</a><a href="#pasos">Cómo funciona</a><a href="#quienes">Quiénes somos</a><a href="#faq">FAQ</a><Link href="/demo">Probar demo</Link>
         </nav>
       </header>
 
