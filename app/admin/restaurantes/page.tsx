@@ -1,5 +1,7 @@
 'use client';
 
+import { SHOW_ADDON_OFFERS } from '@/lib/pilotVisibility';
+
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import TakeAwayQrCard from '@/components/TakeAwayQrCard';
@@ -326,7 +328,7 @@ const closedCount = useMemo(
           <div>
             <h2 className="text-lg font-semibold">Crear restaurante</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Creá sucursales dentro del tenant actual. Los add-ons, como Multimarca, se activan aparte.
+              Creá sucursales dentro del comercio actual.
             </p>
           </div>
 
@@ -641,12 +643,14 @@ const closedCount = useMemo(
     Gestionar marcas del tenant
   </Link>
 ) : (
+  SHOW_ADDON_OFFERS ? (
   <a
     href="mailto:contacto@restosmart.com?subject=Activar%20Multimarca"
     className="rounded-xl border border-fuchsia-200 bg-white px-4 py-2 text-center text-sm font-semibold text-fuchsia-700 hover:bg-fuchsia-50"
   >
     Solicitar Multimarca
   </a>
+  ) : null
 )}
 
     <Link

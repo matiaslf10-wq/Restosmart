@@ -1,5 +1,7 @@
 'use client';
 
+import { SHOW_ADDON_OFFERS } from '@/lib/pilotVisibility';
+
 import ReadyNoticeSettings from '@/components/ReadyNoticeSettings';
 
 import Link from 'next/link';
@@ -1211,11 +1213,7 @@ async function contratarAddon(item: AddonCard) {
           {planHelperText}
         </div>
 
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-  Los add-ons se gestionan debajo de los planes. No forman parte del plan base:
-  se activan por tenant o por local según corresponda. Multimarca se valida a
-  nivel tenant; WhatsApp Delivery se mantiene como add-on separado.
-</div>
+        
 
         <div className="mt-4 flex flex-wrap gap-3">
   <button
@@ -1243,7 +1241,8 @@ async function contratarAddon(item: AddonCard) {
 </div>
       </section>
 
-      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+      {SHOW_ADDON_OFFERS ? (
+<section className="rounded-2xl border bg-white p-5 shadow-sm">
   <div className="flex flex-wrap items-start justify-between gap-3">
     <div>
       <h2 className="text-lg font-medium">Add-ons y módulos comerciales</h2>
@@ -1388,6 +1387,7 @@ async function contratarAddon(item: AddonCard) {
     })}
   </div>
 </section>
+) : null}
 
       <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
         <span className="inline-flex rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-emerald-800">
