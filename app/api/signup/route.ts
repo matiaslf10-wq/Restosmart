@@ -12,6 +12,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type SignupBody = {
+  pilot_code?: string;
   negocio_nombre?: string;
   sucursal_nombre?: string;
   email?: string;
@@ -71,6 +72,14 @@ async function buildUniqueSlug(base: string) {
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json().catch(() => null)) as SignupBody | null;
+
+    // Validate before any database access or account creation.
+    if (typeof body?.pilot_code !== 'string' || body.pilot_code.trim() !== 'RESTOSMART-PILOTO-2026') {
+      return NextResponse.json(
+        { error: 'El código de acceso al piloto es obligatorio o no es válido.' },
+        { status: 403 }
+      );
+    }
 
     const negocioNombre = normalizeNonEmptyString(body?.negocio_nombre);
     const sucursalNombre =

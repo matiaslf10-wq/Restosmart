@@ -60,6 +60,7 @@ const PLAN_OPTIONS: Array<{
 export default function SignupPage() {
   const router = useRouter();
 
+  const [pilotCode, setPilotCode] = useState('');
   const [negocioNombre, setNegocioNombre] = useState('');
   const [sucursalNombre, setSucursalNombre] = useState('');
   const [email, setEmail] = useState('');
@@ -150,6 +151,7 @@ export default function SignupPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          pilot_code: pilotCode.trim(),
           negocio_nombre: negocio,
           sucursal_nombre: sucursal,
           email: normalizedEmail,
@@ -250,6 +252,21 @@ export default function SignupPage() {
           ) : null}
 
           <form className="mt-5 space-y-4" onSubmit={signup}>
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-slate-700">Código de acceso al piloto</span>
+              <input
+                type="text"
+                name="pilot_code"
+                value={pilotCode}
+                onChange={(e) => setPilotCode(e.target.value)}
+                required
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                placeholder="Ingresá el código de invitación"
+              />
+            </label>
             <label className="grid gap-2">
               <span className="text-sm font-medium text-slate-700">
                 Nombre del negocio
