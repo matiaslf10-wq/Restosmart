@@ -30,7 +30,7 @@ export default function TableOrderTracking({ restaurantId, table, order }: { res
         if (finished) { current = null; return; }
         if (next.estado === 'listo' && !notified.current.has(next.id)) {
           notified.current.add(next.id);
-          void notify('Tu pedido está listo', `Pedido #${next.id}. El personal ya puede servirlo en tu mesa.`, `table-ready-${restaurantId}-${next.id}`);
+          void notify('Tu pedido está listo', `Pedido #${next.id}. Podés pasar por mostrador para retirarlo.`, `table-ready-${restaurantId}-${next.id}`);
         }
       } catch { if (live) setError('No se pudo actualizar tu pedido. Reintentamos automáticamente.'); }
       finally { inFlight = false; }
@@ -40,5 +40,5 @@ export default function TableOrderTracking({ restaurantId, table, order }: { res
     window.addEventListener('focus',resume); document.addEventListener('visibilitychange',resume);
     return () => { live = false; clearInterval(timer); window.removeEventListener('focus',resume); document.removeEventListener('visibilitychange',resume); };
   }, [order, restaurantId, key, notify]);
-  return <section className="my-4 w-full max-w-lg space-y-3"><OrderAlertControl alerts={alerts} />{tracked && <div role="status" className={`rounded-xl border p-4 ${tracked.estado === 'listo' ? 'border-emerald-400 bg-emerald-50 text-emerald-900' : 'border-blue-200 bg-blue-50 text-slate-900'}`}><h2 className="text-lg font-bold">{tracked.estado === 'listo' ? '✓ Tu pedido está listo' : 'Tu pedido está en curso'}</h2><p>Pedido #{tracked.id}</p>{tracked.estado === 'listo' && <p>El personal ya puede servirlo en tu mesa.</p>}</div>}{error && <p role="alert">{error}</p>}</section>;
+  return <section className="my-4 w-full max-w-lg space-y-3"><OrderAlertControl alerts={alerts} />{tracked && <div role="status" className={`rounded-xl border p-4 ${tracked.estado === 'listo' ? 'border-emerald-400 bg-emerald-50 text-emerald-900' : 'border-blue-200 bg-blue-50 text-slate-900'}`}><h2 className="text-lg font-bold">{tracked.estado === 'listo' ? '✓ Tu pedido está listo' : 'Tu pedido está en curso'}</h2><p>Pedido #{tracked.id}</p>{tracked.estado === 'listo' && <p>Podés pasar por mostrador para retirarlo.</p>}</div>}{error && <p role="alert">{error}</p>}</section>;
 }
