@@ -239,7 +239,7 @@ export default function SignupPage() {
 </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-lg">
+        <section className="min-w-0 rounded-3xl border border-slate-200 bg-white p-6 shadow-lg">
           <h2 className="text-xl font-bold text-slate-900">Crear cuenta</h2>
           <p className="mt-1 text-sm text-slate-600">
             Completá los datos iniciales del negocio.
@@ -281,7 +281,7 @@ export default function SignupPage() {
                     setSucursalNombre(e.target.value);
                   }
                 }}
-                className="rounded-xl border border-slate-300 px-3 py-2"
+                className="min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2"
                 placeholder="Ej: RestoSmart"
                 autoComplete="organization"
               />
@@ -295,7 +295,7 @@ export default function SignupPage() {
                 type="text"
                 value={sucursalNombre}
                 onChange={(e) => setSucursalNombre(e.target.value)}
-                className="rounded-xl border border-slate-300 px-3 py-2"
+                className="min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2"
                 placeholder="Ej: RestoSmart Belgrano"
               />
             </label>
@@ -417,7 +417,7 @@ export default function SignupPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="rounded-xl border border-slate-300 px-3 py-2"
+                className="min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2"
                 placeholder="admin@resto.com"
                 autoComplete="email"
               />
@@ -431,14 +431,14 @@ export default function SignupPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="rounded-xl border border-slate-300 px-3 py-2"
+                className="min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2"
                 placeholder="Mínimo 6 caracteres"
                 autoComplete="new-password"
               />
             </label>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-2">
+            <div className="grid min-w-0 gap-4">
+              <label className="grid min-w-0 gap-2">
                 <span className="text-sm font-medium text-slate-700">
                   Dirección
                 </span>
@@ -446,7 +446,7 @@ export default function SignupPage() {
                   type="text"
                   value={direccion}
                   onChange={(e) => setDireccion(e.target.value)}
-                  className="rounded-xl border border-slate-300 px-3 py-2"
+                  className="min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2"
                   placeholder="Opcional"
                   autoComplete="street-address"
                 />
@@ -460,7 +460,7 @@ export default function SignupPage() {
                   type="text"
                   value={telefono}
                   onChange={(e) => setTelefono(e.target.value)}
-                  className="rounded-xl border border-slate-300 px-3 py-2"
+                  className="min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2"
                   placeholder="Opcional"
                   autoComplete="tel"
                 />
@@ -475,7 +475,7 @@ export default function SignupPage() {
                 type="text"
                 value={celular}
                 onChange={(e) => setCelular(e.target.value)}
-                className="rounded-xl border border-slate-300 px-3 py-2"
+                className="min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2"
                 placeholder="Opcional"
                 autoComplete="tel"
               />
