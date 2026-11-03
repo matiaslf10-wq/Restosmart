@@ -38,7 +38,10 @@ export async function POST(request: NextRequest) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Solicitud inválida.' }, { status: 400 });
   if (body.action === 'config') {
     let config;
-    try { config = body.inherit === true && body.scope === 'branch' ? null : validateConfig(body.config); }
+    try {
+      const validated = validateConfig(body.config);
+      config = { methods: [{ kind: 'efectivo' as const, label: 'Efectivo' }, ...validated.methods.filter(method => method.kind === 'transferencia')], require_payment: false };
+    }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Configuración inválida.' }, { status: 400 }); }
     if (!['tenant', 'branch'].includes(body.scope)) return NextResponse.json({ error: 'Ámbito inválido.' }, { status: 400 });
     const result = await supabaseAdmin.rpc('restosmart_collection_config_v1', { p_tenant: ctx.tenant, p_restaurant: ctx.restaurant, p_scope: body.scope === 'tenant' ? 'tenant' : `restaurant:${ctx.restaurant}`, p_config: config, p_operator: ctx.operator });

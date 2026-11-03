@@ -603,6 +603,7 @@ if (!hasRestaurantScope) {
         localStorage.setItem('restosmart:takeaway:' + restaurantId, JSON.stringify({
           id: pedido.id, estado: pedido.estado, codigo_publico: pedido.codigo_publico,
           tracking_token: pedido.tracking_token,
+          payment: body.payment ?? null,
         }));
       } catch { /* Tracking also works when storage is unavailable. */ }
 setEstadoPedidoSeguimiento(pedido.estado ?? 'solicitado');
@@ -633,9 +634,11 @@ await cargarProductos();
     setEstadoPedidoSeguimiento(null);
     setPedidoListoAlertado(false);
     setTrackingError(null);
+    setCollectionPayment(null);
     if (!restaurantId) return;
     try {
       const saved = JSON.parse(localStorage.getItem('restosmart:takeaway:' + restaurantId) || 'null');
+      if (saved?.payment?.token) setCollectionPayment(saved.payment);
       if (saved && Number.isSafeInteger(saved.id) && saved.id > 0 && typeof saved.tracking_token === 'string') {
         setPedidoEnSeguimiento(saved as PedidoCreado);
         setEstadoPedidoSeguimiento(saved.estado ?? null);
@@ -791,6 +794,7 @@ await cargarProductos();
           <button type="button" onClick={() => { void reproducirSonidoPedidoListo(); }}
             className="rounded-xl bg-emerald-700 p-3 text-white">Tu pedido está listo · Reproducir aviso</button>
         ) : null}
+        <CollectionReceipt payment={collectionPayment} />
         {pedidoEnSeguimiento ? (
   <section
     className={`rounded-3xl border p-5 shadow-sm ${
@@ -1185,7 +1189,7 @@ await cargarProductos();
                   Total: {formatMoney(total)}
                 </p>
 
-                <CollectionReceipt payment={collectionPayment} />
+
                 <CollectionMethods restaurantId={restaurantId} disabled={enviando || carrito.length === 0} onChoose={method => { void confirmarPedido(method === 'efectivo' ? 'efectivo' : 'virtual', method); }} />
 
                 <p className="mt-3 text-xs leading-relaxed text-slate-500">

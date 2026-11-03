@@ -13,6 +13,7 @@ export function rpcResponse(data: unknown, error: { code?: string; message?: str
   let status = 502;
   let message = 'Resultado no verificable. Actualizá antes de reintentar.';
   if (['PGRST202','42883','42P01','PGRST205'].includes(error?.code ?? '') || key === '55000:B762L_DEPENDENCY') { status = 503; message = 'Integración atómica no disponible.'; }
+  else if (error?.message === 'Verificá el cobro antes de entregar el pedido.' || error?.message === 'B724_PAYMENT_REQUIRED') { status = 409; message = 'Chequeá el cobro en Mostrador antes de entregar el pedido.'; }
   else if (key === '42501:B762L_DENIED') { status = 403; message = 'Acceso denegado.'; }
   else if (error?.code === '42501') { status = 503; message = 'Permisos de integración atómica no disponibles.'; }
   else if (key === '22023:B762L_VALIDATION') { status = 400; message = 'Operación inválida.'; }

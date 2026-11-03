@@ -1,4 +1,6 @@
 'use client';
+
+import CollectionReview from '@/components/CollectionReview';
 import { CollectionMethods, CollectionReceipt, type PaymentReceipt } from '@/components/CollectionCheckout';
 import type { Method } from '@/lib/cobros/model';
 
@@ -1729,6 +1731,7 @@ function renderMarcaBadge(
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6">
       <div className="mx-auto max-w-7xl space-y-4">
+        {currentRestaurantId && <CollectionReview restaurantId={String(currentRestaurantId)} />} 
         <header className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>

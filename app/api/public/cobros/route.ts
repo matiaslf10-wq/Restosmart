@@ -21,8 +21,9 @@ export async function POST(request: NextRequest) {
     if (typeof body.token !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.token)) return NextResponse.json({ error: 'Declaración inválida.' }, { status: 400 });
     // The random capability is delivered only in the order creation response.
     // No browser order/tenant/branch/amount is used to authorize this operation.
-    const { data, error } = await supabaseAdmin.from('order_collections').select('order_id,tenant_id,restaurant_id').eq('token', body.token).maybeSingle();
+    const { data, error } = await supabaseAdmin.from('order_collections').select('order_id,tenant_id,restaurant_id,state').eq('token', body.token).maybeSingle();
     if (error || !data) return NextResponse.json({ error: 'Pago no disponible.' }, { status: 404 });
+    if (['declared', 'confirmed'].includes(data.state)) return NextResponse.json({ state: data.state }, { headers });
     const result = await supabaseAdmin.rpc('restosmart_collection_action_v1', { p_tenant: data.tenant_id, p_restaurant: data.restaurant_id, p_order: data.order_id, p_token: body.token, p_action: 'declare', p_operator: 'customer', p_note: null });
     if (result.error) return NextResponse.json({ error: 'La declaración ya fue registrada o el pago fue resuelto.' }, { status: 409 });
     return NextResponse.json({ state: 'declared', message: 'Pendiente de verificación por el comercio.' }, { headers });
