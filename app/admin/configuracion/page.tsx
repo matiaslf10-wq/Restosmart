@@ -1,5 +1,7 @@
 'use client';
 
+import ReadyNoticeSettings from '@/components/ReadyNoticeSettings';
+
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import TakeAwayQrCard from '@/components/TakeAwayQrCard';
@@ -1402,6 +1404,8 @@ async function contratarAddon(item: AddonCard) {
           integraciones. Estos cambios no modifican el plan del tenant.
         </p>
       </section>
+
+      <ReadyNoticeSettings restaurantId={requestedRestaurantId} />
 
       <form onSubmit={guardarTodo} className="grid gap-6">
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
