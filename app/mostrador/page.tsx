@@ -488,6 +488,8 @@ function dedupeMesasForSelector(mesas: MesaRef[]) {
 
   return mesas.filter((mesa) => {
     const nombre = normalizeText(mesa.nombre);
+    // Internal take-away table is never a customer-facing table option.
+    if (nombre === '__restosmart_virtual__') return false;
     const numero =
       typeof mesa.numero === 'number' && mesa.numero > 0 ? mesa.numero : null;
 
