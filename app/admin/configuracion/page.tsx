@@ -160,7 +160,7 @@ const PLAN_CARDS: Array<{
     shortLabel: 'Pro',
     title: 'Control operativo del local',
     description:
-  'Suma gestión operativa ampliada, más control del flujo diario y modo mozo para negocios con salón. Incluye hasta 3 restaurantes activos y hasta 3 marcas activas.',  },
+  'Suma gestión operativa ampliada, más control del flujo diario y modo mozo para negocios con salón. Incluye sucursales ilimitadas durante el piloto Pro.',  },
   {
     code: 'intelligence',
     shortLabel: 'Intelligence',
@@ -535,8 +535,8 @@ const multiBrandAddonEnabled =
 
   if (selectedPlan === 'pro') {
     return localForm.business_mode === 'restaurant'
-      ? 'Pro agrega gestión operativa ampliada y habilita modo mozo para restaurante. Permite hasta 3 restaurantes activos y hasta 3 marcas activas.'
-      : 'Pro agrega gestión operativa ampliada para ordenar mejor el flujo diario. Permite hasta 3 restaurantes activos y hasta 3 marcas activas.';
+      ? 'Pro agrega gestión operativa ampliada y habilita modo mozo para restaurante. Permite sucursales ilimitadas durante el piloto Pro.'
+      : 'Pro agrega gestión operativa ampliada para ordenar mejor el flujo diario. Permite sucursales ilimitadas durante el piloto Pro.';
   }
 
   return 'Intelligence incluye todo Pro y suma analytics avanzados para lectura ejecutiva. Permite restaurantes activos y marcas activas ilimitadas.';

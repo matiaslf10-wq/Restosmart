@@ -3,7 +3,6 @@ import { attachAdminSessionCookie, hashPassword } from '@/lib/adminAuth';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
   normalizeBusinessMode,
-  normalizePlan,
   type BusinessMode,
   type PlanCode,
 } from '@/lib/plans';
@@ -90,7 +89,7 @@ export async function POST(request: NextRequest) {
     const email = normalizeEmail(body?.email);
     const password = String(body?.password ?? '');
     const businessMode = normalizeBusinessMode(body?.business_mode);
-    const selectedPlan = normalizePlan(body?.plan);
+    const selectedPlan: PlanCode = 'pro';
     const direccion = normalizeNonEmptyString(body?.direccion) ?? '';
     const telefono = normalizeNonEmptyString(body?.telefono) ?? '';
     const celular = normalizeNonEmptyString(body?.celular) ?? '';

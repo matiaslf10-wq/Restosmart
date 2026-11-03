@@ -117,7 +117,7 @@ async function resolveAccessForRequest(
 
 function getRestaurantLimitForPlan(plan: PlanCode) {
   if (plan === 'intelligence') return null;
-  if (plan === 'pro') return 3;
+  if (plan === 'pro') return null;
   return 1;
 }
 
@@ -298,9 +298,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error:
-              access.plan === 'pro'
-                ? 'El plan Pro permite hasta 3 restaurantes activos. Para agregar más, cerrá una sucursal o pasá el tenant a Intelligence.'
-                : 'El plan Esencial permite solo 1 restaurante activo. Para agregar más, pasá el tenant a Pro o Intelligence.',
+              'El plan Esencial permite solo 1 restaurante activo. Para agregar más, pasá el comercio a Pro.',
           },
           { status: 403 }
         );

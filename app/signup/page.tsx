@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   normalizeBusinessMode,
-  normalizePlan,
   type BusinessMode,
   type PlanCode,
 } from '@/lib/plans';
@@ -46,7 +45,7 @@ const PLAN_OPTIONS: Array<{
     title: 'Pro',
     price: 'Operación avanzada',
     description: 'Más sucursales, stock y reportes operativos.',
-    highlights: ['Hasta 3 sucursales', 'Control de stock', 'Reportes operativos'],
+    highlights: ['Sucursales ilimitadas', 'Control de stock', 'Reportes operativos'],
   },
   {
     code: 'intelligence',
@@ -65,7 +64,7 @@ export default function SignupPage() {
   const [sucursalNombre, setSucursalNombre] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [selectedPlan, setSelectedPlan] = useState<PlanCode>('esencial');
+  const [selectedPlan, setSelectedPlan] = useState<PlanCode>('pro');
 
   const [businessMode, setBusinessMode] =
     useState<BusinessMode>('restaurant');
@@ -77,7 +76,7 @@ export default function SignupPage() {
   const planFromUrl = params.get('plan');
 
   if (planFromUrl) {
-    setSelectedPlan(normalizePlan(planFromUrl));
+    setSelectedPlan('pro');
   }
 }, []);
 
@@ -306,7 +305,7 @@ export default function SignupPage() {
   </span>
 
   <div className="grid gap-3">
-    {PLAN_OPTIONS.map((plan) => {
+    {PLAN_OPTIONS.filter((plan) => plan.code === 'pro').map((plan) => {
       const active = selectedPlan === plan.code;
 
       return (

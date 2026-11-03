@@ -1,5 +1,7 @@
 'use client';
 
+import { SHOW_ADDON_OFFERS, SHOW_PILOT_PRICING } from '@/lib/pilotVisibility';
+
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -172,12 +174,9 @@ export default function RestoSmartLanding() {
             <span className="text-lg font-semibold leading-none">RestoSmart</span>
           </div>
 
-          <nav className="hidden items-center gap-6 text-sm text-zinc-700 md:flex">
+          <nav className="hidden flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm text-zinc-700 md:flex">
             <a href="#funciones" className="hover:text-zinc-900">
               Funciones
-            </a>
-            <a href="#precios" className="hover:text-zinc-900">
-              Precios
             </a>
             <a href="#pasos" className="hover:text-zinc-900">
               Cómo funciona
@@ -185,6 +184,7 @@ export default function RestoSmartLanding() {
             <a href="#faq" className="hover:text-zinc-900">
               FAQ
             </a>
+            <a href="#quienes" className="hover:text-zinc-900">Quiénes somos</a>
 
             <Link
   href={LOGIN_HREF}
@@ -224,6 +224,9 @@ export default function RestoSmartLanding() {
 </Link>
           </div>
         </div>
+        <nav aria-label="Secciones" className="mx-auto flex max-w-6xl flex-wrap justify-center gap-x-5 gap-y-2 px-5 pb-3 text-sm text-zinc-700 md:hidden">
+          <a href="#funciones">Funciones</a><a href="#pasos">Cómo funciona</a><a href="#faq">FAQ</a><a href="#quienes">Quiénes somos</a><Link href="/demo">Probar demo</Link>
+        </nav>
       </header>
 
       <section className="mx-auto max-w-6xl px-5 py-14 md:py-20">
@@ -255,10 +258,10 @@ export default function RestoSmartLanding() {
   </Link>
 
   <a
-    href="#precios"
+    href="/signup?plan=pro"
     className="rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
   >
-    Ver planes y precios
+    Crear cuenta piloto Pro
   </a>
 
   <Link
@@ -440,7 +443,8 @@ export default function RestoSmartLanding() {
             ))}
           </div>
 
-          <div className="mt-6 rounded-3xl border border-violet-200 bg-white p-6 shadow-sm">
+          {SHOW_ADDON_OFFERS ? (
+<div className="mt-6 rounded-3xl border border-violet-200 bg-white p-6 shadow-sm">
   <div className="max-w-2xl">
     <div className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
       Add-ons opcionales
@@ -489,6 +493,7 @@ export default function RestoSmartLanding() {
     </div>
   </div>
 </div>
+) : null}
         </div>
       </section>
 
@@ -541,6 +546,7 @@ export default function RestoSmartLanding() {
         </div>
       </section>
 
+{SHOW_PILOT_PRICING ? (
 <section id="precios" className="border-t border-black/5 bg-white">
   <div className="mx-auto max-w-6xl px-5 py-14">
     <div className="max-w-2xl">
@@ -742,6 +748,7 @@ export default function RestoSmartLanding() {
     </div>
   </div>
 </section>
+) : null}
 
       <section id="pasos" className="border-t border-black/5 bg-white">
         <div className="mx-auto max-w-6xl px-5 py-14">
@@ -883,21 +890,12 @@ export default function RestoSmartLanding() {
                 a: 'Sí. Te acompañamos para que el sistema funcione correctamente en tu negocio.',
               },
               {
-                q: '¿Puedo empezar con Esencial y luego pasar a Pro o Intelligence?',
-                a: 'Sí. Los planes están pensados para escalar según tu operación.',
+                q: '¿Qué incluye el piloto?',
+                a: 'El piloto usa Pro e incluye sucursales ilimitadas, menú digital, cocina, mostrador y modo mozo para salón.',
               },
-              {
-                q: '¿WhatsApp Delivery está incluido en algún plan?',
-                a: 'No. WhatsApp Delivery se contrata aparte como add-on opcional por restaurante y no forma parte de las funcionalidades comunes de Esencial, Pro o Intelligence.',
-              },
-              {
-  q: '¿Qué es Multimarca?',
-  a: 'Multimarca permite administrar varias marcas internas dentro del mismo local, manteniendo una sola operación. Es útil para dark kitchens, marcas virtuales o restaurantes que quieren vender distintas propuestas desde la misma cocina.',
-},
-{
-  q: '¿Multimarca está incluido en los planes?',
-  a: 'No. Es un add-on aparte. En Esencial no está disponible; en Pro permite hasta 3 marcas por $15.000 adicionales al mes; en Intelligence permite marcas ilimitadas por $25.000 adicionales al mes.',
-},
+              
+              
+
             ].map((item) => (
               <details
                 key={item.q}
