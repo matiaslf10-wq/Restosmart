@@ -173,7 +173,12 @@ export default function RestoSmartLanding() {
                 priority
               />
             </div>
-            <BrandWordmark className="text-[23px] leading-none" />
+            <div className="flex flex-col gap-1">
+              <BrandWordmark className="text-[23px] leading-none" />
+              <span className="whitespace-nowrap text-[11px] leading-tight text-slate-600" style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
+                Tecnología para gastronómicos
+              </span>
+            </div>
           </div>
 
           <nav className="hidden flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm text-zinc-700 md:flex">
