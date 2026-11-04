@@ -162,8 +162,8 @@ export default function RestoSmartLanding() {
   return (
     <main className="min-h-screen bg-white text-zinc-900">
       <header className="sticky top-0 z-40 border-b border-black/5 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
-          <div className="flex items-center gap-3">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-3 py-3 md:flex-nowrap md:px-5">
+          <div className="flex shrink-0 items-center gap-3">
             <div className="relative h-16 w-16">
               <Image
                 src="/logo-smart.png"
@@ -210,7 +210,7 @@ export default function RestoSmartLanding() {
 </Link>
           </nav>
 
-          <div className="flex items-center gap-2 md:hidden">
+          <div className="ml-auto flex shrink-0 items-center gap-2 md:hidden">
             <Link
               href={LOGIN_HREF}
               className="rounded-full border border-black/10 px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
