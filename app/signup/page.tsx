@@ -1,5 +1,7 @@
 'use client';
 
+import BrandWordmark from '@/components/BrandWordmark';
+
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -196,7 +198,7 @@ export default function SignupPage() {
       <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[1fr_420px]">
         <section className="rounded-3xl border border-slate-200 bg-slate-900 p-8 text-white shadow-lg">
           <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100">
-            RestoSmart
+            <BrandWordmark />
           </span>
 
           <h1 className="mt-6 max-w-2xl text-4xl font-bold leading-tight">

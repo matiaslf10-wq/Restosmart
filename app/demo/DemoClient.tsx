@@ -1,5 +1,7 @@
 'use client';
 
+import BrandWordmark from '@/components/BrandWordmark';
+
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -440,7 +442,7 @@ export default function DemoClient() {
                 R
               </div>
               <div className="leading-tight">
-                <div className="font-semibold">RestoSmart</div>
+                <div><BrandWordmark /></div>
                 <div className="text-xs text-zinc-500">Demo interactiva</div>
               </div>
             </Link>

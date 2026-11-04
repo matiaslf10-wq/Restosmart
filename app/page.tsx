@@ -1,5 +1,7 @@
 'use client';
 
+import BrandWordmark from '@/components/BrandWordmark';
+
 import { SHOW_ADDON_OFFERS, SHOW_PILOT_PRICING } from '@/lib/pilotVisibility';
 
 import React, { useMemo, useState } from 'react';
@@ -171,7 +173,7 @@ export default function RestoSmartLanding() {
                 priority
               />
             </div>
-            <span className="text-lg font-semibold leading-none">RestoSmart</span>
+            <BrandWordmark className="text-[23px] leading-none" />
           </div>
 
           <nav className="hidden flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm text-zinc-700 md:flex">
@@ -237,7 +239,7 @@ export default function RestoSmartLanding() {
             </div>
 
             <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
-              RestoSmart
+              <BrandWordmark />
             </h1>
 
             <p className="text-lg leading-relaxed text-zinc-700">
@@ -1047,7 +1049,7 @@ export default function RestoSmartLanding() {
         <div className="mx-auto max-w-6xl px-5 py-10">
           <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
             <div className="text-sm text-zinc-600">
-              <span className="font-semibold text-zinc-900">RestoSmart</span> —
+              <BrandWordmark className="text-zinc-900" /> —
               Software para gastronomía
             </div>
 

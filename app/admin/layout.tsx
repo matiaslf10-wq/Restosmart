@@ -1,5 +1,7 @@
 'use client';
 
+import BrandWordmark from '@/components/BrandWordmark';
+
 import Link from 'next/link';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
@@ -328,7 +330,7 @@ const isActive = (href: string) => {
         <div className="max-w-6xl mx-auto flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-bold text-lg">RestoSmart · Admin</span>
+              <span className="text-lg"><BrandWordmark /> · Admin</span>
 
               {sessionData?.restaurant?.slug ? (
                 <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-200">
