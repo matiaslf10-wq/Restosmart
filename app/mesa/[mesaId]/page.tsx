@@ -31,11 +31,50 @@ type Producto = {
   precio: number;
   categoria: string | null;
   imagen_url: string | null;
+  marca_id?: string | null;
   disponible?: boolean | null;
   control_stock?: boolean | null;
   stock_actual?: number | null;
   permitir_sin_stock?: boolean | null;
 };
+
+function normalizeCustomerProductText(value: string | null) {
+  return (value ?? '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function canOrderCustomerProduct(product: Producto) {
+  return product.disponible !== false && (
+    !product.control_stock || product.permitir_sin_stock ||
+    Number(product.stock_actual ?? 0) > 0
+  );
+}
+
+// Presentation only: retain a real product ID and its own stock and brand.
+// Never combine quantities, prices or stock across the internal brands.
+function getCustomerMenuProducts<T extends Producto>(products: T[]): T[] {
+  const groups = new Map<string, T[]>();
+  for (const product of products) {
+    const key = JSON.stringify([
+      normalizeCustomerProductText(product.categoria), normalizeCustomerProductText(product.nombre),
+      normalizeCustomerProductText(product.descripcion), Number(product.precio),
+    ]);
+    const group = groups.get(key);
+    if (group) group.push(product);
+    else groups.set(key, [product]);
+  }
+
+  return Array.from(groups.values()).flatMap((group) => {
+    const brands = new Set(group.map((product) => product.marca_id));
+    // Only collapse identical copies explicitly assigned to different brands.
+    if (brands.has(null) || brands.has(undefined) || brands.has('') || brands.size !== group.length) {
+      return group;
+    }
+    const representative = [...group].sort((a, b) =>
+      Number(Boolean(canOrderCustomerProduct(b))) - Number(Boolean(canOrderCustomerProduct(a))) || a.id - b.id
+    )[0];
+    return [representative];
+  });
+}
 
 type ItemCarrito = {
   producto: Producto;
@@ -532,7 +571,9 @@ const productosPromise = fetch(productosEndpoint, {
   const productosFiltrados =
     categoriaSeleccionada == null
       ? []
-      : productos.filter((p) => p.categoria === categoriaSeleccionada);
+      : getCustomerMenuProducts(productos).filter(
+          (p) => p.categoria === categoriaSeleccionada
+        );
 
   const hayItemsEnCarrito = carrito.length > 0;
 

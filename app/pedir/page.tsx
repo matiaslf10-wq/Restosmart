@@ -39,15 +39,43 @@ type Producto = {
   restaurant_configs?: ProductRestaurantConfig[];
 };
 
-type Marca = {
-  id: string;
-  nombre: string;
-  descripcion: string | null;
-  logo_url?: string | null;
-  color_hex?: string | null;
-  activa: boolean | null;
-  orden: number | null;
-};
+function normalizeCustomerProductText(value: string | null) {
+  return (value ?? '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function canOrderCustomerProduct(product: Producto) {
+  return product.disponible !== false && (
+    !product.control_stock || product.permitir_sin_stock ||
+    Number(product.stock_actual ?? 0) > 0
+  );
+}
+
+// Presentation only: retain a real product ID and its own stock and brand.
+// Never combine quantities, prices or stock across the internal brands.
+function getCustomerMenuProducts<T extends Producto>(products: T[]): T[] {
+  const groups = new Map<string, T[]>();
+  for (const product of products) {
+    const key = JSON.stringify([
+      normalizeCustomerProductText(product.categoria), normalizeCustomerProductText(product.nombre),
+      normalizeCustomerProductText(product.descripcion), Number(product.precio),
+    ]);
+    const group = groups.get(key);
+    if (group) group.push(product);
+    else groups.set(key, [product]);
+  }
+
+  return Array.from(groups.values()).flatMap((group) => {
+    const brands = new Set(group.map((product) => product.marca_id));
+    // Only collapse identical copies explicitly assigned to different brands.
+    if (brands.has(null) || brands.has(undefined) || brands.has('') || brands.size !== group.length) {
+      return group;
+    }
+    const representative = [...group].sort((a, b) =>
+      Number(Boolean(canOrderCustomerProduct(b))) - Number(Boolean(canOrderCustomerProduct(a))) || a.id - b.id
+    )[0];
+    return [representative];
+  });
+}
 
 type RestaurantStatus = 'activo' | 'pausado' | 'cerrado';
 
@@ -269,13 +297,10 @@ const pedidosEndpoint = useMemo(
 
   const [localConfig, setLocalConfig] = useState<LocalPublicConfig | null>(null);
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [marcas, setMarcas] = useState<Marca[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<
     string | null
   >(null);
-  const [marcaSeleccionada, setMarcaSeleccionada] =
-    useState<string>('todas');
 
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [clienteNombre, setClienteNombre] = useState('');
@@ -356,10 +381,6 @@ const reproducirSonidoPedidoListo = useCallback(async () => {
         if (!activo) return;
 
         setLocalConfig((contextBody.config as LocalPublicConfig | null) ?? null);
-        const listaMarcas = (contextBody.marcas as Marca[]) ?? [];
-        setMarcas(listaMarcas);
-        setMarcaSeleccionada(prev => prev === 'todas' || listaMarcas.some(marca => marca.id === prev) ? prev : 'todas');
-
         const productosBody = await productosRes.json().catch(() => null);
 
         if (!productosRes.ok) {
@@ -399,36 +420,12 @@ const reproducirSonidoPedidoListo = useCallback(async () => {
     };
   }, [productosEndpoint, restaurantId, hasRestaurantScope]);
 
-  const marcasPorId = useMemo(() => {
-    return new Map(marcas.map((marca) => [marca.id, marca]));
-  }, [marcas]);
-
-  const mostrarFiltroMarcas = marcas.length > 1;
-
-  function getMarcaNombre(producto: Producto) {
-    if (!producto.marca_id) return null;
-    return marcasPorId.get(producto.marca_id)?.nombre ?? null;
-  }
-
   const productosFiltrados = useMemo(() => {
     if (categoriaSeleccionada == null) return [];
-
-    return productos.filter((p) => {
-      const coincideCategoria = p.categoria === categoriaSeleccionada;
-
-      const coincideMarca =
-        !mostrarFiltroMarcas ||
-        marcaSeleccionada === 'todas' ||
-        (p.marca_id ?? '') === marcaSeleccionada;
-
-      return coincideCategoria && coincideMarca;
-    });
-  }, [
-    productos,
-    categoriaSeleccionada,
-    marcaSeleccionada,
-    mostrarFiltroMarcas,
-  ]);
+    return getCustomerMenuProducts(productos).filter(
+      (producto) => producto.categoria === categoriaSeleccionada
+    );
+  }, [productos, categoriaSeleccionada]);
 
   function agregarAlCarrito(producto: Producto) {
     setError(null);
@@ -910,49 +907,6 @@ await cargarProductos();
               )}
             </div>
 
-            {mostrarFiltroMarcas ? (
-              <div className="rounded-3xl border bg-white p-5 shadow-sm">
-                <h2 className="text-lg font-semibold text-slate-900">
-                  Marcas
-                </h2>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMarcaSeleccionada('todas')}
-                    className={
-                      'rounded-full border px-3 py-1 text-sm ' +
-                      (marcaSeleccionada === 'todas'
-                        ? 'border-emerald-700 bg-emerald-700 text-white'
-                        : 'border-slate-300 bg-white text-slate-900')
-                    }
-                  >
-                    Todas las marcas
-                  </button>
-
-                  {marcas.map((marca) => {
-                    const activa = marcaSeleccionada === marca.id;
-
-                    return (
-                      <button
-                        key={marca.id}
-                        type="button"
-                        onClick={() => setMarcaSeleccionada(marca.id)}
-                        className={
-                          'rounded-full border px-3 py-1 text-sm ' +
-                          (activa
-                            ? 'border-emerald-700 bg-emerald-700 text-white'
-                            : 'border-slate-300 bg-white text-slate-900')
-                        }
-                      >
-                        {marca.nombre}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
             <section className="space-y-3">
               <h2 className="text-lg font-semibold text-slate-900">
                 {menuTitle}
@@ -976,7 +930,6 @@ await cargarProductos();
                   <div className="grid gap-4 md:grid-cols-2">
                     {productosFiltrados.map((p) => {
                       const agotado = isProductoAgotado(p);
-                      const marcaNombre = getMarcaNombre(p);
                       const itemEnCarrito = carrito.find(
                         (item) => item.producto.id === p.id
                       );
@@ -1011,12 +964,6 @@ await cargarProductos();
                                 <h3 className="font-semibold text-slate-900">
                                   {p.nombre}
                                 </h3>
-
-                                {mostrarFiltroMarcas && marcaNombre ? (
-                                  <p className="mt-1 text-xs font-semibold text-emerald-700">
-                                    {marcaNombre}
-                                  </p>
-                                ) : null}
 
                                 {p.descripcion ? (
                                   <p className="mt-1 text-sm text-slate-600">
