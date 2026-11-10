@@ -111,18 +111,6 @@ function getMaxCantidadCarrito(producto: Producto) {
   return stockDisponible === null ? Number.MAX_SAFE_INTEGER : stockDisponible;
 }
 
-function getStockMessage(producto: Producto) {
-  if (!producto.control_stock) return null;
-  if (producto.permitir_sin_stock) return 'Stock flexible';
-
-  const stock = Math.max(Number(producto.stock_actual ?? 0), 0);
-
-  if (stock <= 0) return 'Sin stock';
-  if (stock <= 5) return `Disponibles: ${stock}`;
-
-  return null;
-}
-
 function buildScopedEndpoint(basePath: string, restaurantScopeQuery: string) {
   if (!restaurantScopeQuery) return basePath;
 
@@ -662,7 +650,7 @@ const productosPromise = fetch(productosEndpoint, {
                 const maxCantidad = getMaxCantidadCarrito(p);
                 const llegoAlMaximo =
                   itemEnCarrito != null && itemEnCarrito.cantidad >= maxCantidad;
-                const stockMessage = getStockMessage(p);
+
 
                 return (
                   <article
@@ -690,15 +678,6 @@ const productosPromise = fetch(productosEndpoint, {
                           <p className="text-sm text-slate-600">{p.descripcion}</p>
                         )}
 
-                        {stockMessage ? (
-                          <p
-                            className={`mt-1 text-xs font-medium ${
-                              agotado ? 'text-rose-700' : 'text-slate-500'
-                            }`}
-                          >
-                            {stockMessage}
-                          </p>
-                        ) : null}
                       </div>
 
                       <div className="mt-1 flex items-center justify-between">
@@ -741,11 +720,6 @@ const productosPromise = fetch(productosEndpoint, {
                 <div className="flex justify-between items-start gap-2">
                   <div>
                     <span className="font-medium">{item.producto.nombre}</span>
-                    {tieneLimite ? (
-                      <p className="text-xs text-slate-500">
-                        Máximo disponible: {maxCantidad}
-                      </p>
-                    ) : null}
                   </div>
 
                   <div className="flex items-center gap-2">
